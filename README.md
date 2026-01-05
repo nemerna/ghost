@@ -42,20 +42,128 @@ A Model Context Protocol (MCP) server for Jira ticket management. This server en
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. Install dependencies:
+3. Install the package:
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 
-4. Configure environment variables:
-   ```bash
-   cp env.example .env
-   # Edit .env with your Jira server URL and PAT
-   ```
+## Configuration
 
-### Container Deployment
+The server requires two environment variables:
 
-Build the container image using Podman or Docker:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JIRA_SERVER_URL` | Yes | Base URL of your Jira server (e.g., `https://jira.example.com`) |
+| `JIRA_PERSONAL_ACCESS_TOKEN` | Yes | Your Jira Personal Access Token |
+| `JIRA_VERIFY_SSL` | No | Verify SSL certificates (default: `true`, set to `false` for self-signed certs) |
+
+### Creating a Personal Access Token
+
+1. Log in to your Jira instance
+2. Go to Profile → Personal Access Tokens
+3. Click "Create token"
+4. Give it a name and set expiration
+5. Copy the token (it won't be shown again)
+
+## Client Configuration
+
+### Cursor IDE (Recommended)
+
+Add the following to your Cursor MCP settings (`.cursor/mcp.json` or via Settings → MCP Servers):
+
+```json
+{
+  "mcpServers": {
+    "jira": {
+      "command": "jira-mcp",
+      "env": {
+        "JIRA_SERVER_URL": "https://jira.your-company.com",
+        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+If you installed in a virtual environment, use the full path:
+
+```json
+{
+  "mcpServers": {
+    "jira": {
+      "command": "/path/to/your/venv/bin/jira-mcp",
+      "env": {
+        "JIRA_SERVER_URL": "https://jira.your-company.com",
+        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+For self-signed SSL certificates, add:
+
+```json
+{
+  "mcpServers": {
+    "jira": {
+      "command": "jira-mcp",
+      "env": {
+        "JIRA_SERVER_URL": "https://jira.your-company.com",
+        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token",
+        "JIRA_VERIFY_SSL": "false"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Add the following to your Claude Desktop configuration (`~/.config/claude/claude_desktop_config.json` on macOS/Linux or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "jira": {
+      "command": "jira-mcp",
+      "env": {
+        "JIRA_SERVER_URL": "https://jira.your-company.com",
+        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+### SSE Transport (HTTP Server Mode)
+
+For running as a shared HTTP server (e.g., for multiple users or containerized deployments):
+
+```bash
+# Set environment variables
+export JIRA_SERVER_URL=https://jira.example.com
+export JIRA_PERSONAL_ACCESS_TOKEN=your-token
+
+# Run with SSE transport
+jira-mcp --transport sse --host 0.0.0.0 --port 8080
+```
+
+Then configure your MCP client to connect to the SSE endpoint:
+
+```json
+{
+  "mcpServers": {
+    "jira": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
+```
+
+#### Container Deployment (SSE Mode)
+
+Build the container image:
 
 ```bash
 # Using Podman
@@ -76,48 +184,20 @@ podman run -d \
   jira-mcp:latest
 ```
 
-## Configuration
-
-Configuration is done via environment variables or a `.env` file:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `JIRA_SERVER_URL` | Yes | - | Base URL of your Jira server |
-| `JIRA_PERSONAL_ACCESS_TOKEN` | Yes | - | Your Jira Personal Access Token |
-| `JIRA_VERIFY_SSL` | No | `true` | Verify SSL certificates (set to `false` for self-signed certs) |
-| `MCP_SERVER_HOST` | No | `0.0.0.0` | Server bind address |
-| `MCP_SERVER_PORT` | No | `8080` | Server port |
-| `JIRA_DEFAULT_PROJECT` | No | - | Default project key when not specified |
-
-### Creating a Personal Access Token
-
-1. Log in to your Jira instance
-2. Go to Profile → Personal Access Tokens
-3. Click "Create token"
-4. Give it a name and set expiration
-5. Copy the token (it won't be shown again)
-
 ## Usage
 
-### Starting the Server
+### Command-Line Options
 
 ```bash
-# Using the installed entry point
+# Run with stdio transport (default, for Cursor/Claude Desktop)
 jira-mcp
 
-# Or run directly
-python -m jira_mcp.server
+# Run with SSE transport (HTTP server mode)
+jira-mcp --transport sse --host 0.0.0.0 --port 8080
+
+# Show help
+jira-mcp --help
 ```
-
-The server will start on `http://0.0.0.0:8080` by default.
-
-### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/sse` | GET | SSE connection for MCP clients |
-| `/messages` | POST | Handle MCP messages |
 
 ### MCP Tools
 
@@ -368,30 +448,6 @@ Get information about the authenticated user. No parameters required.
 }
 ```
 
-## MCP Client Configuration
-
-### Claude Desktop
-
-Add the following to your Claude Desktop configuration (`~/.config/claude/config.json` or equivalent):
-
-```json
-{
-  "mcpServers": {
-    "jira": {
-      "url": "http://localhost:8080/sse"
-    }
-  }
-}
-```
-
-### Cursor IDE
-
-Add the server URL in your Cursor MCP settings:
-
-```
-http://localhost:8080/sse
-```
-
 ## Development
 
 ### Install Development Dependencies
@@ -426,7 +482,7 @@ jira-mcp/
 ├── src/
 │   └── jira_mcp/
 │       ├── __init__.py          # Package initialization
-│       ├── server.py            # MCP server with FastAPI
+│       ├── server.py            # MCP server (stdio + SSE)
 │       ├── config.py            # Configuration management
 │       ├── jira_client.py       # Jira API client wrapper
 │       └── tools/
@@ -446,10 +502,7 @@ jira-mcp/
 
 ### SSL Certificate Errors
 
-If you're using a self-signed certificate, set:
-```bash
-JIRA_VERIFY_SSL=false
-```
+If you're using a self-signed certificate, set `JIRA_VERIFY_SSL=false` in your MCP client configuration.
 
 ### Authentication Errors
 
@@ -459,11 +512,14 @@ JIRA_VERIFY_SSL=false
 
 ### Connection Refused
 
-- Verify the MCP server is running
-- Check firewall rules allow connections on the configured port
-- Ensure the Jira server is accessible from the MCP server host
+- For SSE mode: Verify the MCP server is running and the port is accessible
+- For stdio mode: Check that the `jira-mcp` command is in your PATH or use the full path
+- Ensure the Jira server is accessible from your machine
+
+### Missing Environment Variables
+
+If you see "JIRA_SERVER_URL environment variable is required", make sure you've configured the environment variables in your MCP client settings (not in a `.env` file on the server).
 
 ## License
 
 MIT License - See LICENSE file for details.
-

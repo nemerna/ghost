@@ -1,21 +1,20 @@
-"""MCP Server for Jira with FastAPI and SSE transport."""
+"""MCP Server for Jira with stdio and SSE transport support."""
 
+import argparse
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+import os
+import sys
+from contextvars import ContextVar
+from typing import Any, Optional
 
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from mcp.server import Server
-from mcp.server.sse import SseServerTransport
+from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
-from sse_starlette.sse import EventSourceResponse
 
-from jira_mcp.config import get_settings
-from jira_mcp.jira_client import JiraClient, JiraClientError, get_jira_client
+from jira_mcp.jira_client import JiraClient, JiraClientError
+
 from jira_mcp.tools.schemas import (
     ListTicketsInput,
     GetTicketInput,
@@ -30,14 +29,64 @@ from jira_mcp.tools.schemas import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
 # Create MCP Server
 mcp_server = Server("jira-mcp")
 
-# SSE Transport
-sse_transport = SseServerTransport("/messages")
+# Context variable for per-connection Jira client (used in SSE mode)
+_jira_client_ctx: ContextVar[Optional[JiraClient]] = ContextVar("jira_client", default=None)
+
+# Global Jira client for stdio mode
+_jira_client_global: Optional[JiraClient] = None
+
+
+def create_jira_client(
+    server_url: Optional[str] = None,
+    token: Optional[str] = None,
+    verify_ssl: bool = True,
+) -> JiraClient:
+    """Create a Jira client with the given or environment configuration."""
+    # Use provided values or fall back to environment variables
+    server_url = server_url or os.environ.get("JIRA_SERVER_URL")
+    token = token or os.environ.get("JIRA_PERSONAL_ACCESS_TOKEN")
+    
+    if verify_ssl is True:
+        # Check environment variable
+        env_verify = os.environ.get("JIRA_VERIFY_SSL", "true").lower()
+        verify_ssl = env_verify in ("true", "1", "yes")
+    
+    if not server_url:
+        raise ValueError(
+            "Jira server URL is required. "
+            "Set X-Jira-Server-URL header or JIRA_SERVER_URL environment variable."
+        )
+    if not token:
+        raise ValueError(
+            "Jira token is required. "
+            "Set X-Jira-Token header or JIRA_PERSONAL_ACCESS_TOKEN environment variable."
+        )
+    
+    return JiraClient(
+        server_url=server_url,
+        token=token,
+        verify_ssl=verify_ssl,
+    )
+
+
+def get_jira_client() -> JiraClient:
+    """Get Jira client from context (SSE) or global (stdio)."""
+    # First try context variable (set per SSE connection)
+    client = _jira_client_ctx.get()
+    if client is not None:
+        return client
+    
+    # Fall back to global client (stdio mode)
+    global _jira_client_global
+    if _jira_client_global is None:
+        _jira_client_global = create_jira_client()
+    return _jira_client_global
 
 
 # --- MCP Tool Definitions ---
@@ -424,71 +473,159 @@ async def _execute_tool(
         raise ValueError(f"Unknown tool: {name}")
 
 
-# --- FastAPI Application ---
+# --- Transport Implementations ---
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Application lifespan handler."""
-    logger.info("Starting Jira MCP Server...")
-    yield
-    logger.info("Shutting down Jira MCP Server...")
+async def run_stdio() -> None:
+    """Run the MCP server with stdio transport (for Cursor/Claude Desktop)."""
+    logger.info("Starting Jira MCP server with stdio transport")
+    
+    async with stdio_server() as (read_stream, write_stream):
+        await mcp_server.run(
+            read_stream,
+            write_stream,
+            mcp_server.create_initialization_options(),
+        )
 
 
-app = FastAPI(
-    title="Jira MCP Server",
-    description="Model Context Protocol server for Jira ticket management",
-    version="0.1.0",
-    lifespan=lifespan,
-)
+async def run_sse(host: str, port: int) -> None:
+    """Run the MCP server with SSE transport (HTTP server mode)."""
+    import uvicorn
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse, Response
+    from starlette.routing import Mount, Route
+    from starlette.types import Receive, Scope, Send
 
+    logger.info(f"Starting Jira MCP server with SSE transport on {host}:{port}")
 
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "healthy"}
+    # SSE Transport
+    sse_transport = SseServerTransport("/messages/")
 
+    async def health_check(request: Request) -> JSONResponse:
+        """Health check endpoint."""
+        return JSONResponse({"status": "healthy"})
 
-@app.get("/sse")
-async def sse_endpoint(request: Request) -> EventSourceResponse:
-    """SSE endpoint for MCP communication."""
-
-    async def event_generator() -> AsyncIterator[dict[str, Any]]:
-        """Generate SSE events from MCP server."""
-        async with sse_transport.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
+    async def handle_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
+        """Handle SSE connection as raw ASGI app."""
+        # Extract headers from scope
+        headers = dict(scope.get("headers", []))
+        
+        # Get Jira configuration from headers (case-insensitive)
+        server_url = None
+        token = None
+        verify_ssl = True
+        
+        for key, value in headers.items():
+            key_lower = key.decode("utf-8").lower() if isinstance(key, bytes) else key.lower()
+            value_str = value.decode("utf-8") if isinstance(value, bytes) else value
+            
+            if key_lower == "x-jira-server-url":
+                server_url = value_str
+            elif key_lower == "x-jira-token":
+                token = value_str
+            elif key_lower == "x-jira-verify-ssl":
+                verify_ssl = value_str.lower() in ("true", "1", "yes")
+        
+        # Create client and set in context
+        try:
+            client = create_jira_client(
+                server_url=server_url,
+                token=token,
+                verify_ssl=verify_ssl,
+            )
+            _jira_client_ctx.set(client)
+            logger.info(f"SSE connection established with Jira server: {client.server_url}")
+        except ValueError as e:
+            logger.warning(f"Jira client configuration: {e}")
+            # Will fail when tool is called if not configured
+        
+        async with sse_transport.connect_sse(scope, receive, send) as streams:
             await mcp_server.run(
                 streams[0],
                 streams[1],
                 mcp_server.create_initialization_options(),
             )
 
-    return EventSourceResponse(event_generator())
+    async def handle_sse(request: Request) -> Response:
+        """Handle SSE connection - wrapper for Starlette Route."""
+        await handle_sse_raw(request.scope, request.receive, request._send)
+        return Response()
 
+    # Create Starlette app with routes
+    app = Starlette(
+        debug=False,
+        routes=[
+            Route("/health", endpoint=health_check, methods=["GET"]),
+            Route("/sse", endpoint=handle_sse, methods=["GET"]),
+            Mount("/messages/", app=sse_transport.handle_post_message),
+        ],
+    )
 
-@app.post("/messages")
-async def messages_endpoint(request: Request) -> JSONResponse:
-    """Handle incoming MCP messages."""
-    body = await request.body()
-    await sse_transport.handle_post_message(request.scope, request.receive, request._send)
-    return JSONResponse({"status": "ok"})
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 def main() -> None:
     """Run the MCP server."""
-    settings = get_settings()
-    logger.info(f"Starting server on {settings.mcp_server_host}:{settings.mcp_server_port}")
+    parser = argparse.ArgumentParser(
+        description="Jira MCP Server - Model Context Protocol server for Jira",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run with stdio transport (default, for Cursor/Claude Desktop)
+  jira-mcp
 
-    uvicorn.run(
-        "jira_mcp.server:app",
-        host=settings.mcp_server_host,
-        port=settings.mcp_server_port,
-        reload=False,
-        log_level="info",
+  # Run with SSE transport (HTTP server mode)
+  jira-mcp --transport sse --host 0.0.0.0 --port 8080
+
+Configuration:
+  For stdio transport: Set environment variables or pass via MCP client config
+  For SSE transport: Set via HTTP headers or environment variables
+
+  Headers (SSE mode):
+    X-Jira-Server-URL    Jira server URL
+    X-Jira-Token         Personal Access Token  
+    X-Jira-Verify-SSL    Verify SSL (true/false)
+
+  Environment Variables:
+    JIRA_SERVER_URL              Jira server URL
+    JIRA_PERSONAL_ACCESS_TOKEN   Personal Access Token
+    JIRA_VERIFY_SSL              Verify SSL certificates (default: true)
+        """,
     )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="Transport type: 'stdio' for Cursor/Claude Desktop, 'sse' for HTTP server (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host address for SSE transport (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port for SSE transport (default: 8080)",
+    )
+
+    args = parser.parse_args()
+
+    if args.transport == "stdio":
+        asyncio.run(run_stdio())
+    else:
+        asyncio.run(run_sse(args.host, args.port))
 
 
 if __name__ == "__main__":
     main()
-

@@ -30,9 +30,7 @@ ENV PYTHONPATH=/app/src
 # Environment variables for configuration (override at runtime)
 ENV JIRA_SERVER_URL="" \
     JIRA_PERSONAL_ACCESS_TOKEN="" \
-    JIRA_VERIFY_SSL="true" \
-    MCP_SERVER_HOST="0.0.0.0" \
-    MCP_SERVER_PORT="8080"
+    JIRA_VERIFY_SSL="true"
 
 # Expose the MCP server port
 EXPOSE 8080
@@ -44,6 +42,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Run as non-root user (ubi9/python-311 runs as user 1001 by default)
 USER 1001
 
-# Command to run the server
-CMD ["python", "-m", "jira_mcp.server"]
+# Command to run the server with SSE transport for HTTP access
+CMD ["python", "-m", "jira_mcp.server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8080"]
 

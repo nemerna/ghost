@@ -1,12 +1,11 @@
 """Jira API client wrapper with Personal Access Token authentication."""
 
+import os
 from functools import lru_cache
 from typing import Any, Optional
 
 from jira import JIRA
 from jira.exceptions import JIRAError
-
-from jira_mcp.config import get_settings
 
 
 class JiraClientError(Exception):
@@ -21,15 +20,27 @@ class JiraClientError(Exception):
 class JiraClient:
     """Wrapper around the Jira Python library with PAT authentication."""
 
-    def __init__(self) -> None:
-        """Initialize the Jira client with settings from environment."""
-        settings = get_settings()
+    def __init__(
+        self,
+        server_url: str,
+        token: str,
+        verify_ssl: bool = True,
+    ) -> None:
+        """
+        Initialize the Jira client with explicit configuration.
+        
+        Args:
+            server_url: Base URL of the Jira server (e.g., https://jira.example.com)
+            token: Personal Access Token for authentication
+            verify_ssl: Whether to verify SSL certificates (default: True)
+        """
+        # Ensure server URL doesn't have trailing slash
+        self._server_url = server_url.rstrip("/")
         self._jira = JIRA(
-            server=settings.jira_server_url,
-            token_auth=settings.jira_personal_access_token,
-            options={"verify": settings.jira_verify_ssl},
+            server=self._server_url,
+            token_auth=token,
+            options={"verify": verify_ssl},
         )
-        self._server_url = settings.jira_server_url
 
     @property
     def server_url(self) -> str:
@@ -484,6 +495,28 @@ class JiraClient:
 
 @lru_cache
 def get_jira_client() -> JiraClient:
-    """Get cached Jira client instance."""
-    return JiraClient()
-
+    """
+    Get a cached Jira client instance from environment variables.
+    
+    This is a convenience function for standalone usage.
+    For MCP server usage, the client is managed per-connection.
+    
+    Environment Variables:
+        JIRA_SERVER_URL: Jira server URL (required)
+        JIRA_PERSONAL_ACCESS_TOKEN: Personal Access Token (required)
+        JIRA_VERIFY_SSL: Verify SSL certificates (default: true)
+    """
+    server_url = os.environ.get("JIRA_SERVER_URL")
+    token = os.environ.get("JIRA_PERSONAL_ACCESS_TOKEN")
+    verify_ssl = os.environ.get("JIRA_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
+    
+    if not server_url:
+        raise ValueError("JIRA_SERVER_URL environment variable is required")
+    if not token:
+        raise ValueError("JIRA_PERSONAL_ACCESS_TOKEN environment variable is required")
+    
+    return JiraClient(
+        server_url=server_url,
+        token=token,
+        verify_ssl=verify_ssl,
+    )
