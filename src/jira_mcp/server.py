@@ -14,6 +14,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from jira_mcp.jira_client import JiraClient, JiraClientError
+from jira_mcp.github_client import GitHubClient, GitHubClientError
 
 from jira_mcp.tools.schemas import (
     ListTicketsInput,
@@ -45,6 +46,15 @@ from jira_mcp.tools.schemas import (
     GetManagementReportInput,
     UpdateManagementReportInput,
     DeleteManagementReportInput,
+    # GitHub Pull Requests
+    GitHubListPRsInput,
+    GitHubGetPRInput,
+    GitHubGetPRDiffInput,
+    GitHubGetPRFilesInput,
+    GitHubGetPRCommitsInput,
+    GitHubGetPRReviewsInput,
+    GitHubGetPRCommentsInput,
+    GitHubSearchPRsInput,
 )
 
 # Import activity tracking and report functions
@@ -61,8 +71,14 @@ mcp_server = Server("jira-mcp")
 # Context variable for per-connection Jira client (used in SSE mode)
 _jira_client_ctx: ContextVar[Optional[JiraClient]] = ContextVar("jira_client", default=None)
 
+# Context variable for per-connection GitHub client (used in SSE mode)
+_github_client_ctx: ContextVar[Optional[GitHubClient]] = ContextVar("github_client", default=None)
+
 # Global Jira client for stdio mode
 _jira_client_global: Optional[JiraClient] = None
+
+# Global GitHub client for stdio mode
+_github_client_global: Optional[GitHubClient] = None
 
 
 def create_jira_client(
@@ -110,6 +126,46 @@ def get_jira_client() -> JiraClient:
     if _jira_client_global is None:
         _jira_client_global = create_jira_client()
     return _jira_client_global
+
+
+def create_github_client(
+    token: Optional[str] = None,
+    api_url: Optional[str] = None,
+) -> Optional[GitHubClient]:
+    """Create a GitHub client with the given or environment configuration."""
+    # Use provided values or fall back to environment variables
+    token = token or os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
+    api_url = api_url or os.environ.get("GITHUB_API_URL")
+    
+    if not token:
+        # GitHub is optional, return None if not configured
+        return None
+    
+    return GitHubClient(
+        token=token,
+        api_url=api_url,
+    )
+
+
+def get_github_client() -> GitHubClient:
+    """Get GitHub client from context (SSE) or global (stdio)."""
+    # First try context variable (set per SSE connection)
+    client = _github_client_ctx.get()
+    if client is not None:
+        return client
+    
+    # Fall back to global client (stdio mode)
+    global _github_client_global
+    if _github_client_global is None:
+        _github_client_global = create_github_client()
+    
+    if _github_client_global is None:
+        raise ValueError(
+            "GitHub client is not configured. "
+            "Set GITHUB_PERSONAL_ACCESS_TOKEN environment variable or X-GitHub-Token header."
+        )
+    
+    return _github_client_global
 
 
 # --- MCP Tool Definitions ---
@@ -758,6 +814,295 @@ Avoid: Technical details, implementation specifics, code-level information.""",
             "required": ["report_id"],
         },
     ),
+    # --- GitHub Pull Request Tools ---
+    Tool(
+        name="github_list_prs",
+        description="List pull requests for a GitHub repository. Returns PR summaries including number, title, state, author, and branches.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "Filter by state: 'open', 'closed', or 'all'. Default: 'open'.",
+                    "default": "open",
+                    "enum": ["open", "closed", "all"],
+                },
+                "head": {
+                    "type": "string",
+                    "description": "Filter by head user/org and branch (format: 'user:branch').",
+                },
+                "base": {
+                    "type": "string",
+                    "description": "Filter by base branch name.",
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Sort by: 'created', 'updated', 'popularity', 'long-running'. Default: 'created'.",
+                    "default": "created",
+                    "enum": ["created", "updated", "popularity", "long-running"],
+                },
+                "direction": {
+                    "type": "string",
+                    "description": "Sort direction: 'asc' or 'desc'. Default: 'desc'.",
+                    "default": "desc",
+                    "enum": ["asc", "desc"],
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo"],
+        },
+    ),
+    Tool(
+        name="github_get_pr",
+        description="Get full details of a specific pull request including body, merge status, stats (additions/deletions), labels, assignees, and reviewers.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_get_pr_diff",
+        description="Get the unified diff of a pull request. Returns the full diff as text showing all changes.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_get_pr_files",
+        description="Get list of files changed in a pull request with status (added/modified/removed), additions, deletions, and patch content.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_get_pr_commits",
+        description="Get list of commits in a pull request with SHA, message, author, and date.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_get_pr_reviews",
+        description="Get reviews on a pull request with state (APPROVED, CHANGES_REQUESTED, COMMENTED), reviewer, and body.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_get_pr_comments",
+        description="Get all comments on a pull request. Returns both issue comments (general PR discussion) and review comments (inline code comments).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_search_prs",
+        description="Search for pull requests across GitHub repositories. Use GitHub search qualifiers like 'author:username', 'repo:owner/repo', 'state:open', 'label:bug', 'is:merged'.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "GitHub search query. Examples: 'author:octocat', 'repo:facebook/react state:open', 'org:microsoft label:bug'. 'is:pr' is added automatically.",
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Sort by: 'created', 'updated', 'comments'. Default: 'created'.",
+                    "default": "created",
+                    "enum": ["created", "updated", "comments"],
+                },
+                "order": {
+                    "type": "string",
+                    "description": "Sort order: 'asc' or 'desc'. Default: 'desc'.",
+                    "default": "desc",
+                    "enum": ["asc", "desc"],
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
+        name="github_get_current_user",
+        description="Get information about the currently authenticated GitHub user. Returns login, name, email, and profile URL.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
 ]
 
 
@@ -771,10 +1116,22 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls from MCP clients."""
     try:
-        jira_client = get_jira_client()
-        result = await _execute_tool(name, arguments, jira_client)
+        # Route to appropriate client based on tool prefix
+        if name.startswith("github_"):
+            github_client = get_github_client()
+            result = await _execute_github_tool(name, arguments, github_client)
+        else:
+            jira_client = get_jira_client()
+            result = await _execute_tool(name, arguments, jira_client)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except JiraClientError as e:
+        error_response = {
+            "error": True,
+            "message": e.message,
+            "status_code": e.status_code,
+        }
+        return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
+    except GitHubClientError as e:
         error_response = {
             "error": True,
             "message": e.message,
@@ -1062,6 +1419,98 @@ async def _execute_tool(
         raise ValueError(f"Unknown tool: {name}")
 
 
+async def _execute_github_tool(
+    name: str, arguments: dict[str, Any], github_client: GitHubClient
+) -> dict[str, Any] | list[dict[str, Any]] | str:
+    """Execute a GitHub-specific tool and return the result."""
+
+    if name == "github_list_prs":
+        input_data = GitHubListPRsInput(**arguments)
+        return github_client.list_pull_requests(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            state=input_data.state,
+            head=input_data.head,
+            base=input_data.base,
+            sort=input_data.sort,
+            direction=input_data.direction,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_get_pr":
+        input_data = GitHubGetPRInput(**arguments)
+        return github_client.get_pull_request(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+        )
+
+    elif name == "github_get_pr_diff":
+        input_data = GitHubGetPRDiffInput(**arguments)
+        return github_client.get_pull_request_diff(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+        )
+
+    elif name == "github_get_pr_files":
+        input_data = GitHubGetPRFilesInput(**arguments)
+        return github_client.get_pull_request_files(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_get_pr_commits":
+        input_data = GitHubGetPRCommitsInput(**arguments)
+        return github_client.get_pull_request_commits(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_get_pr_reviews":
+        input_data = GitHubGetPRReviewsInput(**arguments)
+        return github_client.get_pull_request_reviews(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_get_pr_comments":
+        input_data = GitHubGetPRCommentsInput(**arguments)
+        return github_client.get_pull_request_comments(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_search_prs":
+        input_data = GitHubSearchPRsInput(**arguments)
+        return github_client.search_pull_requests(
+            query=input_data.query,
+            sort=input_data.sort,
+            order=input_data.order,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_get_current_user":
+        return github_client.get_current_user()
+
+    else:
+        raise ValueError(f"Unknown GitHub tool: {name}")
+
+
 # --- Transport Implementations ---
 
 
@@ -1106,6 +1555,10 @@ async def run_sse(host: str, port: int) -> None:
         token = None
         verify_ssl = True
         
+        # Get GitHub configuration from headers
+        github_token = None
+        github_api_url = None
+        
         for key, value in headers.items():
             key_lower = key.decode("utf-8").lower() if isinstance(key, bytes) else key.lower()
             value_str = value.decode("utf-8") if isinstance(value, bytes) else value
@@ -1116,8 +1569,12 @@ async def run_sse(host: str, port: int) -> None:
                 token = value_str
             elif key_lower == "x-jira-verify-ssl":
                 verify_ssl = value_str.lower() in ("true", "1", "yes")
+            elif key_lower == "x-github-token":
+                github_token = value_str
+            elif key_lower == "x-github-api-url":
+                github_api_url = value_str
         
-        # Create client and set in context
+        # Create Jira client and set in context
         try:
             client = create_jira_client(
                 server_url=server_url,
@@ -1129,6 +1586,15 @@ async def run_sse(host: str, port: int) -> None:
         except ValueError as e:
             logger.warning(f"Jira client configuration: {e}")
             # Will fail when tool is called if not configured
+        
+        # Create GitHub client and set in context (optional)
+        github_client = create_github_client(
+            token=github_token,
+            api_url=github_api_url,
+        )
+        if github_client:
+            _github_client_ctx.set(github_client)
+            logger.info(f"GitHub client configured with API: {github_client.api_url}")
         
         async with sse_transport.connect_sse(scope, receive, send) as streams:
             await mcp_server.run(
@@ -1187,11 +1653,15 @@ Configuration:
     X-Jira-Server-URL    Jira server URL
     X-Jira-Token         Personal Access Token  
     X-Jira-Verify-SSL    Verify SSL (true/false)
+    X-GitHub-Token       GitHub Personal Access Token (optional)
+    X-GitHub-API-URL     GitHub API URL for Enterprise (optional)
 
   Environment Variables:
-    JIRA_SERVER_URL              Jira server URL
-    JIRA_PERSONAL_ACCESS_TOKEN   Personal Access Token
-    JIRA_VERIFY_SSL              Verify SSL certificates (default: true)
+    JIRA_SERVER_URL                Jira server URL
+    JIRA_PERSONAL_ACCESS_TOKEN     Personal Access Token
+    JIRA_VERIFY_SSL                Verify SSL certificates (default: true)
+    GITHUB_PERSONAL_ACCESS_TOKEN   GitHub PAT (optional, for PR tools)
+    GITHUB_API_URL                 GitHub API URL for Enterprise (optional)
         """,
     )
     parser.add_argument(

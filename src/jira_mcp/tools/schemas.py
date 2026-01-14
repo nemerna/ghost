@@ -558,3 +558,224 @@ class DeleteManagementReportInput(BaseModel):
         description="The management report ID to delete.",
     )
 
+
+# --- GitHub Pull Request Input Schemas ---
+
+
+class GitHubListPRsInput(BaseModel):
+    """Input schema for github_list_prs tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    state: str = Field(
+        default="open",
+        description="Filter by state: 'open', 'closed', or 'all'.",
+    )
+    head: Optional[str] = Field(
+        default=None,
+        description="Filter by head user/org and branch (format: 'user:branch').",
+    )
+    base: Optional[str] = Field(
+        default=None,
+        description="Filter by base branch name.",
+    )
+    sort: str = Field(
+        default="created",
+        description="Sort by: 'created', 'updated', 'popularity', 'long-running'.",
+    )
+    direction: str = Field(
+        default="desc",
+        description="Sort direction: 'asc' or 'desc'.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubGetPRInput(BaseModel):
+    """Input schema for github_get_pr tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+
+
+class GitHubGetPRDiffInput(BaseModel):
+    """Input schema for github_get_pr_diff tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+
+
+class GitHubGetPRFilesInput(BaseModel):
+    """Input schema for github_get_pr_files tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubGetPRCommitsInput(BaseModel):
+    """Input schema for github_get_pr_commits tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubGetPRReviewsInput(BaseModel):
+    """Input schema for github_get_pr_reviews tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubGetPRCommentsInput(BaseModel):
+    """Input schema for github_get_pr_comments tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubSearchPRsInput(BaseModel):
+    """Input schema for github_search_prs tool."""
+
+    query: str = Field(
+        ...,
+        description="GitHub search query. Examples: 'author:username', 'repo:owner/repo', 'state:open', 'label:bug'. Use 'is:pr' prefix is added automatically.",
+    )
+    sort: str = Field(
+        default="created",
+        description="Sort by: 'created', 'updated', 'comments'.",
+    )
+    order: str = Field(
+        default="desc",
+        description="Sort order: 'asc' or 'desc'.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+

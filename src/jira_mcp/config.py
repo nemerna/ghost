@@ -47,6 +47,16 @@ class Settings(BaseSettings):
         description="Default Jira project key to use when not specified",
     )
 
+    # GitHub Configuration (optional)
+    github_personal_access_token: Optional[str] = Field(
+        default=None,
+        description="Personal Access Token for GitHub API authentication",
+    )
+    github_api_url: Optional[str] = Field(
+        default=None,
+        description="GitHub API base URL (for GitHub Enterprise). Leave empty for github.com",
+    )
+
     @field_validator("jira_server_url")
     @classmethod
     def validate_server_url(cls, v: str) -> str:
