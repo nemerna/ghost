@@ -82,3 +82,4 @@ docker-compose.jira.yaml
 
 # Database files
 data/
+temporary-github-token
