@@ -154,6 +154,37 @@ class GetCommentsInput(BaseModel):
     )
 
 
+class UpdateCommentInput(BaseModel):
+    """Input schema for jira_update_comment tool."""
+
+    ticket_key: str = Field(
+        ...,
+        description="The issue key (e.g., 'PROJ-123').",
+    )
+    comment_id: str = Field(
+        ...,
+        description="The comment ID to update.",
+    )
+    body: str = Field(
+        ...,
+        min_length=1,
+        description="New comment body (supports Jira wiki markup).",
+    )
+
+
+class DeleteCommentInput(BaseModel):
+    """Input schema for jira_delete_comment tool."""
+
+    ticket_key: str = Field(
+        ...,
+        description="The issue key (e.g., 'PROJ-123').",
+    )
+    comment_id: str = Field(
+        ...,
+        description="The comment ID to delete.",
+    )
+
+
 # --- Discovery Input Schemas ---
 
 
@@ -190,6 +221,66 @@ class GetTransitionsInput(BaseModel):
     ticket_key: str = Field(
         ...,
         description="The issue key (e.g., 'PROJ-123').",
+    )
+
+
+# --- Issue Linking & Hierarchy Input Schemas ---
+
+
+class LinkIssuesInput(BaseModel):
+    """Input schema for jira_link_issues tool."""
+
+    from_key: str = Field(
+        ...,
+        description="The source issue key (e.g., 'PROJ-123').",
+    )
+    to_key: str = Field(
+        ...,
+        description="The target issue key (e.g., 'PROJ-456').",
+    )
+    link_type: str = Field(
+        default="relates to",
+        description="The type of link (e.g., 'relates to', 'blocks', 'is blocked by', 'is part of', 'duplicates').",
+    )
+
+
+class CreateSubtaskInput(BaseModel):
+    """Input schema for jira_create_subtask tool."""
+
+    parent_key: str = Field(
+        ...,
+        description="The parent issue key (e.g., 'PROJ-123').",
+    )
+    summary: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Sub-task title/summary.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Sub-task description (supports Jira wiki markup).",
+    )
+    assignee: Optional[str] = Field(
+        default=None,
+        description="Assignee username.",
+    )
+    priority: Optional[str] = Field(
+        default=None,
+        description="Priority name (e.g., 'High', 'Medium', 'Low').",
+    )
+
+
+class SetEpicInput(BaseModel):
+    """Input schema for jira_set_epic tool."""
+
+    issue_key: str = Field(
+        ...,
+        description="The issue key to update (e.g., 'PROJ-123').",
+    )
+    epic_key: str = Field(
+        ...,
+        description="The epic issue key to set as parent (e.g., 'PROJ-100').",
     )
 
 
@@ -257,4 +348,213 @@ class CreatedComment(BaseModel):
     body: str
     author: str
     created: str
+
+
+# --- Activity Tracking & Reports Input Schemas ---
+
+
+class LogActivityInput(BaseModel):
+    """Input schema for log_jira_activity tool."""
+
+    ticket_key: str = Field(
+        ...,
+        description="The Jira ticket key (e.g., 'PROJ-123').",
+    )
+    action_type: str = Field(
+        default="other",
+        description="Type of action: view, create, update, comment, transition, link, or other.",
+    )
+    ticket_summary: Optional[str] = Field(
+        default=None,
+        description="Optional ticket summary for context.",
+    )
+    action_details: Optional[str] = Field(
+        default=None,
+        description="Optional JSON string with additional context.",
+    )
+
+
+class GetWeeklyActivityInput(BaseModel):
+    """Input schema for get_weekly_activity tool."""
+
+    week_offset: int = Field(
+        default=0,
+        ge=-52,
+        le=0,
+        description="Week offset from current week (0 = current, -1 = last week, etc.).",
+    )
+    project: Optional[str] = Field(
+        default=None,
+        description="Optional project key to filter by.",
+    )
+
+
+class GenerateWeeklyReportInput(BaseModel):
+    """Input schema for generate_weekly_report tool."""
+
+    week_offset: int = Field(
+        default=0,
+        ge=-52,
+        le=0,
+        description="Week offset from current week (0 = current, -1 = last week, etc.).",
+    )
+    include_details: bool = Field(
+        default=True,
+        description="Whether to include detailed ticket list in the report.",
+    )
+
+
+class SaveWeeklyReportInput(BaseModel):
+    """Input schema for save_weekly_report tool."""
+
+    week_offset: int = Field(
+        default=0,
+        ge=-52,
+        le=0,
+        description="Week offset from current week (0 = current, -1 = last week, etc.).",
+    )
+    custom_title: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Optional custom title override.",
+    )
+    custom_summary: Optional[str] = Field(
+        default=None,
+        description="Optional custom executive summary override.",
+    )
+
+
+class ListSavedReportsInput(BaseModel):
+    """Input schema for list_saved_reports tool."""
+
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of reports to return.",
+    )
+
+
+class GetSavedReportInput(BaseModel):
+    """Input schema for get_saved_report tool."""
+
+    report_id: int = Field(
+        ...,
+        description="The report ID to retrieve.",
+    )
+
+
+class DeleteSavedReportInput(BaseModel):
+    """Input schema for delete_saved_report tool."""
+
+    report_id: int = Field(
+        ...,
+        description="The report ID to delete.",
+    )
+
+
+# --- Management Reports Input Schemas ---
+
+
+class SaveManagementReportInput(BaseModel):
+    """Input schema for save_management_report tool."""
+
+    title: str = Field(
+        ...,
+        max_length=500,
+        description="Report title (e.g., 'APPENG Progress - Week 3').",
+    )
+    one_liner: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Single sentence elevator pitch (max 15 words).",
+    )
+    executive_summary: str = Field(
+        ...,
+        description="2-3 sentence high-level summary. Focus on outcomes, not technical details.",
+    )
+    content: str = Field(
+        ...,
+        description="Concise Markdown report (<500 words). Use bullet points, include Jira links.",
+    )
+    project_key: Optional[str] = Field(
+        default=None,
+        description="Project key (e.g., 'APPENG').",
+    )
+    report_period: Optional[str] = Field(
+        default=None,
+        description="Period (e.g., 'Week 3, Jan 2026' or 'Sprint 42').",
+    )
+    referenced_tickets: Optional[list[str]] = Field(
+        default=None,
+        description="Jira ticket keys mentioned in report.",
+    )
+
+
+class ListManagementReportsInput(BaseModel):
+    """Input schema for list_management_reports tool."""
+
+    project_key: Optional[str] = Field(
+        default=None,
+        description="Optional filter by project key.",
+    )
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of reports to return.",
+    )
+
+
+class GetManagementReportInput(BaseModel):
+    """Input schema for get_management_report tool."""
+
+    report_id: int = Field(
+        ...,
+        description="The management report ID to retrieve.",
+    )
+
+
+class UpdateManagementReportInput(BaseModel):
+    """Input schema for update_management_report tool."""
+
+    report_id: int = Field(
+        ...,
+        description="The management report ID to update.",
+    )
+    title: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Optional new title.",
+    )
+    one_liner: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Optional new one-liner elevator pitch.",
+    )
+    executive_summary: Optional[str] = Field(
+        default=None,
+        description="Optional new executive summary.",
+    )
+    content: Optional[str] = Field(
+        default=None,
+        description="Optional new Markdown content.",
+    )
+    report_period: Optional[str] = Field(
+        default=None,
+        description="Optional new period.",
+    )
+    referenced_tickets: Optional[list[str]] = Field(
+        default=None,
+        description="Optional new list of referenced ticket keys.",
+    )
+
+
+class DeleteManagementReportInput(BaseModel):
+    """Input schema for delete_management_report tool."""
+
+    report_id: int = Field(
+        ...,
+        description="The management report ID to delete.",
+    )
 

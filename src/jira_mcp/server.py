@@ -22,11 +22,34 @@ from jira_mcp.tools.schemas import (
     UpdateTicketInput,
     AddCommentInput,
     GetCommentsInput,
+    UpdateCommentInput,
+    DeleteCommentInput,
     ListComponentsInput,
     ListIssueTypesInput,
     ListStatusesInput,
     GetTransitionsInput,
+    LinkIssuesInput,
+    CreateSubtaskInput,
+    SetEpicInput,
+    # Activity & Reports
+    LogActivityInput,
+    GetWeeklyActivityInput,
+    GenerateWeeklyReportInput,
+    SaveWeeklyReportInput,
+    ListSavedReportsInput,
+    GetSavedReportInput,
+    DeleteSavedReportInput,
+    # Management Reports
+    SaveManagementReportInput,
+    ListManagementReportsInput,
+    GetManagementReportInput,
+    UpdateManagementReportInput,
+    DeleteManagementReportInput,
 )
+
+# Import activity tracking and report functions
+from jira_mcp.tools import reports as report_tools
+from jira_mcp.db import init_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -269,6 +292,46 @@ TOOLS: list[Tool] = [
             "required": ["ticket_key"],
         },
     ),
+    Tool(
+        name="jira_update_comment",
+        description="Update an existing comment on a Jira ticket. Only comments authored by the current user can be updated.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "ticket_key": {
+                    "type": "string",
+                    "description": "The issue key (e.g., 'PROJ-123').",
+                },
+                "comment_id": {
+                    "type": "string",
+                    "description": "The comment ID to update (get this from jira_get_comments).",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "New comment body (supports Jira wiki markup).",
+                },
+            },
+            "required": ["ticket_key", "comment_id", "body"],
+        },
+    ),
+    Tool(
+        name="jira_delete_comment",
+        description="Delete a comment from a Jira ticket. Only comments authored by the current user can be deleted.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "ticket_key": {
+                    "type": "string",
+                    "description": "The issue key (e.g., 'PROJ-123').",
+                },
+                "comment_id": {
+                    "type": "string",
+                    "description": "The comment ID to delete (get this from jira_get_comments).",
+                },
+            },
+            "required": ["ticket_key", "comment_id"],
+        },
+    ),
     # --- Discovery/Metadata Tools ---
     Tool(
         name="jira_list_projects",
@@ -348,6 +411,351 @@ TOOLS: list[Tool] = [
         inputSchema={
             "type": "object",
             "properties": {},
+        },
+    ),
+    # --- Issue Linking & Hierarchy Tools ---
+    Tool(
+        name="jira_link_issues",
+        description="Create a link between two Jira issues. Common link types include 'relates to', 'blocks', 'is blocked by', 'is part of', 'duplicates', 'clones'.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "from_key": {
+                    "type": "string",
+                    "description": "The source issue key (e.g., 'PROJ-123').",
+                },
+                "to_key": {
+                    "type": "string",
+                    "description": "The target issue key (e.g., 'PROJ-456').",
+                },
+                "link_type": {
+                    "type": "string",
+                    "description": "The type of link (e.g., 'relates to', 'blocks', 'is blocked by', 'is part of', 'duplicates'). Default: 'relates to'.",
+                    "default": "relates to",
+                },
+            },
+            "required": ["from_key", "to_key"],
+        },
+    ),
+    Tool(
+        name="jira_create_subtask",
+        description="Create a sub-task under a parent Jira issue. The sub-task inherits the project from the parent.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "parent_key": {
+                    "type": "string",
+                    "description": "The parent issue key (e.g., 'PROJ-123').",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Sub-task title/summary.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Sub-task description (supports Jira wiki markup).",
+                },
+                "assignee": {
+                    "type": "string",
+                    "description": "Assignee username.",
+                },
+                "priority": {
+                    "type": "string",
+                    "description": "Priority name (e.g., 'High', 'Medium', 'Low').",
+                },
+            },
+            "required": ["parent_key", "summary"],
+        },
+    ),
+    Tool(
+        name="jira_set_epic",
+        description="Set or change the epic for a Jira issue. Associates the issue with the specified epic.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_key": {
+                    "type": "string",
+                    "description": "The issue key to update (e.g., 'PROJ-123').",
+                },
+                "epic_key": {
+                    "type": "string",
+                    "description": "The epic issue key to set as parent (e.g., 'PROJ-100').",
+                },
+            },
+            "required": ["issue_key", "epic_key"],
+        },
+    ),
+    # --- Activity Tracking & Weekly Reports ---
+    Tool(
+        name="log_jira_activity",
+        description="Log a Jira ticket activity for weekly report tracking. Call this when working on tickets to track your work.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "ticket_key": {
+                    "type": "string",
+                    "description": "The Jira ticket key (e.g., 'PROJ-123').",
+                },
+                "action_type": {
+                    "type": "string",
+                    "enum": ["view", "create", "update", "comment", "transition", "link", "other"],
+                    "description": "Type of action performed.",
+                    "default": "other",
+                },
+                "ticket_summary": {
+                    "type": "string",
+                    "description": "Optional ticket summary for context.",
+                },
+                "action_details": {
+                    "type": "string",
+                    "description": "Optional JSON string with additional context.",
+                },
+            },
+            "required": ["ticket_key"],
+        },
+    ),
+    Tool(
+        name="get_weekly_activity",
+        description="Get activity summary for a specific week. Shows tickets worked on and actions performed.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "week_offset": {
+                    "type": "integer",
+                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
+                    "default": 0,
+                    "minimum": -52,
+                    "maximum": 0,
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Optional project key to filter by.",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="generate_weekly_report",
+        description="Generate an executive weekly report for management. Creates a formatted Markdown report with metrics and ticket details.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "week_offset": {
+                    "type": "integer",
+                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
+                    "default": 0,
+                    "minimum": -52,
+                    "maximum": 0,
+                },
+                "include_details": {
+                    "type": "boolean",
+                    "description": "Whether to include detailed ticket list in the report.",
+                    "default": True,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="save_weekly_report",
+        description="Generate and save a weekly report to the database for future reference.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "week_offset": {
+                    "type": "integer",
+                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
+                    "default": 0,
+                    "minimum": -52,
+                    "maximum": 0,
+                },
+                "custom_title": {
+                    "type": "string",
+                    "description": "Optional custom title override.",
+                },
+                "custom_summary": {
+                    "type": "string",
+                    "description": "Optional custom executive summary override.",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="list_saved_reports",
+        description="List previously saved weekly reports.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of reports to return (1-50).",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 50,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="get_saved_report",
+        description="Get a saved weekly report by its ID. Returns full report content.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_id": {
+                    "type": "integer",
+                    "description": "The report ID to retrieve.",
+                },
+            },
+            "required": ["report_id"],
+        },
+    ),
+    Tool(
+        name="delete_saved_report",
+        description="Delete a saved weekly report.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_id": {
+                    "type": "integer",
+                    "description": "The report ID to delete.",
+                },
+            },
+            "required": ["report_id"],
+        },
+    ),
+    # --- Management Reports (AI-generated for stakeholders) ---
+    Tool(
+        name="save_management_report",
+        description="""Save an AI-generated management report for high-level stakeholders.
+
+IMPORTANT: Reports should be CONCISE and management-friendly:
+- one_liner: Single sentence (max 15 words) - the "elevator pitch"
+- executive_summary: 2-3 sentences, high-level outcomes only
+- content: Short Markdown (aim for <500 words), use bullet points, include Jira links
+
+Focus on: What was delivered, business impact, blockers, next steps.
+Avoid: Technical details, implementation specifics, code-level information.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Report title (e.g., 'APPENG Progress - Week 3').",
+                },
+                "one_liner": {
+                    "type": "string",
+                    "description": "Single sentence elevator pitch (max 15 words). E.g., 'Delivered OAuth integration, 3 bugs fixed, on track for Q1.'",
+                },
+                "executive_summary": {
+                    "type": "string",
+                    "description": "2-3 sentence summary. Focus on outcomes and business impact, not technical details.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Concise Markdown report (<500 words). Use bullet points. Include Jira links. Sections: Delivered, In Progress, Blockers, Next Week.",
+                },
+                "project_key": {
+                    "type": "string",
+                    "description": "Project key (e.g., 'APPENG').",
+                },
+                "report_period": {
+                    "type": "string",
+                    "description": "Period (e.g., 'Week 3, Jan 2026' or 'Sprint 42').",
+                },
+                "referenced_tickets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Jira ticket keys mentioned in report.",
+                },
+            },
+            "required": ["title", "executive_summary", "content"],
+        },
+    ),
+    Tool(
+        name="list_management_reports",
+        description="List saved management reports. Can filter by project.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_key": {
+                    "type": "string",
+                    "description": "Optional filter by project key.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of reports to return (1-50).",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 50,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="get_management_report",
+        description="Get a saved management report by ID. Returns full content.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_id": {
+                    "type": "integer",
+                    "description": "The management report ID to retrieve.",
+                },
+            },
+            "required": ["report_id"],
+        },
+    ),
+    Tool(
+        name="update_management_report",
+        description="Update an existing management report with new content.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_id": {
+                    "type": "integer",
+                    "description": "The management report ID to update.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional new title.",
+                },
+                "one_liner": {
+                    "type": "string",
+                    "description": "Optional new one-liner elevator pitch.",
+                },
+                "executive_summary": {
+                    "type": "string",
+                    "description": "Optional new executive summary.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Optional new Markdown content.",
+                },
+                "report_period": {
+                    "type": "string",
+                    "description": "Optional new period.",
+                },
+                "referenced_tickets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional new list of referenced ticket keys.",
+                },
+            },
+            "required": ["report_id"],
+        },
+    ),
+    Tool(
+        name="delete_management_report",
+        description="Delete a management report.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_id": {
+                    "type": "integer",
+                    "description": "The management report ID to delete.",
+                },
+            },
+            "required": ["report_id"],
         },
     ),
 ]
@@ -442,6 +850,21 @@ async def _execute_tool(
             max_results=input_data.max_results,
         )
 
+    elif name == "jira_update_comment":
+        input_data = UpdateCommentInput(**arguments)
+        return jira_client.update_comment(
+            issue_key=input_data.ticket_key,
+            comment_id=input_data.comment_id,
+            body=input_data.body,
+        )
+
+    elif name == "jira_delete_comment":
+        input_data = DeleteCommentInput(**arguments)
+        return jira_client.delete_comment(
+            issue_key=input_data.ticket_key,
+            comment_id=input_data.comment_id,
+        )
+
     # --- Discovery/Metadata Tools ---
 
     elif name == "jira_list_projects":
@@ -468,6 +891,172 @@ async def _execute_tool(
 
     elif name == "jira_get_current_user":
         return jira_client.get_current_user()
+
+    # --- Issue Linking & Hierarchy Tools ---
+
+    elif name == "jira_link_issues":
+        input_data = LinkIssuesInput(**arguments)
+        return jira_client.link_issues(
+            from_key=input_data.from_key,
+            to_key=input_data.to_key,
+            link_type=input_data.link_type,
+        )
+
+    elif name == "jira_create_subtask":
+        input_data = CreateSubtaskInput(**arguments)
+        return jira_client.create_subtask(
+            parent_key=input_data.parent_key,
+            summary=input_data.summary,
+            description=input_data.description,
+            assignee=input_data.assignee,
+            priority=input_data.priority,
+        )
+
+    elif name == "jira_set_epic":
+        input_data = SetEpicInput(**arguments)
+        return jira_client.set_epic(
+            issue_key=input_data.issue_key,
+            epic_key=input_data.epic_key,
+        )
+
+    # --- Activity Tracking & Weekly Reports ---
+
+    elif name == "log_jira_activity":
+        input_data = LogActivityInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        action_details = None
+        if input_data.action_details:
+            try:
+                import json
+                action_details = json.loads(input_data.action_details)
+            except json.JSONDecodeError:
+                action_details = {"raw": input_data.action_details}
+        
+        return report_tools.log_activity(
+            username=username,
+            ticket_key=input_data.ticket_key,
+            action_type=input_data.action_type,
+            ticket_summary=input_data.ticket_summary,
+            action_details=action_details,
+        )
+
+    elif name == "get_weekly_activity":
+        input_data = GetWeeklyActivityInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        return report_tools.get_weekly_activity(
+            username=username,
+            week_offset=input_data.week_offset,
+            project=input_data.project,
+        )
+
+    elif name == "generate_weekly_report":
+        input_data = GenerateWeeklyReportInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        return report_tools.generate_weekly_report(
+            username=username,
+            week_offset=input_data.week_offset,
+            include_details=input_data.include_details,
+        )
+
+    elif name == "save_weekly_report":
+        input_data = SaveWeeklyReportInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        return report_tools.save_weekly_report(
+            username=username,
+            week_offset=input_data.week_offset,
+            custom_title=input_data.custom_title,
+            custom_summary=input_data.custom_summary,
+        )
+
+    elif name == "list_saved_reports":
+        input_data = ListSavedReportsInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        return report_tools.list_saved_reports(
+            username=username,
+            limit=input_data.limit,
+        )
+
+    elif name == "get_saved_report":
+        input_data = GetSavedReportInput(**arguments)
+        return report_tools.get_saved_report(
+            report_id=input_data.report_id,
+        )
+
+    elif name == "delete_saved_report":
+        input_data = DeleteSavedReportInput(**arguments)
+        return report_tools.delete_saved_report(
+            report_id=input_data.report_id,
+        )
+
+    # --- Management Reports (AI-generated) ---
+
+    elif name == "save_management_report":
+        input_data = SaveManagementReportInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        return report_tools.save_management_report(
+            username=username,
+            title=input_data.title,
+            one_liner=input_data.one_liner,
+            executive_summary=input_data.executive_summary,
+            content=input_data.content,
+            project_key=input_data.project_key,
+            report_period=input_data.report_period,
+            referenced_tickets=input_data.referenced_tickets,
+        )
+
+    elif name == "list_management_reports":
+        input_data = ListManagementReportsInput(**arguments)
+        # Get username from Jira client
+        user_info = jira_client.get_current_user()
+        username = user_info.get("username", "unknown")
+        
+        return report_tools.list_management_reports(
+            username=username,
+            project_key=input_data.project_key,
+            limit=input_data.limit,
+        )
+
+    elif name == "get_management_report":
+        input_data = GetManagementReportInput(**arguments)
+        return report_tools.get_management_report(
+            report_id=input_data.report_id,
+        )
+
+    elif name == "update_management_report":
+        input_data = UpdateManagementReportInput(**arguments)
+        return report_tools.update_management_report(
+            report_id=input_data.report_id,
+            title=input_data.title,
+            one_liner=input_data.one_liner,
+            executive_summary=input_data.executive_summary,
+            content=input_data.content,
+            report_period=input_data.report_period,
+            referenced_tickets=input_data.referenced_tickets,
+        )
+
+    elif name == "delete_management_report":
+        input_data = DeleteManagementReportInput(**arguments)
+        return report_tools.delete_management_report(
+            report_id=input_data.report_id,
+        )
 
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -575,6 +1164,10 @@ async def run_sse(host: str, port: int) -> None:
 
 def main() -> None:
     """Run the MCP server."""
+    # Initialize database on startup
+    init_db()
+    logger.info("Database initialized")
+    
     parser = argparse.ArgumentParser(
         description="Jira MCP Server - Model Context Protocol server for Jira",
         formatter_class=argparse.RawDescriptionHelpFormatter,

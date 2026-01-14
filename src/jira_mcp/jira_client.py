@@ -296,6 +296,79 @@ class JiraClient:
                 status_code=e.status_code,
             ) from e
 
+    def update_comment(
+        self,
+        issue_key: str,
+        comment_id: str,
+        body: str,
+    ) -> dict[str, Any]:
+        """
+        Update an existing comment on an issue.
+        
+        Note: Only comments authored by the current user can be updated.
+        
+        Args:
+            issue_key: The issue key (e.g., 'PROJ-123').
+            comment_id: The comment ID to update.
+            body: New comment body (supports Jira wiki markup).
+            
+        Returns:
+            Updated comment details.
+        """
+        try:
+            comment = self._jira.comment(issue_key, comment_id)
+            comment.update(body=body)
+            return {
+                "id": comment.id,
+                "issue_key": issue_key,
+                "body": body,
+                "author": str(comment.author),
+                "updated": True,
+            }
+        except JIRAError as e:
+            error_msg = e.text
+            if e.status_code == 403:
+                error_msg = f"Permission denied. You can only edit comments you authored. {e.text}"
+            raise JiraClientError(
+                f"Failed to update comment {comment_id} on {issue_key}: {error_msg}",
+                status_code=e.status_code,
+            ) from e
+
+    def delete_comment(
+        self,
+        issue_key: str,
+        comment_id: str,
+    ) -> dict[str, Any]:
+        """
+        Delete a comment from an issue.
+        
+        Note: Only comments authored by the current user can be deleted.
+        
+        Args:
+            issue_key: The issue key (e.g., 'PROJ-123').
+            comment_id: The comment ID to delete.
+            
+        Returns:
+            Confirmation of deletion.
+        """
+        try:
+            comment = self._jira.comment(issue_key, comment_id)
+            comment.delete()
+            return {
+                "deleted": True,
+                "issue_key": issue_key,
+                "comment_id": comment_id,
+                "message": f"Successfully deleted comment {comment_id} from {issue_key}",
+            }
+        except JIRAError as e:
+            error_msg = e.text
+            if e.status_code == 403:
+                error_msg = f"Permission denied. You can only delete comments you authored. {e.text}"
+            raise JiraClientError(
+                f"Failed to delete comment {comment_id} on {issue_key}: {error_msg}",
+                status_code=e.status_code,
+            ) from e
+
     # --- Discovery/Metadata Methods ---
 
     def get_projects(self) -> list[dict[str, Any]]:
@@ -444,6 +517,172 @@ class JiraClient:
         except JIRAError as e:
             raise JiraClientError(
                 f"Failed to get current user: {e.text}",
+                status_code=e.status_code,
+            ) from e
+
+    # --- Issue Linking & Hierarchy Methods ---
+
+    def link_issues(
+        self,
+        from_key: str,
+        to_key: str,
+        link_type: str = "relates to",
+    ) -> dict[str, Any]:
+        """
+        Create a link between two issues.
+
+        Args:
+            from_key: The source issue key (e.g., 'PROJ-123').
+            to_key: The target issue key (e.g., 'PROJ-456').
+            link_type: The type of link (e.g., 'relates to', 'blocks', 'is blocked by',
+                      'is part of', 'duplicates').
+
+        Returns:
+            Confirmation with link details.
+        """
+        try:
+            self._jira.create_issue_link(
+                type=link_type,
+                inwardIssue=from_key,
+                outwardIssue=to_key,
+            )
+            return {
+                "success": True,
+                "from_key": from_key,
+                "to_key": to_key,
+                "link_type": link_type,
+                "message": f"Successfully linked {from_key} to {to_key} with '{link_type}'",
+            }
+        except JIRAError as e:
+            raise JiraClientError(
+                f"Failed to link issues {from_key} -> {to_key}: {e.text}",
+                status_code=e.status_code,
+            ) from e
+
+    def create_subtask(
+        self,
+        parent_key: str,
+        summary: str,
+        description: Optional[str] = None,
+        assignee: Optional[str] = None,
+        priority: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Create a sub-task under a parent issue.
+
+        Args:
+            parent_key: The parent issue key (e.g., 'PROJ-123').
+            summary: Sub-task title/summary.
+            description: Sub-task description (supports Jira wiki markup).
+            assignee: Assignee username.
+            priority: Priority name (e.g., 'High', 'Medium', 'Low').
+
+        Returns:
+            Created sub-task key, id, URL, and summary.
+        """
+        try:
+            # Get the parent issue to determine project
+            parent = self._jira.issue(parent_key)
+            project_key = parent.fields.project.key
+
+            # Get subtask type for this project
+            subtask_type_name, _ = self._get_subtask_type(project_key)
+
+            fields: dict[str, Any] = {
+                "project": {"key": project_key},
+                "parent": {"key": parent_key},
+                "summary": summary,
+                "issuetype": {"name": subtask_type_name},
+            }
+
+            if description:
+                fields["description"] = description
+
+            if assignee:
+                fields["assignee"] = {"name": assignee}
+
+            if priority:
+                fields["priority"] = {"name": priority}
+
+            issue = self._jira.create_issue(fields=fields)
+
+            return {
+                "key": issue.key,
+                "id": issue.id,
+                "url": f"{self._server_url}/browse/{issue.key}",
+                "summary": summary,
+                "parent_key": parent_key,
+            }
+        except JIRAError as e:
+            raise JiraClientError(
+                f"Failed to create sub-task under {parent_key}: {e.text}",
+                status_code=e.status_code,
+            ) from e
+
+    def _get_subtask_type(self, project_key: str) -> tuple[str, str]:
+        """Get the subtask issue type name and ID for a project."""
+        try:
+            project = self._jira.project(project_key)
+            for issue_type in project.issueTypes:
+                if getattr(issue_type, "subtask", False):
+                    return issue_type.name, issue_type.id
+            # Default fallback
+            return "Sub-task", ""
+        except JIRAError:
+            return "Sub-task", ""
+
+    def set_epic(
+        self,
+        issue_key: str,
+        epic_key: str,
+    ) -> dict[str, Any]:
+        """
+        Set the epic for an issue.
+
+        Args:
+            issue_key: The issue key to update (e.g., 'PROJ-123').
+            epic_key: The epic issue key to set as parent (e.g., 'PROJ-100').
+
+        Returns:
+            Confirmation with updated issue details.
+        """
+        try:
+            # Try the newer method first (Jira Server 8.x+, Jira Cloud)
+            try:
+                self._jira.add_issues_to_epic(epic_key, [issue_key])
+                return {
+                    "success": True,
+                    "issue_key": issue_key,
+                    "epic_key": epic_key,
+                    "message": f"Successfully set epic {epic_key} for {issue_key}",
+                    "url": f"{self._server_url}/browse/{issue_key}",
+                }
+            except JIRAError:
+                pass
+
+            # Try updating Epic Link custom field (common field IDs)
+            issue = self._jira.issue(issue_key)
+            epic_link_fields = ["customfield_10014", "customfield_10008", "customfield_10000"]
+            
+            for field_name in epic_link_fields:
+                try:
+                    issue.update(fields={field_name: epic_key})
+                    return {
+                        "success": True,
+                        "issue_key": issue_key,
+                        "epic_key": epic_key,
+                        "message": f"Successfully set epic {epic_key} for {issue_key}",
+                        "url": f"{self._server_url}/browse/{issue_key}",
+                    }
+                except JIRAError:
+                    continue
+
+            raise JiraClientError(
+                f"Could not set epic for {issue_key}. Epic Link field not found or not editable."
+            )
+        except JIRAError as e:
+            raise JiraClientError(
+                f"Failed to set epic {epic_key} for {issue_key}: {e.text}",
                 status_code=e.status_code,
             ) from e
 

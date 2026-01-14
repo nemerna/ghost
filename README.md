@@ -9,7 +9,12 @@ A Model Context Protocol (MCP) server for Jira ticket management. This server en
 - **View Ticket Details**: Get full ticket information including description, components, labels, and comments
 - **Create Tickets**: Create new issues with customizable fields (type, assignee, components, epic, priority, labels)
 - **Update Tickets**: Modify ticket title, description, assignee, status, components, and priority
-- **Manage Comments**: Add comments and retrieve comment history
+- **Manage Comments**: Add, update, and delete comments
+
+### Issue Hierarchy & Linking
+- **Link Issues**: Create relationships between issues (relates to, blocks, duplicates, etc.)
+- **Create Subtasks**: Add sub-tasks under parent issues
+- **Set Epic**: Associate issues with epics
 
 ### Discovery/Metadata
 - **List Projects**: View all accessible projects
@@ -19,6 +24,18 @@ A Model Context Protocol (MCP) server for Jira ticket management. This server en
 - **List Statuses**: Get available workflow statuses for a project
 - **Get Transitions**: See available workflow transitions for a ticket
 - **Get Current User**: Get authenticated user information
+
+### 📊 Activity Tracking & Reports (NEW)
+- **Log Activity**: Track your work on Jira tickets throughout the week
+- **Get Weekly Activity**: View summary of tickets worked on
+- **Generate Weekly Report**: Create activity-based reports from logged work
+- **Save Reports**: Persist reports to database for future reference
+
+### 📋 Management Reports (NEW)
+- **Save Management Report**: Store AI-generated project progress reports for stakeholders
+- **List/Get/Update/Delete**: Full CRUD for management reports
+- High-level, non-technical summaries with Jira links
+- Perfect for weekly status updates to management
 
 ## Requirements
 
@@ -56,6 +73,8 @@ The server requires two environment variables:
 | `JIRA_SERVER_URL` | Yes | Base URL of your Jira server (e.g., `https://jira.example.com`) |
 | `JIRA_PERSONAL_ACCESS_TOKEN` | Yes | Your Jira Personal Access Token |
 | `JIRA_VERIFY_SSL` | No | Verify SSL certificates (default: `true`, set to `false` for self-signed certs) |
+| `DATABASE_URL` | No | PostgreSQL URL (leave empty for SQLite) |
+| `JIRA_MCP_DATA_DIR` | No | Directory for SQLite database (default: `./data`) |
 
 ### Creating a Personal Access Token
 
@@ -161,9 +180,28 @@ Then configure your MCP client to connect to the SSE endpoint:
 }
 ```
 
-#### Container Deployment (SSE Mode)
+## 🐳 Container Deployment
 
-Build the container image:
+### Quick Start with Docker Compose
+
+1. Copy the environment file and configure:
+   ```bash
+   cp env.example .env
+   # Edit .env with your Jira credentials
+   ```
+
+2. Start the server:
+   ```bash
+   # SQLite mode (default - simple, file-based)
+   docker-compose up -d jira-mcp
+
+   # PostgreSQL mode (production-ready)
+   docker-compose --profile postgres up -d
+   ```
+
+3. Access the server at `http://localhost:8080/sse`
+
+### Build Container Image
 
 ```bash
 # Using Podman
@@ -173,13 +211,24 @@ podman build -t jira-mcp:latest -f Containerfile .
 docker build -t jira-mcp:latest -f Containerfile .
 ```
 
-Run the container:
+### Run Container Manually
 
 ```bash
-podman run -d \
+# With SQLite (data persisted in volume)
+docker run -d \
+  -p 8080:8080 \
+  -v jira-mcp-data:/app/data \
+  -e JIRA_SERVER_URL=https://jira.example.com \
+  -e JIRA_PERSONAL_ACCESS_TOKEN=your-token \
+  --name jira-mcp \
+  jira-mcp:latest
+
+# With PostgreSQL
+docker run -d \
   -p 8080:8080 \
   -e JIRA_SERVER_URL=https://jira.example.com \
   -e JIRA_PERSONAL_ACCESS_TOKEN=your-token \
+  -e DATABASE_URL=postgresql://user:pass@host:5432/jira_mcp \
   --name jira-mcp \
   jira-mcp:latest
 ```
@@ -201,7 +250,9 @@ jira-mcp --help
 
 ### MCP Tools
 
-#### `jira_list_tickets`
+#### Ticket Management
+
+##### `jira_list_tickets`
 
 List tickets with optional filters.
 
@@ -216,7 +267,7 @@ List tickets with optional filters.
 }
 ```
 
-#### `jira_get_ticket`
+##### `jira_get_ticket`
 
 Get full details of a ticket.
 
@@ -226,7 +277,7 @@ Get full details of a ticket.
 }
 ```
 
-#### `jira_create_ticket`
+##### `jira_create_ticket`
 
 Create a new ticket.
 
@@ -244,7 +295,7 @@ Create a new ticket.
 }
 ```
 
-#### `jira_update_ticket`
+##### `jira_update_ticket`
 
 Update an existing ticket.
 
@@ -259,7 +310,9 @@ Update an existing ticket.
 }
 ```
 
-#### `jira_add_comment`
+#### Comment Management
+
+##### `jira_add_comment`
 
 Add a comment to a ticket.
 
@@ -270,7 +323,7 @@ Add a comment to a ticket.
 }
 ```
 
-#### `jira_get_comments`
+##### `jira_get_comments`
 
 Get comments from a ticket.
 
@@ -281,29 +334,74 @@ Get comments from a ticket.
 }
 ```
 
-### Discovery/Metadata Tools
+##### `jira_update_comment`
 
-#### `jira_list_projects`
+Update an existing comment.
+
+```json
+{
+  "ticket_key": "PROJ-123",
+  "comment_id": "12345",
+  "body": "Updated comment text"
+}
+```
+
+##### `jira_delete_comment`
+
+Delete a comment.
+
+```json
+{
+  "ticket_key": "PROJ-123",
+  "comment_id": "12345"
+}
+```
+
+#### Issue Linking & Hierarchy
+
+##### `jira_link_issues`
+
+Link two issues together.
+
+```json
+{
+  "from_key": "PROJ-123",
+  "to_key": "PROJ-456",
+  "link_type": "blocks"
+}
+```
+
+##### `jira_create_subtask`
+
+Create a subtask under a parent issue.
+
+```json
+{
+  "parent_key": "PROJ-123",
+  "summary": "Subtask title",
+  "description": "Subtask description",
+  "assignee": "john.doe"
+}
+```
+
+##### `jira_set_epic`
+
+Set or change the epic for an issue.
+
+```json
+{
+  "issue_key": "PROJ-123",
+  "epic_key": "PROJ-100"
+}
+```
+
+#### Discovery/Metadata Tools
+
+##### `jira_list_projects`
 
 List all accessible projects. No parameters required.
 
-```json
-{}
-```
-
-**Response:**
-```json
-[
-  {
-    "key": "PROJ",
-    "name": "My Project",
-    "lead": "john.doe",
-    "url": "https://jira.example.com/browse/PROJ"
-  }
-]
-```
-
-#### `jira_list_components`
+##### `jira_list_components`
 
 List components for a project.
 
@@ -313,19 +411,7 @@ List components for a project.
 }
 ```
 
-**Response:**
-```json
-[
-  {
-    "id": "10001",
-    "name": "Backend",
-    "description": "Backend services",
-    "lead": "jane.doe"
-  }
-]
-```
-
-#### `jira_list_issue_types`
+##### `jira_list_issue_types`
 
 List issue types available for a project.
 
@@ -335,45 +421,11 @@ List issue types available for a project.
 }
 ```
 
-**Response:**
-```json
-[
-  {
-    "id": "10001",
-    "name": "Task",
-    "description": "A task that needs to be done",
-    "subtask": false
-  },
-  {
-    "id": "10002",
-    "name": "Bug",
-    "description": "A bug in the system",
-    "subtask": false
-  }
-]
-```
-
-#### `jira_list_priorities`
+##### `jira_list_priorities`
 
 List all available priorities. No parameters required.
 
-```json
-{}
-```
-
-**Response:**
-```json
-[
-  {
-    "id": "1",
-    "name": "Highest",
-    "description": "This problem will block progress.",
-    "icon_url": "https://jira.example.com/images/icons/priorities/highest.svg"
-  }
-]
-```
-
-#### `jira_list_statuses`
+##### `jira_list_statuses`
 
 List available statuses for a project.
 
@@ -383,25 +435,7 @@ List available statuses for a project.
 }
 ```
 
-**Response:**
-```json
-[
-  {
-    "id": "1",
-    "name": "Open",
-    "description": "The issue is open and ready for work",
-    "category": "To Do"
-  },
-  {
-    "id": "3",
-    "name": "In Progress",
-    "description": "Work is being done",
-    "category": "In Progress"
-  }
-]
-```
-
-#### `jira_get_transitions`
+##### `jira_get_transitions`
 
 Get available workflow transitions for a ticket.
 
@@ -411,40 +445,172 @@ Get available workflow transitions for a ticket.
 }
 ```
 
-**Response:**
-```json
-[
-  {
-    "id": "21",
-    "name": "Start Progress",
-    "to_status": "In Progress",
-    "to_status_id": "3"
-  },
-  {
-    "id": "31",
-    "name": "Done",
-    "to_status": "Done",
-    "to_status_id": "10001"
-  }
-]
-```
-
-#### `jira_get_current_user`
+##### `jira_get_current_user`
 
 Get information about the authenticated user. No parameters required.
 
+### 📊 Activity Tracking & Weekly Reports
+
+These tools help you track your work and generate executive-style weekly reports.
+
+##### `log_jira_activity`
+
+Log when you work on a ticket (for weekly report tracking).
+
 ```json
-{}
+{
+  "ticket_key": "PROJ-123",
+  "action_type": "update",
+  "ticket_summary": "Fix login bug"
+}
+```
+
+**Action Types:** `view`, `create`, `update`, `comment`, `transition`, `link`, `other`
+
+##### `get_weekly_activity`
+
+Get summary of activity for a specific week.
+
+```json
+{
+  "week_offset": 0,
+  "project": "PROJ"
+}
 ```
 
 **Response:**
 ```json
 {
   "username": "john.doe",
-  "display_name": "John Doe",
-  "email": "john.doe@example.com",
-  "active": true,
-  "timezone": "America/New_York"
+  "week_start": "2026-01-13",
+  "week_end": "2026-01-19",
+  "total_activities": 15,
+  "unique_tickets": [
+    {"ticket_key": "PROJ-123", "ticket_summary": "Fix login bug", "action_count": 5}
+  ],
+  "by_action_type": {
+    "update": [...],
+    "comment": [...]
+  }
+}
+```
+
+##### `generate_weekly_report`
+
+Generate an executive-style weekly report (Markdown format).
+
+```json
+{
+  "week_offset": 0,
+  "include_details": true
+}
+```
+
+**Response includes:**
+- Title and summary
+- Key metrics (tickets worked on, created, updated, etc.)
+- Full Markdown report with tables
+
+##### `save_weekly_report`
+
+Save a generated report to the database.
+
+```json
+{
+  "week_offset": 0,
+  "custom_title": "Sprint 42 Report",
+  "custom_summary": "Focused on performance improvements"
+}
+```
+
+##### `list_saved_reports`
+
+List previously saved reports.
+
+```json
+{
+  "limit": 10
+}
+```
+
+##### `get_saved_report`
+
+Get a saved report by ID.
+
+```json
+{
+  "report_id": 1
+}
+```
+
+##### `delete_saved_report`
+
+Delete a saved report.
+
+```json
+{
+  "report_id": 1
+}
+```
+
+### 📋 Management Reports (AI-Generated)
+
+These tools store **AI-written** management reports. Cursor writes the content, these tools save it.
+
+##### `save_management_report`
+
+Save an AI-generated management report for high-level stakeholders.
+
+```json
+{
+  "title": "APPENG Project Progress - Week 3",
+  "executive_summary": "Completed OAuth integration and resolved 3 critical production issues. On track for Q1 milestone.",
+  "content": "# Project Progress Report\n\n## Highlights\n- Completed OAuth token refresh implementation\n- Fixed 3 critical production bugs\n\n## Key Deliverables\n- [APPENG-4112](https://jira.example.com/browse/APPENG-4112): OAuth integration\n- [APPENG-4256](https://jira.example.com/browse/APPENG-4256): Performance fix\n\n## Next Week\n- API rate limiting implementation\n- Documentation updates",
+  "project_key": "APPENG",
+  "report_period": "Week 3, January 2026",
+  "referenced_tickets": ["APPENG-4112", "APPENG-4256", "APPENG-4257"]
+}
+```
+
+##### `list_management_reports`
+
+List saved management reports, optionally filtered by project.
+
+```json
+{
+  "project_key": "APPENG",
+  "limit": 10
+}
+```
+
+##### `get_management_report`
+
+Get a saved management report with full content.
+
+```json
+{
+  "report_id": 1
+}
+```
+
+##### `update_management_report`
+
+Update an existing management report.
+
+```json
+{
+  "report_id": 1,
+  "executive_summary": "Updated summary with new information."
+}
+```
+
+##### `delete_management_report`
+
+Delete a management report.
+
+```json
+{
+  "report_id": 1
 }
 ```
 
@@ -485,14 +651,20 @@ jira-mcp/
 │       ├── server.py            # MCP server (stdio + SSE)
 │       ├── config.py            # Configuration management
 │       ├── jira_client.py       # Jira API client wrapper
+│       ├── db/                  # Database layer
+│       │   ├── __init__.py
+│       │   ├── database.py      # SQLite/PostgreSQL connection
+│       │   └── models.py        # SQLAlchemy models
 │       └── tools/
 │           ├── __init__.py      # Tools exports
 │           ├── tickets.py       # Ticket operations
 │           ├── comments.py      # Comment operations
 │           ├── discovery.py     # Discovery/metadata operations
+│           ├── reports.py       # Activity tracking & reports
 │           └── schemas.py       # Pydantic schemas
 ├── tests/                       # Test files
-├── Containerfile               # Red Hat UBI container build
+├── Containerfile               # Container build file
+├── docker-compose.yaml         # Full deployment stack
 ├── pyproject.toml              # Project configuration
 ├── requirements.txt            # Python dependencies
 └── README.md                   # This file
@@ -515,6 +687,12 @@ If you're using a self-signed certificate, set `JIRA_VERIFY_SSL=false` in your M
 - For SSE mode: Verify the MCP server is running and the port is accessible
 - For stdio mode: Check that the `jira-mcp` command is in your PATH or use the full path
 - Ensure the Jira server is accessible from your machine
+
+### Database Errors
+
+- Ensure the data directory is writable (`JIRA_MCP_DATA_DIR`)
+- For PostgreSQL: verify connection string and credentials
+- Check that SQLAlchemy and psycopg2-binary are installed
 
 ### Missing Environment Variables
 
