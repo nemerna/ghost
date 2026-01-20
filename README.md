@@ -1,703 +1,374 @@
 # Jira MCP Server
 
-A Model Context Protocol (MCP) server for Jira ticket management. This server enables AI assistants like Claude to interact with self-hosted Jira instances using Personal Access Token (PAT) authentication.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io/)
+
+A Model Context Protocol (MCP) server that connects Jira and GitHub to AI-powered IDEs. Developers spend less time writing status updates—the IDE pulls real data and drafts reports from actual activity.
+
+## Quick Start
+
+```bash
+# 1. Install
+git clone <repository-url> && cd jira-mcp
+python -m venv venv && source venv/bin/activate
+pip install -e .
+
+# 2. Run server
+jira-mcp --port 8080
+
+# 3. Configure Cursor IDE (.cursor/mcp.json)
+```
+
+```json
+{
+  "mcpServers": {
+    "jira": {
+      "url": "http://localhost:8080/jira",
+      "headers": {
+        "X-Jira-Server-URL": "https://jira.example.com",
+        "X-Jira-Token": "your-jira-pat"
+      }
+    },
+    "github": {
+      "url": "http://localhost:8080/github",
+      "headers": {
+        "X-GitHub-Token": "your-github-pat"
+      }
+    }
+  }
+}
+```
+
+## Overview
+
+Developers interact with Jira and GitHub daily. This server exposes those systems as structured MCP tools via separate endpoints, tracks activity locally, and generates weekly or management reports on demand. Credentials flow from the client via HTTP headers; the server stores only activity logs and reports.
+
+```mermaid
+flowchart TB
+    subgraph Client["MCP Client (Cursor)"]
+        IDE[AI Agent]
+        JiraConfig["Jira Config<br/>─────────<br/>X-Jira-Server-URL<br/>X-Jira-Token"]
+        GitHubConfig["GitHub Config<br/>─────────<br/>X-GitHub-Token"]
+    end
+
+    subgraph Server["MCP Server :8080"]
+        JiraSSE["/jira<br/>SSE Endpoint"]
+        GitHubSSE["/github<br/>SSE Endpoint"]
+        DB[(Activity DB)]
+    end
+
+    subgraph External["External Services"]
+        Jira[Jira Server]
+        GitHub[GitHub API]
+    end
+
+    JiraConfig -->|Headers| JiraSSE
+    GitHubConfig -->|Headers| GitHubSSE
+    IDE <-->|MCP| JiraSSE
+    IDE <-->|MCP| GitHubSSE
+    JiraSSE <-->|PAT| Jira
+    JiraSSE <--> DB
+    GitHubSSE <-->|PAT| GitHub
+```
+
+## Report Generation Flow
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant IDE as AI Agent
+    participant MCP as /jira Endpoint
+    participant DB as Activity DB
+    participant Jira as Jira Server
+
+    Note over Dev,Jira: Daily work
+    Dev->>IDE: Update ticket PROJ-123
+    IDE->>MCP: jira_update_ticket
+    MCP->>Jira: PUT /issue/PROJ-123
+    MCP->>DB: log_activity(update, PROJ-123)
+    MCP-->>IDE: Success
+
+    Note over Dev,Jira: End of week
+    Dev->>IDE: Generate my weekly report
+    IDE->>MCP: get_weekly_activity
+    MCP->>DB: Query week's activity
+    MCP-->>IDE: Activity summary
+    IDE->>MCP: save_management_report
+    MCP->>DB: Persist report
+    MCP-->>IDE: Report ID
+    IDE-->>Dev: Draft report ready
+```
 
 ## Features
 
-### Ticket Management
-- **List Tickets**: Search and filter tickets by assignee, project, component, epic, and status
-- **View Ticket Details**: Get full ticket information including description, components, labels, and comments
-- **Create Tickets**: Create new issues with customizable fields (type, assignee, components, epic, priority, labels)
-- **Update Tickets**: Modify ticket title, description, assignee, status, components, and priority
-- **Manage Comments**: Add, update, and delete comments
+### Jira Operations (`/jira` endpoint)
+- **Tickets** — List, view, create, update
+- **Comments** — Add, update, delete
+- **Hierarchy** — Link issues, create subtasks, set epics
+- **Metadata** — Projects, components, issue types, statuses, transitions, priorities
+- **Activity Tracking** — Log actions on tickets for later reporting
+- **Weekly Reports** — Generate Markdown reports from logged activity
+- **Management Reports** — Store AI-written summaries for stakeholders
 
-### Issue Hierarchy & Linking
-- **Link Issues**: Create relationships between issues (relates to, blocks, duplicates, etc.)
-- **Create Subtasks**: Add sub-tasks under parent issues
-- **Set Epic**: Associate issues with epics
-
-### Discovery/Metadata
-- **List Projects**: View all accessible projects
-- **List Components**: Get available components for a project
-- **List Issue Types**: Get available issue types (Task, Bug, Story, Epic, etc.)
-- **List Priorities**: Get available priority levels
-- **List Statuses**: Get available workflow statuses for a project
-- **Get Transitions**: See available workflow transitions for a ticket
-- **Get Current User**: Get authenticated user information
-
-### 📊 Activity Tracking & Reports (NEW)
-- **Log Activity**: Track your work on Jira tickets throughout the week
-- **Get Weekly Activity**: View summary of tickets worked on
-- **Generate Weekly Report**: Create activity-based reports from logged work
-- **Save Reports**: Persist reports to database for future reference
-
-### 📋 Management Reports (NEW)
-- **Save Management Report**: Store AI-generated project progress reports for stakeholders
-- **List/Get/Update/Delete**: Full CRUD for management reports
-- High-level, non-technical summaries with Jira links
-- Perfect for weekly status updates to management
+### GitHub Operations (`/github` endpoint)
+- **Pull Requests** — List, view details, files, commits, diff
+- **Reviews & Comments** — Fetch feedback threads, add comments
+- **Search** — Query PRs across repositories
 
 ## Requirements
 
 - Python 3.11+
-- Self-hosted Jira Server or Data Center instance
-- Personal Access Token (PAT) for authentication
+- Jira Server or Data Center with PAT authentication
+- (Optional) GitHub PAT for PR tools
 
 ## Installation
 
-### Local Development
+```bash
+git clone <repository-url>
+cd jira-mcp
+python -m venv venv
+source venv/bin/activate
+pip install -e .
+```
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd jira-mcp
-   ```
+## Creating Personal Access Tokens
 
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### Jira PAT
 
-3. Install the package:
-   ```bash
-   pip install -e .
-   ```
+1. Log in to your Jira instance
+2. Click your profile icon → **Profile**
+3. Go to **Personal Access Tokens** (left sidebar)
+4. Click **Create token**
+5. Enter a name (e.g., "MCP Server") and set expiration
+6. Click **Create** and copy the token immediately (it won't be shown again)
+
+**Required permissions:** The token inherits your Jira user permissions. Ensure you have access to the projects you want to query.
+
+### GitHub PAT
+
+1. Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
+2. Click **Generate new token (classic)**
+3. Enter a note (e.g., "MCP Server")
+4. Select scopes:
+   - `repo` — Full control of private repositories (or `public_repo` for public only)
+   - `read:org` — Read org membership (if querying org repos)
+5. Click **Generate token** and copy it immediately
+
+**For GitHub Enterprise:** Use the same process on your enterprise instance, then set the `X-GitHub-API-URL` header to your API endpoint (e.g., `https://github.yourcompany.com/api/v3`).
 
 ## Configuration
 
-The server requires two environment variables:
+### Client-Side Headers
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `JIRA_SERVER_URL` | Yes | Base URL of your Jira server (e.g., `https://jira.example.com`) |
-| `JIRA_PERSONAL_ACCESS_TOKEN` | Yes | Your Jira Personal Access Token |
-| `JIRA_VERIFY_SSL` | No | Verify SSL certificates (default: `true`, set to `false` for self-signed certs) |
-| `DATABASE_URL` | No | PostgreSQL URL (leave empty for SQLite) |
-| `JIRA_MCP_DATA_DIR` | No | Directory for SQLite database (default: `./data`) |
+Credentials are passed from the MCP client via headers. Each endpoint requires its own headers.
 
-### Creating a Personal Access Token
+**Jira (`/jira`):**
 
-1. Log in to your Jira instance
-2. Go to Profile → Personal Access Tokens
-3. Click "Create token"
-4. Give it a name and set expiration
-5. Copy the token (it won't be shown again)
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-Jira-Server-URL` | Yes | Jira base URL |
+| `X-Jira-Token` | Yes | Jira Personal Access Token |
+| `X-Jira-Verify-SSL` | No | `true` (default) or `false` |
 
-## Client Configuration
+**GitHub (`/github`):**
 
-### Cursor IDE (Recommended)
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-GitHub-Token` | Yes | GitHub PAT |
+| `X-GitHub-API-URL` | No | GitHub Enterprise API URL |
 
-Add the following to your Cursor MCP settings (`.cursor/mcp.json` or via Settings → MCP Servers):
+### Server-Side (Optional)
+
+Only needed for database configuration.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | — | PostgreSQL connection string |
+| `JIRA_MCP_DATA_DIR` | `./data` | SQLite storage directory |
+
+## Client Setup
+
+### Cursor IDE
+
+Configure two MCP servers in `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "jira": {
-      "command": "jira-mcp",
-      "env": {
-        "JIRA_SERVER_URL": "https://jira.your-company.com",
-        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token"
+      "url": "http://localhost:8080/jira",
+      "headers": {
+        "X-Jira-Server-URL": "https://jira.example.com",
+        "X-Jira-Token": "your-jira-pat"
+      }
+    },
+    "github": {
+      "url": "http://localhost:8080/github",
+      "headers": {
+        "X-GitHub-Token": "your-github-pat"
       }
     }
   }
 }
 ```
 
-If you installed in a virtual environment, use the full path:
+For GitHub Enterprise:
 
 ```json
 {
   "mcpServers": {
-    "jira": {
-      "command": "/path/to/your/venv/bin/jira-mcp",
-      "env": {
-        "JIRA_SERVER_URL": "https://jira.your-company.com",
-        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token"
+    "github": {
+      "url": "http://localhost:8080/github",
+      "headers": {
+        "X-GitHub-Token": "your-github-pat",
+        "X-GitHub-API-URL": "https://github.yourcompany.com/api/v3"
       }
     }
   }
 }
 ```
 
-For self-signed SSL certificates, add:
+## Running the Server
 
-```json
-{
-  "mcpServers": {
-    "jira": {
-      "command": "jira-mcp",
-      "env": {
-        "JIRA_SERVER_URL": "https://jira.your-company.com",
-        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token",
-        "JIRA_VERIFY_SSL": "false"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Add the following to your Claude Desktop configuration (`~/.config/claude/claude_desktop_config.json` on macOS/Linux or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
-
-```json
-{
-  "mcpServers": {
-    "jira": {
-      "command": "jira-mcp",
-      "env": {
-        "JIRA_SERVER_URL": "https://jira.your-company.com",
-        "JIRA_PERSONAL_ACCESS_TOKEN": "your-personal-access-token"
-      }
-    }
-  }
-}
-```
-
-### SSE Transport (HTTP Server Mode)
-
-For running as a shared HTTP server (e.g., for multiple users or containerized deployments):
+### Local
 
 ```bash
-# Set environment variables
-export JIRA_SERVER_URL=https://jira.example.com
-export JIRA_PERSONAL_ACCESS_TOKEN=your-token
-
-# Run with SSE transport
-jira-mcp --transport sse --host 0.0.0.0 --port 8080
+jira-mcp --host 0.0.0.0 --port 8080
 ```
 
-Then configure your MCP client to connect to the SSE endpoint:
-
-```json
-{
-  "mcpServers": {
-    "jira": {
-      "url": "http://localhost:8080/sse"
-    }
-  }
-}
-```
-
-## 🐳 Container Deployment
-
-### Quick Start with Docker Compose
-
-1. Copy the environment file and configure:
-   ```bash
-   cp env.example .env
-   # Edit .env with your Jira credentials
-   ```
-
-2. Start the server:
-   ```bash
-   # SQLite mode (default - simple, file-based)
-   docker-compose up -d jira-mcp
-
-   # PostgreSQL mode (production-ready)
-   docker-compose --profile postgres up -d
-   ```
-
-3. Access the server at `http://localhost:8080/sse`
-
-### Build Container Image
+### Docker
 
 ```bash
-# Using Podman
-podman build -t jira-mcp:latest -f Containerfile .
-
-# Using Docker
 docker build -t jira-mcp:latest -f Containerfile .
+docker run -d -p 8080:8080 -v jira-mcp-data:/app/data --name jira-mcp jira-mcp:latest
 ```
 
-### Run Container Manually
+### Docker Compose
 
 ```bash
-# With SQLite (data persisted in volume)
-docker run -d \
-  -p 8080:8080 \
-  -v jira-mcp-data:/app/data \
-  -e JIRA_SERVER_URL=https://jira.example.com \
-  -e JIRA_PERSONAL_ACCESS_TOKEN=your-token \
-  --name jira-mcp \
-  jira-mcp:latest
+# SQLite (default)
+docker-compose up -d jira-mcp
 
-# With PostgreSQL
-docker run -d \
-  -p 8080:8080 \
-  -e JIRA_SERVER_URL=https://jira.example.com \
-  -e JIRA_PERSONAL_ACCESS_TOKEN=your-token \
-  -e DATABASE_URL=postgresql://user:pass@host:5432/jira_mcp \
-  --name jira-mcp \
-  jira-mcp:latest
+# PostgreSQL
+docker-compose --profile postgres up -d
 ```
 
-## Usage
-
-### Command-Line Options
-
-```bash
-# Run with stdio transport (default, for Cursor/Claude Desktop)
-jira-mcp
-
-# Run with SSE transport (HTTP server mode)
-jira-mcp --transport sse --host 0.0.0.0 --port 8080
-
-# Show help
-jira-mcp --help
-```
-
-### MCP Tools
-
-#### Ticket Management
-
-##### `jira_list_tickets`
-
-List tickets with optional filters.
-
-```json
-{
-  "assignee": "john.doe",
-  "project": "PROJ",
-  "component": "Backend",
-  "epic_key": "PROJ-100",
-  "status": "In Progress",
-  "max_results": 50
-}
-```
-
-##### `jira_get_ticket`
-
-Get full details of a ticket.
-
-```json
-{
-  "ticket_key": "PROJ-123"
-}
-```
-
-##### `jira_create_ticket`
-
-Create a new ticket.
-
-```json
-{
-  "project": "PROJ",
-  "summary": "Implement new feature",
-  "description": "Detailed description here",
-  "issue_type": "Task",
-  "assignee": "john.doe",
-  "components": ["Backend", "API"],
-  "epic_key": "PROJ-100",
-  "priority": "High",
-  "labels": ["feature", "q1"]
-}
-```
-
-##### `jira_update_ticket`
-
-Update an existing ticket.
-
-```json
-{
-  "ticket_key": "PROJ-123",
-  "summary": "Updated title",
-  "description": "Updated description",
-  "assignee": "jane.doe",
-  "status": "In Progress",
-  "priority": "Critical"
-}
-```
-
-#### Comment Management
-
-##### `jira_add_comment`
-
-Add a comment to a ticket.
-
-```json
-{
-  "ticket_key": "PROJ-123",
-  "body": "This is a comment with *Jira markup* support."
-}
-```
-
-##### `jira_get_comments`
-
-Get comments from a ticket.
-
-```json
-{
-  "ticket_key": "PROJ-123",
-  "max_results": 20
-}
-```
-
-##### `jira_update_comment`
-
-Update an existing comment.
-
-```json
-{
-  "ticket_key": "PROJ-123",
-  "comment_id": "12345",
-  "body": "Updated comment text"
-}
-```
-
-##### `jira_delete_comment`
-
-Delete a comment.
-
-```json
-{
-  "ticket_key": "PROJ-123",
-  "comment_id": "12345"
-}
-```
-
-#### Issue Linking & Hierarchy
-
-##### `jira_link_issues`
-
-Link two issues together.
-
-```json
-{
-  "from_key": "PROJ-123",
-  "to_key": "PROJ-456",
-  "link_type": "blocks"
-}
-```
-
-##### `jira_create_subtask`
-
-Create a subtask under a parent issue.
-
-```json
-{
-  "parent_key": "PROJ-123",
-  "summary": "Subtask title",
-  "description": "Subtask description",
-  "assignee": "john.doe"
-}
-```
-
-##### `jira_set_epic`
-
-Set or change the epic for an issue.
-
-```json
-{
-  "issue_key": "PROJ-123",
-  "epic_key": "PROJ-100"
-}
-```
-
-#### Discovery/Metadata Tools
-
-##### `jira_list_projects`
-
-List all accessible projects. No parameters required.
-
-##### `jira_list_components`
-
-List components for a project.
-
-```json
-{
-  "project": "PROJ"
-}
-```
-
-##### `jira_list_issue_types`
-
-List issue types available for a project.
-
-```json
-{
-  "project": "PROJ"
-}
-```
-
-##### `jira_list_priorities`
-
-List all available priorities. No parameters required.
-
-##### `jira_list_statuses`
-
-List available statuses for a project.
-
-```json
-{
-  "project": "PROJ"
-}
-```
-
-##### `jira_get_transitions`
-
-Get available workflow transitions for a ticket.
-
-```json
-{
-  "ticket_key": "PROJ-123"
-}
-```
-
-##### `jira_get_current_user`
-
-Get information about the authenticated user. No parameters required.
-
-### 📊 Activity Tracking & Weekly Reports
-
-These tools help you track your work and generate executive-style weekly reports.
-
-##### `log_jira_activity`
-
-Log when you work on a ticket (for weekly report tracking).
-
-```json
-{
-  "ticket_key": "PROJ-123",
-  "action_type": "update",
-  "ticket_summary": "Fix login bug"
-}
-```
-
-**Action Types:** `view`, `create`, `update`, `comment`, `transition`, `link`, `other`
-
-##### `get_weekly_activity`
-
-Get summary of activity for a specific week.
-
-```json
-{
-  "week_offset": 0,
-  "project": "PROJ"
-}
-```
-
-**Response:**
-```json
-{
-  "username": "john.doe",
-  "week_start": "2026-01-13",
-  "week_end": "2026-01-19",
-  "total_activities": 15,
-  "unique_tickets": [
-    {"ticket_key": "PROJ-123", "ticket_summary": "Fix login bug", "action_count": 5}
-  ],
-  "by_action_type": {
-    "update": [...],
-    "comment": [...]
-  }
-}
-```
-
-##### `generate_weekly_report`
-
-Generate an executive-style weekly report (Markdown format).
-
-```json
-{
-  "week_offset": 0,
-  "include_details": true
-}
-```
-
-**Response includes:**
-- Title and summary
-- Key metrics (tickets worked on, created, updated, etc.)
-- Full Markdown report with tables
-
-##### `save_weekly_report`
-
-Save a generated report to the database.
-
-```json
-{
-  "week_offset": 0,
-  "custom_title": "Sprint 42 Report",
-  "custom_summary": "Focused on performance improvements"
-}
-```
-
-##### `list_saved_reports`
-
-List previously saved reports.
-
-```json
-{
-  "limit": 10
-}
-```
-
-##### `get_saved_report`
-
-Get a saved report by ID.
-
-```json
-{
-  "report_id": 1
-}
-```
-
-##### `delete_saved_report`
-
-Delete a saved report.
-
-```json
-{
-  "report_id": 1
-}
-```
-
-### 📋 Management Reports (AI-Generated)
-
-These tools store **AI-written** management reports. Cursor writes the content, these tools save it.
-
-##### `save_management_report`
-
-Save an AI-generated management report for high-level stakeholders.
-
-```json
-{
-  "title": "APPENG Project Progress - Week 3",
-  "executive_summary": "Completed OAuth integration and resolved 3 critical production issues. On track for Q1 milestone.",
-  "content": "# Project Progress Report\n\n## Highlights\n- Completed OAuth token refresh implementation\n- Fixed 3 critical production bugs\n\n## Key Deliverables\n- [APPENG-4112](https://jira.example.com/browse/APPENG-4112): OAuth integration\n- [APPENG-4256](https://jira.example.com/browse/APPENG-4256): Performance fix\n\n## Next Week\n- API rate limiting implementation\n- Documentation updates",
-  "project_key": "APPENG",
-  "report_period": "Week 3, January 2026",
-  "referenced_tickets": ["APPENG-4112", "APPENG-4256", "APPENG-4257"]
-}
-```
-
-##### `list_management_reports`
-
-List saved management reports, optionally filtered by project.
-
-```json
-{
-  "project_key": "APPENG",
-  "limit": 10
-}
-```
-
-##### `get_management_report`
-
-Get a saved management report with full content.
-
-```json
-{
-  "report_id": 1
-}
-```
-
-##### `update_management_report`
-
-Update an existing management report.
-
-```json
-{
-  "report_id": 1,
-  "executive_summary": "Updated summary with new information."
-}
-```
-
-##### `delete_management_report`
-
-Delete a management report.
-
-```json
-{
-  "report_id": 1
-}
-```
-
-## Development
-
-### Install Development Dependencies
-
-```bash
-pip install -e ".[dev]"
-```
-
-### Run Tests
-
-```bash
-pytest
-```
-
-### Code Formatting
-
-```bash
-black src/ tests/
-ruff check src/ tests/
-```
-
-### Type Checking
-
-```bash
-mypy src/
-```
+## Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `/health` | Health check |
+| `/jira` | Jira MCP tools (SSE) |
+| `/jira/messages/` | Jira message handler |
+| `/github` | GitHub MCP tools (SSE) |
+| `/github/messages/` | GitHub message handler |
+
+## Tool Reference
+
+### Jira Tools (`/jira`)
+
+| Tool | Description |
+|------|-------------|
+| `jira_list_tickets` | Search tickets by assignee, project, component, epic, status |
+| `jira_get_ticket` | Get full ticket details |
+| `jira_create_ticket` | Create a new ticket |
+| `jira_update_ticket` | Update fields or transition status |
+| `jira_add_comment` | Add a comment |
+| `jira_get_comments` | List comments |
+| `jira_update_comment` | Edit a comment |
+| `jira_delete_comment` | Delete a comment |
+| `jira_link_issues` | Link two issues |
+| `jira_create_subtask` | Create a subtask |
+| `jira_set_epic` | Assign an issue to an epic |
+| `jira_list_projects` | List accessible projects |
+| `jira_list_components` | List components for a project |
+| `jira_list_issue_types` | List issue types for a project |
+| `jira_list_priorities` | List priority levels |
+| `jira_list_statuses` | List statuses for a project |
+| `jira_get_transitions` | Get available transitions for a ticket |
+| `jira_get_current_user` | Get authenticated user info |
+| `log_jira_activity` | Record work on a ticket |
+| `get_weekly_activity` | Summarize activity for a week |
+| `generate_weekly_report` | Generate Markdown report |
+| `save_weekly_report` | Persist report to database |
+| `list_saved_reports` | List saved reports |
+| `get_saved_report` | Retrieve a report by ID |
+| `delete_saved_report` | Delete a report |
+| `save_management_report` | Store AI-generated stakeholder report |
+| `list_management_reports` | List reports, optionally by project |
+| `get_management_report` | Retrieve full report content |
+| `update_management_report` | Edit an existing report |
+| `delete_management_report` | Delete a report |
+
+### GitHub Tools (`/github`)
+
+| Tool | Description |
+|------|-------------|
+| `github_list_prs` | List PRs for a repository |
+| `github_get_pr` | Get PR details |
+| `github_get_pr_diff` | Get unified diff |
+| `github_get_pr_files` | List changed files with patches |
+| `github_get_pr_commits` | List commits in PR |
+| `github_get_pr_reviews` | Get reviews |
+| `github_get_pr_comments` | Get issue and review comments |
+| `github_add_pr_comment` | Add a comment to a PR |
+| `github_search_prs` | Search PRs across repositories |
+| `github_get_current_user` | Get authenticated GitHub user |
+
+## Example Prompts
+
+- *"List my in-progress Jira tickets and summarize blockers."*
+- *"Generate my weekly report and save it."*
+- *"Show open PRs for org/repo and summarize review feedback."*
+- *"Write a management report for PROJ using this week's activity."*
 
 ## Project Structure
 
 ```
 jira-mcp/
-├── src/
-│   └── jira_mcp/
-│       ├── __init__.py          # Package initialization
-│       ├── server.py            # MCP server (stdio + SSE)
-│       ├── config.py            # Configuration management
-│       ├── jira_client.py       # Jira API client wrapper
-│       ├── db/                  # Database layer
-│       │   ├── __init__.py
-│       │   ├── database.py      # SQLite/PostgreSQL connection
-│       │   └── models.py        # SQLAlchemy models
-│       └── tools/
-│           ├── __init__.py      # Tools exports
-│           ├── tickets.py       # Ticket operations
-│           ├── comments.py      # Comment operations
-│           ├── discovery.py     # Discovery/metadata operations
-│           ├── reports.py       # Activity tracking & reports
-│           └── schemas.py       # Pydantic schemas
-├── tests/                       # Test files
-├── Containerfile               # Container build file
-├── docker-compose.yaml         # Full deployment stack
-├── pyproject.toml              # Project configuration
-├── requirements.txt            # Python dependencies
-└── README.md                   # This file
+├── src/jira_mcp/
+│   ├── server.py           # SSE transport, /jira and /github endpoints
+│   ├── jira_client.py      # Jira API wrapper
+│   ├── github_client.py    # GitHub API wrapper
+│   ├── config.py           # Configuration helpers
+│   ├── db/
+│   │   ├── database.py     # Database connection
+│   │   └── models.py       # SQLAlchemy models
+│   └── tools/
+│       ├── tickets.py      # Ticket tools
+│       ├── comments.py     # Comment tools
+│       ├── discovery.py    # Metadata tools
+│       ├── reports.py      # Activity and report tools
+│       └── schemas.py      # Pydantic schemas
+├── tests/
+├── Containerfile
+├── docker-compose.yaml
+├── pyproject.toml
+└── README.md
 ```
 
 ## Troubleshooting
 
-### SSL Certificate Errors
+| Issue | Resolution |
+|-------|------------|
+| SSL errors | Set `X-Jira-Verify-SSL: false` in client headers |
+| Auth failures | Verify PAT is valid and has required permissions |
+| Connection refused | Confirm server is running and endpoint is reachable |
+| Database errors | Check `JIRA_MCP_DATA_DIR` is writable or `DATABASE_URL` is correct |
+| Missing headers | Ensure client sends required headers for the endpoint |
+| Tools not loading | Restart Cursor after updating `.cursor/mcp.json` |
 
-If you're using a self-signed certificate, set `JIRA_VERIFY_SSL=false` in your MCP client configuration.
+## Development
 
-### Authentication Errors
-
-- Verify your PAT is valid and not expired
-- Ensure the PAT has the necessary permissions for the operations you're performing
-- Check that the Jira server URL is correct (no trailing slash)
-
-### Connection Refused
-
-- For SSE mode: Verify the MCP server is running and the port is accessible
-- For stdio mode: Check that the `jira-mcp` command is in your PATH or use the full path
-- Ensure the Jira server is accessible from your machine
-
-### Database Errors
-
-- Ensure the data directory is writable (`JIRA_MCP_DATA_DIR`)
-- For PostgreSQL: verify connection string and credentials
-- Check that SQLAlchemy and psycopg2-binary are installed
-
-### Missing Environment Variables
-
-If you see "JIRA_SERVER_URL environment variable is required", make sure you've configured the environment variables in your MCP client settings (not in a `.env` file on the server).
+```bash
+pip install -e ".[dev]"
+pytest
+black src/ tests/
+ruff check src/ tests/
+mypy src/
+```
 
 ## License
 
-MIT License - See LICENSE file for details.
+MIT

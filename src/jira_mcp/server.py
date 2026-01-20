@@ -1,4 +1,4 @@
-"""MCP Server for Jira with stdio and SSE transport support."""
+"""MCP Server for Jira and GitHub with separate SSE endpoints."""
 
 import argparse
 import asyncio
@@ -10,7 +10,6 @@ from contextvars import ContextVar
 from typing import Any, Optional
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from jira_mcp.jira_client import JiraClient, JiraClientError
@@ -54,6 +53,7 @@ from jira_mcp.tools.schemas import (
     GitHubGetPRCommitsInput,
     GitHubGetPRReviewsInput,
     GitHubGetPRCommentsInput,
+    GitHubAddPRCommentInput,
     GitHubSearchPRsInput,
 )
 
@@ -65,20 +65,13 @@ from jira_mcp.db import init_db
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
-# Create MCP Server
-mcp_server = Server("jira-mcp")
+# Create separate MCP Servers for Jira and GitHub
+jira_mcp_server = Server("jira-mcp")
+github_mcp_server = Server("github-mcp")
 
-# Context variable for per-connection Jira client (used in SSE mode)
+# Context variables for per-connection clients (SSE mode)
 _jira_client_ctx: ContextVar[Optional[JiraClient]] = ContextVar("jira_client", default=None)
-
-# Context variable for per-connection GitHub client (used in SSE mode)
 _github_client_ctx: ContextVar[Optional[GitHubClient]] = ContextVar("github_client", default=None)
-
-# Global Jira client for stdio mode
-_jira_client_global: Optional[JiraClient] = None
-
-# Global GitHub client for stdio mode
-_github_client_global: Optional[GitHubClient] = None
 
 
 def create_jira_client(
@@ -86,26 +79,11 @@ def create_jira_client(
     token: Optional[str] = None,
     verify_ssl: bool = True,
 ) -> JiraClient:
-    """Create a Jira client with the given or environment configuration."""
-    # Use provided values or fall back to environment variables
-    server_url = server_url or os.environ.get("JIRA_SERVER_URL")
-    token = token or os.environ.get("JIRA_PERSONAL_ACCESS_TOKEN")
-    
-    if verify_ssl is True:
-        # Check environment variable
-        env_verify = os.environ.get("JIRA_VERIFY_SSL", "true").lower()
-        verify_ssl = env_verify in ("true", "1", "yes")
-    
+    """Create a Jira client with the given configuration."""
     if not server_url:
-        raise ValueError(
-            "Jira server URL is required. "
-            "Set X-Jira-Server-URL header or JIRA_SERVER_URL environment variable."
-        )
+        raise ValueError("Jira server URL is required. Set X-Jira-Server-URL header.")
     if not token:
-        raise ValueError(
-            "Jira token is required. "
-            "Set X-Jira-Token header or JIRA_PERSONAL_ACCESS_TOKEN environment variable."
-        )
+        raise ValueError("Jira token is required. Set X-Jira-Token header.")
     
     return JiraClient(
         server_url=server_url,
@@ -115,31 +93,20 @@ def create_jira_client(
 
 
 def get_jira_client() -> JiraClient:
-    """Get Jira client from context (SSE) or global (stdio)."""
-    # First try context variable (set per SSE connection)
+    """Get Jira client from context."""
     client = _jira_client_ctx.get()
-    if client is not None:
-        return client
-    
-    # Fall back to global client (stdio mode)
-    global _jira_client_global
-    if _jira_client_global is None:
-        _jira_client_global = create_jira_client()
-    return _jira_client_global
+    if client is None:
+        raise ValueError("Jira client not configured. Ensure X-Jira-Server-URL and X-Jira-Token headers are set.")
+    return client
 
 
 def create_github_client(
     token: Optional[str] = None,
     api_url: Optional[str] = None,
-) -> Optional[GitHubClient]:
-    """Create a GitHub client with the given or environment configuration."""
-    # Use provided values or fall back to environment variables
-    token = token or os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
-    api_url = api_url or os.environ.get("GITHUB_API_URL")
-    
+) -> GitHubClient:
+    """Create a GitHub client with the given configuration."""
     if not token:
-        # GitHub is optional, return None if not configured
-        return None
+        raise ValueError("GitHub token is required. Set X-GitHub-Token header.")
     
     return GitHubClient(
         token=token,
@@ -148,29 +115,18 @@ def create_github_client(
 
 
 def get_github_client() -> GitHubClient:
-    """Get GitHub client from context (SSE) or global (stdio)."""
-    # First try context variable (set per SSE connection)
+    """Get GitHub client from context."""
     client = _github_client_ctx.get()
-    if client is not None:
-        return client
-    
-    # Fall back to global client (stdio mode)
-    global _github_client_global
-    if _github_client_global is None:
-        _github_client_global = create_github_client()
-    
-    if _github_client_global is None:
-        raise ValueError(
-            "GitHub client is not configured. "
-            "Set GITHUB_PERSONAL_ACCESS_TOKEN environment variable or X-GitHub-Token header."
-        )
-    
-    return _github_client_global
+    if client is None:
+        raise ValueError("GitHub client not configured. Ensure X-GitHub-Token header is set.")
+    return client
 
 
-# --- MCP Tool Definitions ---
+# =============================================================================
+# Jira Tools
+# =============================================================================
 
-TOOLS: list[Tool] = [
+JIRA_TOOLS: list[Tool] = [
     Tool(
         name="jira_list_tickets",
         description="List Jira tickets with optional filters. Returns ticket summaries including key, summary, status, assignee, and priority.",
@@ -814,7 +770,14 @@ Avoid: Technical details, implementation specifics, code-level information.""",
             "required": ["report_id"],
         },
     ),
-    # --- GitHub Pull Request Tools ---
+]
+
+
+# =============================================================================
+# GitHub Tools
+# =============================================================================
+
+GITHUB_TOOLS: list[Tool] = [
     Tool(
         name="github_list_prs",
         description="List pull requests for a GitHub repository. Returns PR summaries including number, title, state, author, and branches.",
@@ -1057,6 +1020,36 @@ Avoid: Technical details, implementation specifics, code-level information.""",
         },
     ),
     Tool(
+        name="github_add_pr_comment",
+        description="Add a comment to a pull request or reply to an existing review thread. Provide in_reply_to to post a reply to a review comment.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Comment body (Markdown).",
+                },
+                "in_reply_to": {
+                    "type": "integer",
+                    "description": "Optional review comment ID to reply to. If provided, posts a reply in the review thread.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number", "body"],
+        },
+    ),
+    Tool(
         name="github_search_prs",
         description="Search for pull requests across GitHub repositories. Use GitHub search qualifiers like 'author:username', 'repo:owner/repo', 'state:open', 'label:bug', 'is:merged'.",
         inputSchema={
@@ -1106,23 +1099,22 @@ Avoid: Technical details, implementation specifics, code-level information.""",
 ]
 
 
-@mcp_server.list_tools()
-async def list_tools() -> list[Tool]:
-    """List available MCP tools."""
-    return TOOLS
+# =============================================================================
+# Jira MCP Server Handlers
+# =============================================================================
+
+@jira_mcp_server.list_tools()
+async def list_jira_tools() -> list[Tool]:
+    """List available Jira MCP tools."""
+    return JIRA_TOOLS
 
 
-@mcp_server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle tool calls from MCP clients."""
+@jira_mcp_server.call_tool()
+async def call_jira_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle Jira tool calls from MCP clients."""
     try:
-        # Route to appropriate client based on tool prefix
-        if name.startswith("github_"):
-            github_client = get_github_client()
-            result = await _execute_github_tool(name, arguments, github_client)
-        else:
-            jira_client = get_jira_client()
-            result = await _execute_tool(name, arguments, jira_client)
+        jira_client = get_jira_client()
+        result = await _execute_jira_tool(name, arguments, jira_client)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except JiraClientError as e:
         error_response = {
@@ -1131,6 +1123,32 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             "status_code": e.status_code,
         }
         return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
+    except Exception as e:
+        logger.exception(f"Error executing Jira tool {name}")
+        error_response = {
+            "error": True,
+            "message": str(e),
+        }
+        return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
+
+
+# =============================================================================
+# GitHub MCP Server Handlers
+# =============================================================================
+
+@github_mcp_server.list_tools()
+async def list_github_tools() -> list[Tool]:
+    """List available GitHub MCP tools."""
+    return GITHUB_TOOLS
+
+
+@github_mcp_server.call_tool()
+async def call_github_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle GitHub tool calls from MCP clients."""
+    try:
+        github_client = get_github_client()
+        result = await _execute_github_tool(name, arguments, github_client)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except GitHubClientError as e:
         error_response = {
             "error": True,
@@ -1139,7 +1157,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         }
         return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
     except Exception as e:
-        logger.exception(f"Error executing tool {name}")
+        logger.exception(f"Error executing GitHub tool {name}")
         error_response = {
             "error": True,
             "message": str(e),
@@ -1147,10 +1165,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
 
 
-async def _execute_tool(
+# =============================================================================
+# Tool Execution
+# =============================================================================
+
+async def _execute_jira_tool(
     name: str, arguments: dict[str, Any], jira_client: JiraClient
 ) -> dict[str, Any] | list[dict[str, Any]]:
-    """Execute a specific tool and return the result."""
+    """Execute a Jira tool and return the result."""
 
     if name == "jira_list_tickets":
         input_data = ListTicketsInput(**arguments)
@@ -1280,14 +1302,12 @@ async def _execute_tool(
 
     elif name == "log_jira_activity":
         input_data = LogActivityInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
         action_details = None
         if input_data.action_details:
             try:
-                import json
                 action_details = json.loads(input_data.action_details)
             except json.JSONDecodeError:
                 action_details = {"raw": input_data.action_details}
@@ -1302,7 +1322,6 @@ async def _execute_tool(
 
     elif name == "get_weekly_activity":
         input_data = GetWeeklyActivityInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
@@ -1314,7 +1333,6 @@ async def _execute_tool(
 
     elif name == "generate_weekly_report":
         input_data = GenerateWeeklyReportInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
@@ -1326,7 +1344,6 @@ async def _execute_tool(
 
     elif name == "save_weekly_report":
         input_data = SaveWeeklyReportInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
@@ -1339,7 +1356,6 @@ async def _execute_tool(
 
     elif name == "list_saved_reports":
         input_data = ListSavedReportsInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
@@ -1364,7 +1380,6 @@ async def _execute_tool(
 
     elif name == "save_management_report":
         input_data = SaveManagementReportInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
@@ -1381,7 +1396,6 @@ async def _execute_tool(
 
     elif name == "list_management_reports":
         input_data = ListManagementReportsInput(**arguments)
-        # Get username from Jira client
         user_info = jira_client.get_current_user()
         username = user_info.get("username", "unknown")
         
@@ -1416,13 +1430,13 @@ async def _execute_tool(
         )
 
     else:
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown Jira tool: {name}")
 
 
 async def _execute_github_tool(
     name: str, arguments: dict[str, Any], github_client: GitHubClient
 ) -> dict[str, Any] | list[dict[str, Any]] | str:
-    """Execute a GitHub-specific tool and return the result."""
+    """Execute a GitHub tool and return the result."""
 
     if name == "github_list_prs":
         input_data = GitHubListPRsInput(**arguments)
@@ -1494,6 +1508,23 @@ async def _execute_github_tool(
             page=input_data.page,
         )
 
+    elif name == "github_add_pr_comment":
+        input_data = GitHubAddPRCommentInput(**arguments)
+        if input_data.in_reply_to is not None:
+            return github_client.reply_pull_request_comment(
+                owner=input_data.owner,
+                repo=input_data.repo,
+                pr_number=input_data.pr_number,
+                comment_id=input_data.in_reply_to,
+                body=input_data.body,
+            )
+        return github_client.add_pull_request_comment(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            body=input_data.body,
+        )
+
     elif name == "github_search_prs":
         input_data = GitHubSearchPRsInput(**arguments)
         return github_client.search_pull_requests(
@@ -1511,20 +1542,9 @@ async def _execute_github_tool(
         raise ValueError(f"Unknown GitHub tool: {name}")
 
 
-# --- Transport Implementations ---
-
-
-async def run_stdio() -> None:
-    """Run the MCP server with stdio transport (for Cursor/Claude Desktop)."""
-    logger.info("Starting Jira MCP server with stdio transport")
-    
-    async with stdio_server() as (read_stream, write_stream):
-        await mcp_server.run(
-            read_stream,
-            write_stream,
-            mcp_server.create_initialization_options(),
-        )
-
+# =============================================================================
+# SSE Transport
+# =============================================================================
 
 async def run_sse(host: str, port: int) -> None:
     """Run the MCP server with SSE transport (HTTP server mode)."""
@@ -1536,45 +1556,43 @@ async def run_sse(host: str, port: int) -> None:
     from starlette.routing import Mount, Route
     from starlette.types import Receive, Scope, Send
 
-    logger.info(f"Starting Jira MCP server with SSE transport on {host}:{port}")
+    logger.info(f"Starting MCP server with SSE transport on {host}:{port}")
+    logger.info("Endpoints: /jira (Jira tools), /github (GitHub tools)")
 
-    # SSE Transport
-    sse_transport = SseServerTransport("/messages/")
+    # Separate SSE transports for each server
+    jira_sse_transport = SseServerTransport("/jira/messages/")
+    github_sse_transport = SseServerTransport("/github/messages/")
 
     async def health_check(request: Request) -> JSONResponse:
         """Health check endpoint."""
-        return JSONResponse({"status": "healthy"})
+        return JSONResponse({
+            "status": "healthy",
+            "endpoints": {
+                "jira": "/jira",
+                "github": "/github",
+            }
+        })
 
-    async def handle_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle SSE connection as raw ASGI app."""
-        # Extract headers from scope
-        headers = dict(scope.get("headers", []))
-        
-        # Get Jira configuration from headers (case-insensitive)
-        server_url = None
-        token = None
-        verify_ssl = True
-        
-        # Get GitHub configuration from headers
-        github_token = None
-        github_api_url = None
-        
-        for key, value in headers.items():
-            key_lower = key.decode("utf-8").lower() if isinstance(key, bytes) else key.lower()
+    def extract_headers(scope: Scope) -> dict[str, str]:
+        """Extract headers from ASGI scope as string dict."""
+        headers = {}
+        for key, value in scope.get("headers", []):
+            key_str = key.decode("utf-8").lower() if isinstance(key, bytes) else key.lower()
             value_str = value.decode("utf-8") if isinstance(value, bytes) else value
-            
-            if key_lower == "x-jira-server-url":
-                server_url = value_str
-            elif key_lower == "x-jira-token":
-                token = value_str
-            elif key_lower == "x-jira-verify-ssl":
-                verify_ssl = value_str.lower() in ("true", "1", "yes")
-            elif key_lower == "x-github-token":
-                github_token = value_str
-            elif key_lower == "x-github-api-url":
-                github_api_url = value_str
+            headers[key_str] = value_str
+        return headers
+
+    async def handle_jira_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
+        """Handle Jira SSE connection."""
+        headers = extract_headers(scope)
         
-        # Create Jira client and set in context
+        # Extract Jira configuration from headers
+        server_url = headers.get("x-jira-server-url")
+        token = headers.get("x-jira-token")
+        verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
+        verify_ssl = verify_ssl_str.lower() in ("true", "1", "yes")
+        
+        # Create and set Jira client
         try:
             client = create_jira_client(
                 server_url=server_url,
@@ -1582,39 +1600,64 @@ async def run_sse(host: str, port: int) -> None:
                 verify_ssl=verify_ssl,
             )
             _jira_client_ctx.set(client)
-            logger.info(f"SSE connection established with Jira server: {client.server_url}")
+            logger.info(f"Jira SSE connection: {client.server_url}")
         except ValueError as e:
-            logger.warning(f"Jira client configuration: {e}")
-            # Will fail when tool is called if not configured
+            logger.warning(f"Jira client config error: {e}")
         
-        # Create GitHub client and set in context (optional)
-        github_client = create_github_client(
-            token=github_token,
-            api_url=github_api_url,
-        )
-        if github_client:
-            _github_client_ctx.set(github_client)
-            logger.info(f"GitHub client configured with API: {github_client.api_url}")
-        
-        async with sse_transport.connect_sse(scope, receive, send) as streams:
-            await mcp_server.run(
+        async with jira_sse_transport.connect_sse(scope, receive, send) as streams:
+            await jira_mcp_server.run(
                 streams[0],
                 streams[1],
-                mcp_server.create_initialization_options(),
+                jira_mcp_server.create_initialization_options(),
             )
 
-    async def handle_sse(request: Request) -> Response:
-        """Handle SSE connection - wrapper for Starlette Route."""
-        await handle_sse_raw(request.scope, request.receive, request._send)
+    async def handle_github_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
+        """Handle GitHub SSE connection."""
+        headers = extract_headers(scope)
+        
+        # Extract GitHub configuration from headers
+        token = headers.get("x-github-token")
+        api_url = headers.get("x-github-api-url")
+        
+        # Create and set GitHub client
+        try:
+            client = create_github_client(
+                token=token,
+                api_url=api_url,
+            )
+            _github_client_ctx.set(client)
+            logger.info(f"GitHub SSE connection: {client.api_url}")
+        except ValueError as e:
+            logger.warning(f"GitHub client config error: {e}")
+        
+        async with github_sse_transport.connect_sse(scope, receive, send) as streams:
+            await github_mcp_server.run(
+                streams[0],
+                streams[1],
+                github_mcp_server.create_initialization_options(),
+            )
+
+    async def handle_jira_sse(request: Request) -> Response:
+        """Handle Jira SSE connection - Starlette wrapper."""
+        await handle_jira_sse_raw(request.scope, request.receive, request._send)
         return Response()
 
-    # Create Starlette app with routes
+    async def handle_github_sse(request: Request) -> Response:
+        """Handle GitHub SSE connection - Starlette wrapper."""
+        await handle_github_sse_raw(request.scope, request.receive, request._send)
+        return Response()
+
+    # Create Starlette app with separate routes for Jira and GitHub
     app = Starlette(
         debug=False,
         routes=[
             Route("/health", endpoint=health_check, methods=["GET"]),
-            Route("/sse", endpoint=handle_sse, methods=["GET"]),
-            Mount("/messages/", app=sse_transport.handle_post_message),
+            # Jira endpoints
+            Route("/jira", endpoint=handle_jira_sse, methods=["GET"]),
+            Mount("/jira/messages/", app=jira_sse_transport.handle_post_message),
+            # GitHub endpoints
+            Route("/github", endpoint=handle_github_sse, methods=["GET"]),
+            Mount("/github/messages/", app=github_sse_transport.handle_post_message),
         ],
     )
 
@@ -1635,59 +1678,40 @@ def main() -> None:
     logger.info("Database initialized")
     
     parser = argparse.ArgumentParser(
-        description="Jira MCP Server - Model Context Protocol server for Jira",
+        description="Jira/GitHub MCP Server - Model Context Protocol server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Run with stdio transport (default, for Cursor/Claude Desktop)
-  jira-mcp
+Endpoints:
+  /jira     Jira tools (tickets, comments, reports)
+  /github   GitHub tools (PRs, reviews, comments)
 
-  # Run with SSE transport (HTTP server mode)
-  jira-mcp --transport sse --host 0.0.0.0 --port 8080
+Jira Headers:
+  X-Jira-Server-URL    Jira server URL (required)
+  X-Jira-Token         Personal Access Token (required)
+  X-Jira-Verify-SSL    Verify SSL (default: true)
 
-Configuration:
-  For stdio transport: Set environment variables or pass via MCP client config
-  For SSE transport: Set via HTTP headers or environment variables
+GitHub Headers:
+  X-GitHub-Token       Personal Access Token (required)
+  X-GitHub-API-URL     API URL for Enterprise (optional)
 
-  Headers (SSE mode):
-    X-Jira-Server-URL    Jira server URL
-    X-Jira-Token         Personal Access Token  
-    X-Jira-Verify-SSL    Verify SSL (true/false)
-    X-GitHub-Token       GitHub Personal Access Token (optional)
-    X-GitHub-API-URL     GitHub API URL for Enterprise (optional)
-
-  Environment Variables:
-    JIRA_SERVER_URL                Jira server URL
-    JIRA_PERSONAL_ACCESS_TOKEN     Personal Access Token
-    JIRA_VERIFY_SSL                Verify SSL certificates (default: true)
-    GITHUB_PERSONAL_ACCESS_TOKEN   GitHub PAT (optional, for PR tools)
-    GITHUB_API_URL                 GitHub API URL for Enterprise (optional)
+Example:
+  jira-mcp --host 0.0.0.0 --port 8080
         """,
-    )
-    parser.add_argument(
-        "--transport",
-        choices=["stdio", "sse"],
-        default="stdio",
-        help="Transport type: 'stdio' for Cursor/Claude Desktop, 'sse' for HTTP server (default: stdio)",
     )
     parser.add_argument(
         "--host",
         default="0.0.0.0",
-        help="Host address for SSE transport (default: 0.0.0.0)",
+        help="Host address (default: 0.0.0.0)",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=8080,
-        help="Port for SSE transport (default: 8080)",
+        help="Port (default: 8080)",
     )
 
     args = parser.parse_args()
-
-    if args.transport == "stdio":
-        asyncio.run(run_stdio())
-    else:
-        asyncio.run(run_sse(args.host, args.port))
+    asyncio.run(run_sse(args.host, args.port))
 
 
 if __name__ == "__main__":

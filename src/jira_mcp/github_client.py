@@ -49,6 +49,7 @@ class GitHubClient:
         endpoint: str,
         params: Optional[dict[str, Any]] = None,
         headers: Optional[dict[str, str]] = None,
+        json_body: Optional[dict[str, Any]] = None,
     ) -> Any:
         """Make an HTTP request to the GitHub API."""
         url = f"{self._api_url}{endpoint}"
@@ -60,6 +61,7 @@ class GitHubClient:
                     method=method,
                     url=url,
                     params=params,
+                    json=json_body,
                     headers=request_headers,
                 )
 
@@ -102,6 +104,15 @@ class GitHubClient:
     ) -> Any:
         """Make a GET request to the GitHub API."""
         return self._request("GET", endpoint, params=params, headers=headers)
+
+    def _post(
+        self,
+        endpoint: str,
+        json_body: dict[str, Any],
+        headers: Optional[dict[str, str]] = None,
+    ) -> Any:
+        """Make a POST request to the GitHub API."""
+        return self._request("POST", endpoint, headers=headers, json_body=json_body)
 
     # --- Pull Request Methods ---
 
@@ -404,6 +415,74 @@ class GitHubClient:
                 }
                 for c in review_comments
             ],
+        }
+
+    def add_pull_request_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        body: str,
+    ) -> dict[str, Any]:
+        """
+        Add a general (issue) comment to a pull request.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            body: Comment body (Markdown)
+
+        Returns:
+            Created comment details
+        """
+        comment = self._post(
+            f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
+            json_body={"body": body},
+        )
+
+        return {
+            "id": comment["id"],
+            "user": comment["user"]["login"] if comment["user"] else None,
+            "body": comment["body"],
+            "created_at": comment["created_at"],
+            "updated_at": comment["updated_at"],
+            "url": comment["html_url"],
+        }
+
+    def reply_pull_request_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        comment_id: int,
+        body: str,
+    ) -> dict[str, Any]:
+        """
+        Reply to an existing pull request review comment thread.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            comment_id: Review comment ID to reply to
+            body: Reply body (Markdown)
+
+        Returns:
+            Created reply comment details
+        """
+        comment = self._post(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/comments",
+            json_body={"body": body, "in_reply_to": comment_id},
+        )
+
+        return {
+            "id": comment["id"],
+            "user": comment["user"]["login"] if comment["user"] else None,
+            "body": comment["body"],
+            "created_at": comment["created_at"],
+            "updated_at": comment["updated_at"],
+            "url": comment["html_url"],
         }
 
     def search_pull_requests(

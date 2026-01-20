@@ -752,6 +752,32 @@ class GitHubGetPRCommentsInput(BaseModel):
     )
 
 
+class GitHubAddPRCommentInput(BaseModel):
+    """Input schema for github_add_pr_comment tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    body: str = Field(
+        ...,
+        min_length=1,
+        description="Comment body (Markdown).",
+    )
+    in_reply_to: Optional[int] = Field(
+        default=None,
+        description="Optional review comment ID to reply to. If provided, posts a reply in the review thread.",
+    )
+
+
 class GitHubSearchPRsInput(BaseModel):
     """Input schema for github_search_prs tool."""
 
