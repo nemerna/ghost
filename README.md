@@ -35,6 +35,12 @@ jira-mcp --port 8080
       "headers": {
         "X-GitHub-Token": "your-github-pat"
       }
+    },
+    "reports": {
+      "url": "http://localhost:8080/reports",
+      "headers": {
+        "X-Username": "your-username"
+      }
     }
   }
 }
@@ -50,11 +56,13 @@ flowchart TB
         IDE[AI Agent]
         JiraConfig["Jira Config<br/>─────────<br/>X-Jira-Server-URL<br/>X-Jira-Token"]
         GitHubConfig["GitHub Config<br/>─────────<br/>X-GitHub-Token"]
+        ReportsConfig["Reports Config<br/>─────────<br/>X-Username"]
     end
 
     subgraph Server["MCP Server :8080"]
         JiraSSE["/jira<br/>SSE Endpoint"]
         GitHubSSE["/github<br/>SSE Endpoint"]
+        ReportsSSE["/reports<br/>SSE Endpoint"]
         DB[(Activity DB)]
     end
 
@@ -65,10 +73,12 @@ flowchart TB
 
     JiraConfig -->|Headers| JiraSSE
     GitHubConfig -->|Headers| GitHubSSE
+    ReportsConfig -->|Headers| ReportsSSE
     IDE <-->|MCP| JiraSSE
     IDE <-->|MCP| GitHubSSE
+    IDE <-->|MCP| ReportsSSE
     JiraSSE <-->|PAT| Jira
-    JiraSSE <--> DB
+    ReportsSSE <--> DB
     GitHubSSE <-->|PAT| GitHub
 ```
 
@@ -78,25 +88,28 @@ flowchart TB
 sequenceDiagram
     participant Dev as Developer
     participant IDE as AI Agent
-    participant MCP as /jira Endpoint
+    participant Jira as /jira Endpoint
+    participant Reports as /reports Endpoint
     participant DB as Activity DB
-    participant Jira as Jira Server
+    participant JiraAPI as Jira Server
 
-    Note over Dev,Jira: Daily work
+    Note over Dev,JiraAPI: Daily work
     Dev->>IDE: Update ticket PROJ-123
-    IDE->>MCP: jira_update_ticket
-    MCP->>Jira: PUT /issue/PROJ-123
-    MCP->>DB: log_activity(update, PROJ-123)
-    MCP-->>IDE: Success
+    IDE->>Jira: jira_update_ticket
+    Jira->>JiraAPI: PUT /issue/PROJ-123
+    Jira-->>IDE: Success
+    IDE->>Reports: log_activity(update, PROJ-123)
+    Reports->>DB: Store activity
+    Reports-->>IDE: Activity logged
 
-    Note over Dev,Jira: End of week
+    Note over Dev,JiraAPI: End of week
     Dev->>IDE: Generate my weekly report
-    IDE->>MCP: get_weekly_activity
-    MCP->>DB: Query week's activity
-    MCP-->>IDE: Activity summary
-    IDE->>MCP: save_management_report
-    MCP->>DB: Persist report
-    MCP-->>IDE: Report ID
+    IDE->>Reports: get_weekly_activity
+    Reports->>DB: Query week's activity
+    Reports-->>IDE: Activity summary
+    IDE->>Reports: save_management_report
+    Reports->>DB: Persist report
+    Reports-->>IDE: Report ID
     IDE-->>Dev: Draft report ready
 ```
 
@@ -107,14 +120,16 @@ sequenceDiagram
 - **Comments** — Add, update, delete
 - **Hierarchy** — Link issues, create subtasks, set epics
 - **Metadata** — Projects, components, issue types, statuses, transitions, priorities
-- **Activity Tracking** — Log actions on tickets for later reporting
-- **Weekly Reports** — Generate Markdown reports from logged activity
-- **Management Reports** — Store AI-written summaries for stakeholders
 
 ### GitHub Operations (`/github` endpoint)
 - **Pull Requests** — List, view details, files, commits, diff
 - **Reviews & Comments** — Fetch feedback threads, add comments
 - **Search** — Query PRs across repositories
+
+### Reports Operations (`/reports` endpoint)
+- **Activity Tracking** — Log actions on tickets for later reporting
+- **Weekly Reports** — Generate and save Markdown reports from logged activity
+- **Management Reports** — Store and manage AI-written summaries for stakeholders
 
 ## Requirements
 
@@ -178,6 +193,12 @@ Credentials are passed from the MCP client via headers. Each endpoint requires i
 | `X-GitHub-Token` | Yes | GitHub PAT |
 | `X-GitHub-API-URL` | No | GitHub Enterprise API URL |
 
+**Reports (`/reports`):**
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-Username` | Yes | Username for activity tracking |
+
 ### Server-Side (Optional)
 
 Only needed for database configuration.
@@ -191,7 +212,7 @@ Only needed for database configuration.
 
 ### Cursor IDE
 
-Configure two MCP servers in `.cursor/mcp.json`:
+Configure three MCP servers in `.cursor/mcp.json`:
 
 ```json
 {
@@ -207,6 +228,12 @@ Configure two MCP servers in `.cursor/mcp.json`:
       "url": "http://localhost:8080/github",
       "headers": {
         "X-GitHub-Token": "your-github-pat"
+      }
+    },
+    "reports": {
+      "url": "http://localhost:8080/reports",
+      "headers": {
+        "X-Username": "your-username"
       }
     }
   }
@@ -263,6 +290,8 @@ docker-compose --profile postgres up -d
 | `/jira/messages/` | Jira message handler |
 | `/github` | GitHub MCP tools (SSE) |
 | `/github/messages/` | GitHub message handler |
+| `/reports` | Reports MCP tools (SSE) |
+| `/reports/messages/` | Reports message handler |
 
 ## Tool Reference
 
@@ -288,18 +317,6 @@ docker-compose --profile postgres up -d
 | `jira_list_statuses` | List statuses for a project |
 | `jira_get_transitions` | Get available transitions for a ticket |
 | `jira_get_current_user` | Get authenticated user info |
-| `log_jira_activity` | Record work on a ticket |
-| `get_weekly_activity` | Summarize activity for a week |
-| `generate_weekly_report` | Generate Markdown report |
-| `save_weekly_report` | Persist report to database |
-| `list_saved_reports` | List saved reports |
-| `get_saved_report` | Retrieve a report by ID |
-| `delete_saved_report` | Delete a report |
-| `save_management_report` | Store AI-generated stakeholder report |
-| `list_management_reports` | List reports, optionally by project |
-| `get_management_report` | Retrieve full report content |
-| `update_management_report` | Edit an existing report |
-| `delete_management_report` | Delete a report |
 
 ### GitHub Tools (`/github`)
 
@@ -316,19 +333,37 @@ docker-compose --profile postgres up -d
 | `github_search_prs` | Search PRs across repositories |
 | `github_get_current_user` | Get authenticated GitHub user |
 
+### Reports Tools (`/reports`)
+
+| Tool | Description |
+|------|-------------|
+| `log_activity` | Record work on a ticket |
+| `get_weekly_activity` | Summarize activity for a week |
+| `generate_weekly_report` | Generate Markdown report |
+| `save_weekly_report` | Persist report to database |
+| `list_saved_reports` | List saved reports |
+| `get_saved_report` | Retrieve a report by ID |
+| `delete_saved_report` | Delete a report |
+| `save_management_report` | Store AI-generated stakeholder report |
+| `list_management_reports` | List reports, optionally by project |
+| `get_management_report` | Retrieve full report content |
+| `update_management_report` | Edit an existing report |
+| `delete_management_report` | Delete a report |
+
 ## Example Prompts
 
-- *"List my in-progress Jira tickets and summarize blockers."*
-- *"Generate my weekly report and save it."*
-- *"Show open PRs for org/repo and summarize review feedback."*
-- *"Write a management report for PROJ using this week's activity."*
+- *"List my in-progress Jira tickets and summarize blockers."* (uses `/jira`)
+- *"Show open PRs for org/repo and summarize review feedback."* (uses `/github`)
+- *"Log that I worked on PROJ-123 today."* (uses `/reports`)
+- *"Generate my weekly report and save it."* (uses `/reports`)
+- *"Write a management report for PROJ using this week's activity."* (uses `/reports`)
 
 ## Project Structure
 
 ```
 jira-mcp/
 ├── src/jira_mcp/
-│   ├── server.py           # SSE transport, /jira and /github endpoints
+│   ├── server.py           # SSE transport, /jira, /github, /reports endpoints
 │   ├── jira_client.py      # Jira API wrapper
 │   ├── github_client.py    # GitHub API wrapper
 │   ├── config.py           # Configuration helpers
@@ -356,8 +391,9 @@ jira-mcp/
 | Auth failures | Verify PAT is valid and has required permissions |
 | Connection refused | Confirm server is running and endpoint is reachable |
 | Database errors | Check `JIRA_MCP_DATA_DIR` is writable or `DATABASE_URL` is correct |
-| Missing headers | Ensure client sends required headers for the endpoint |
+| Missing headers | Ensure client sends required headers for the endpoint (`X-Username` for `/reports`) |
 | Tools not loading | Restart Cursor after updating `.cursor/mcp.json` |
+| Reports not saving | Verify `X-Username` header is set on the `/reports` endpoint |
 
 ## Development
 
