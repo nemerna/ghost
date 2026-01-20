@@ -140,6 +140,7 @@ def get_weekly_activity(
                 "ticket_key": activity.ticket_key,
                 "ticket_summary": activity.ticket_summary,
                 "timestamp": activity.timestamp.isoformat(),
+                "action_details": json.loads(activity.action_details) if activity.action_details else None,
             })
     
     return {
@@ -269,9 +270,15 @@ def generate_weekly_report(
                 content_lines.append(f"### {action_type.title()} ({len(actions)})")
                 content_lines.append("")
                 for action in actions[:10]:  # Limit to 10 per type
-                    content_lines.append(
-                        f"- **{action['ticket_key']}**: {action['ticket_summary'] or 'N/A'}"
-                    )
+                    line = f"- **{action['ticket_key']}**: {action['ticket_summary'] or 'N/A'}"
+                    if action.get('action_details'):
+                        details = action['action_details']
+                        if isinstance(details, dict):
+                            detail_str = "; ".join(f"{k}: {v}" for k, v in details.items())
+                            line += f" — *{detail_str}*"
+                        else:
+                            line += f" — *{details}*"
+                    content_lines.append(line)
                 if len(actions) > 10:
                     content_lines.append(f"- *...and {len(actions) - 10} more*")
                 content_lines.append("")
