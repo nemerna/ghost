@@ -1,16 +1,29 @@
-"""SQLAlchemy models for activity tracking and weekly reports."""
+"""SQLAlchemy models for activity tracking, weekly reports, and user management."""
 
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Enum, Index, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, relationship
 
 
 class Base(DeclarativeBase):
     """Base class for all models."""
 
     pass
+
+
+# =============================================================================
+# Enums
+# =============================================================================
+
+
+class UserRole(str, enum.Enum):
+    """User roles for access control."""
+
+    USER = "user"
+    MANAGER = "manager"
+    ADMIN = "admin"
 
 
 class ActionType(str, enum.Enum):
@@ -25,6 +38,138 @@ class ActionType(str, enum.Enum):
     OTHER = "other"
 
 
+# =============================================================================
+# User & Team Models
+# =============================================================================
+
+
+class User(Base):
+    """User model - authentication handled by OpenShift OAuth Proxy."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Identity (from OAuth proxy headers)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    display_name = Column(String(255), nullable=True)
+
+    # Authorization
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.USER)
+
+    # User preferences (JSON string)
+    preferences = Column(Text, nullable=True)
+
+    # Timestamps
+    first_seen = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    managed_teams = relationship("Team", back_populates="manager", foreign_keys="Team.manager_id")
+    team_memberships = relationship("TeamMembership", back_populates="user", cascade="all, delete-orphan")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        import json
+
+        return {
+            "id": self.id,
+            "email": self.email,
+            "display_name": self.display_name,
+            "role": self.role.value if self.role else None,
+            "preferences": json.loads(self.preferences) if self.preferences else {},
+            "first_seen": self.first_seen.isoformat() if self.first_seen else None,
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, email={self.email}, role={self.role})>"
+
+
+class Team(Base):
+    """Team model for organizing users."""
+
+    __tablename__ = "teams"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Team info
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+
+    # Manager (FK to User)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    # Relationships
+    manager = relationship("User", back_populates="managed_teams", foreign_keys=[manager_id])
+    memberships = relationship("TeamMembership", back_populates="team", cascade="all, delete-orphan")
+
+    def to_dict(self, include_members: bool = False) -> dict:
+        """Convert to dictionary."""
+        result = {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "manager_id": self.manager_id,
+            "manager": self.manager.to_dict() if self.manager else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_members:
+            result["members"] = [m.user.to_dict() for m in self.memberships if m.user]
+        return result
+
+    def __repr__(self) -> str:
+        return f"<Team(id={self.id}, name={self.name})>"
+
+
+class TeamMembership(Base):
+    """Association table for User-Team many-to-many relationship."""
+
+    __tablename__ = "team_memberships"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Foreign keys
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+
+    # Timestamps
+    joined_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="team_memberships")
+    team = relationship("Team", back_populates="memberships")
+
+    # Unique constraint - user can only be in a team once
+    __table_args__ = (
+        Index("idx_user_team", "user_id", "team_id", unique=True),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "team_id": self.team_id,
+            "joined_at": self.joined_at.isoformat() if self.joined_at else None,
+            "user": self.user.to_dict() if self.user else None,
+            "team": {"id": self.team.id, "name": self.team.name} if self.team else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<TeamMembership(user_id={self.user_id}, team_id={self.team_id})>"
+
+
+# =============================================================================
+# Activity & Report Models
+# =============================================================================
+
+
 class ActivityLog(Base):
     """Log of Jira ticket interactions for activity tracking."""
 
@@ -32,8 +177,9 @@ class ActivityLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # User info (from Jira auth)
+    # User info - username for backwards compatibility, user_id for new entries
     username = Column(String(255), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # Ticket info
     ticket_key = Column(String(50), nullable=False, index=True)

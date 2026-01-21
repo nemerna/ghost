@@ -1,0 +1,23 @@
+# Kustomization file for deploying Jira MCP to OpenShift
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: jira-mcp
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
+  - configmap.yaml
+  - pvc.yaml
+  # Note: secrets.yaml is not included - create secrets manually or use sealed-secrets
+
+commonLabels:
+  app.kubernetes.io/name: jira-mcp
+  app.kubernetes.io/component: backend
+  app.kubernetes.io/part-of: jira-mcp
+
+images:
+  - name: jira-mcp
+    newName: image-registry.openshift-image-registry.svc:5000/jira-mcp/jira-mcp
+    newTag: latest

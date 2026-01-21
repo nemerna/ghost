@@ -1,0 +1,288 @@
+/**
+ * My Reports page - view and create weekly reports
+ */
+
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  CardTitle,
+  ExpandableSection,
+  Flex,
+  FlexItem,
+  Form,
+  FormGroup,
+  Label,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  PageSection,
+  PageSectionVariants,
+  Spinner,
+  TextArea,
+  TextContent,
+  TextInput,
+  Title,
+} from '@patternfly/react-core';
+import { format } from 'date-fns';
+import {
+  generateWeeklyReport,
+  getMyWeeklyReports,
+  saveWeeklyReport,
+  deleteWeeklyReport,
+} from '@/api/reports';
+import type { GeneratedReport, WeeklyReport } from '@/types';
+
+export function MyReportsPage() {
+  const queryClient = useQueryClient();
+
+  // Modal state
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [generatedReport, setGeneratedReport] = useState<GeneratedReport | null>(null);
+  const [customTitle, setCustomTitle] = useState('');
+  const [customSummary, setCustomSummary] = useState('');
+
+  // Fetch saved reports
+  const { data: savedReports, isLoading } = useQuery({
+    queryKey: ['myWeeklyReports'],
+    queryFn: () => getMyWeeklyReports({ limit: 20 }),
+  });
+
+  // Generate report mutation
+  const generateMutation = useMutation({
+    mutationFn: (offset: number) => generateWeeklyReport(offset),
+    onSuccess: (data) => {
+      setGeneratedReport(data);
+      setCustomTitle(data.title);
+      setCustomSummary(data.summary);
+    },
+  });
+
+  // Save report mutation
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      saveWeeklyReport({
+        week_offset: weekOffset,
+        custom_title: customTitle || undefined,
+        custom_summary: customSummary || undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myWeeklyReports'] });
+      setIsGenerateModalOpen(false);
+      setGeneratedReport(null);
+      setCustomTitle('');
+      setCustomSummary('');
+    },
+  });
+
+  // Delete report mutation
+  const deleteMutation = useMutation({
+    mutationFn: deleteWeeklyReport,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myWeeklyReports'] });
+    },
+  });
+
+  const handleOpenGenerateModal = () => {
+    setIsGenerateModalOpen(true);
+    setWeekOffset(0);
+    setGeneratedReport(null);
+  };
+
+  const handleGenerate = () => {
+    generateMutation.mutate(weekOffset);
+  };
+
+  const handleSave = () => {
+    saveMutation.mutate();
+  };
+
+  const handleDelete = (reportId: number) => {
+    if (confirm('Are you sure you want to delete this report?')) {
+      deleteMutation.mutate(reportId);
+    }
+  };
+
+  return (
+    <>
+      <PageSection variant={PageSectionVariants.light}>
+        <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
+          <FlexItem>
+            <TextContent>
+              <Title headingLevel="h1">My Weekly Reports</Title>
+            </TextContent>
+          </FlexItem>
+          <FlexItem>
+            <Button variant="primary" onClick={handleOpenGenerateModal}>
+              Generate Report
+            </Button>
+          </FlexItem>
+        </Flex>
+      </PageSection>
+
+      <PageSection>
+        {isLoading ? (
+          <Flex justifyContent={{ default: 'justifyContentCenter' }}>
+            <Spinner size="xl" />
+          </Flex>
+        ) : savedReports?.reports.length ? (
+          <>
+            {savedReports.reports.map((report) => (
+              <Card key={report.id} style={{ marginBottom: '1rem' }}>
+                <CardTitle>
+                  <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
+                    <FlexItem>
+                      {report.title}
+                      <Label color="blue" style={{ marginLeft: '0.5rem' }}>
+                        {report.tickets_count} tickets
+                      </Label>
+                    </FlexItem>
+                    <FlexItem>
+                      <Button
+                        variant="link"
+                        isDanger
+                        onClick={() => handleDelete(report.id)}
+                      >
+                        Delete
+                      </Button>
+                    </FlexItem>
+                  </Flex>
+                </CardTitle>
+                <CardBody>
+                  <p><strong>Period:</strong> {report.week_start} to {report.week_end}</p>
+                  <p><strong>Summary:</strong> {report.summary}</p>
+                  <p><strong>Projects:</strong> {report.projects.join(', ') || 'None'}</p>
+                  
+                  <ExpandableSection toggleText="View full report">
+                    <pre style={{ 
+                      whiteSpace: 'pre-wrap', 
+                      background: 'var(--pf-v6-global--BackgroundColor--200)',
+                      padding: '1rem',
+                      borderRadius: '4px',
+                      marginTop: '1rem'
+                    }}>
+                      {report.content}
+                    </pre>
+                  </ExpandableSection>
+                </CardBody>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <Card>
+            <CardBody>
+              <TextContent>
+                <p>No reports yet. Click "Generate Report" to create your first weekly report.</p>
+              </TextContent>
+            </CardBody>
+          </Card>
+        )}
+      </PageSection>
+
+      {/* Generate Report Modal */}
+      <Modal
+        isOpen={isGenerateModalOpen}
+        onClose={() => setIsGenerateModalOpen(false)}
+        aria-labelledby="generate-report-modal"
+        variant="large"
+      >
+        <ModalHeader title="Generate Weekly Report" labelId="generate-report-modal" />
+        <ModalBody>
+          <Form>
+            <FormGroup label="Week" fieldId="week-offset">
+              <Flex>
+                <FlexItem>
+                  <Button
+                    variant={weekOffset === 0 ? 'primary' : 'secondary'}
+                    onClick={() => setWeekOffset(0)}
+                  >
+                    This Week
+                  </Button>
+                </FlexItem>
+                <FlexItem>
+                  <Button
+                    variant={weekOffset === -1 ? 'primary' : 'secondary'}
+                    onClick={() => setWeekOffset(-1)}
+                  >
+                    Last Week
+                  </Button>
+                </FlexItem>
+                <FlexItem>
+                  <Button
+                    variant="secondary"
+                    onClick={handleGenerate}
+                    isLoading={generateMutation.isPending}
+                  >
+                    Generate Preview
+                  </Button>
+                </FlexItem>
+              </Flex>
+            </FormGroup>
+
+            {generatedReport && (
+              <>
+                <Alert
+                  variant="info"
+                  title={`Report for ${generatedReport.week_start} to ${generatedReport.week_end}`}
+                  style={{ marginBottom: '1rem' }}
+                >
+                  {generatedReport.tickets_count} tickets, {Object.values(generatedReport.statistics).reduce((a, b) => a + b, 0)} actions
+                </Alert>
+
+                <FormGroup label="Title" fieldId="custom-title">
+                  <TextInput
+                    id="custom-title"
+                    value={customTitle}
+                    onChange={(_event, value) => setCustomTitle(value)}
+                  />
+                </FormGroup>
+
+                <FormGroup label="Summary" fieldId="custom-summary">
+                  <TextArea
+                    id="custom-summary"
+                    value={customSummary}
+                    onChange={(_event, value) => setCustomSummary(value)}
+                    rows={3}
+                  />
+                </FormGroup>
+
+                <FormGroup label="Preview" fieldId="preview">
+                  <pre style={{ 
+                    whiteSpace: 'pre-wrap', 
+                    background: 'var(--pf-v6-global--BackgroundColor--200)',
+                    padding: '1rem',
+                    borderRadius: '4px',
+                    maxHeight: '300px',
+                    overflow: 'auto'
+                  }}>
+                    {generatedReport.content}
+                  </pre>
+                </FormGroup>
+              </>
+            )}
+          </Form>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="primary"
+            onClick={handleSave}
+            isLoading={saveMutation.isPending}
+            isDisabled={!generatedReport}
+          >
+            Save Report
+          </Button>
+          <Button variant="link" onClick={() => setIsGenerateModalOpen(false)}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+    </>
+  );
+}
+
+export default MyReportsPage;

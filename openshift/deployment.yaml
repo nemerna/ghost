@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jira-mcp
+  labels:
+    app: jira-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jira-mcp
+  template:
+    metadata:
+      labels:
+        app: jira-mcp
+    spec:
+      serviceAccountName: jira-mcp
+      containers:
+        # OAuth Proxy sidecar
+        - name: oauth-proxy
+          image: quay.io/openshift/origin-oauth-proxy:4.14
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4180
+              name: public
+              protocol: TCP
+          args:
+            - --provider=openshift
+            - --https-address=:4180
+            - --http-address=
+            - --upstream=http://localhost:8080
+            - --tls-cert=/etc/tls/private/tls.crt
+            - --tls-key=/etc/tls/private/tls.key
+            - --cookie-secret-file=/etc/proxy/secrets/session-secret
+            - --openshift-service-account=jira-mcp
+            - --openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            - --skip-auth-regex=^/api/health
+            - --pass-user-headers=true
+            - --pass-access-token=true
+            - --email-domain=*
+          volumeMounts:
+            - name: proxy-tls
+              mountPath: /etc/tls/private
+              readOnly: true
+            - name: proxy-secret
+              mountPath: /etc/proxy/secrets
+              readOnly: true
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+        # Application container
+        - name: app
+          image: jira-mcp:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: DEV_MODE
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: jira-mcp-secrets
+                  key: database-url
+            - name: CORS_ORIGINS
+              value: "*"
+            - name: STATIC_DIR
+              value: "/app/ui/dist"
+          envFrom:
+            - configMapRef:
+                name: jira-mcp-config
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+      volumes:
+        - name: proxy-tls
+          secret:
+            secretName: jira-mcp-tls
+        - name: proxy-secret
+          secret:
+            secretName: jira-mcp-proxy-secret
+        - name: data
+          persistentVolumeClaim:
+            claimName: jira-mcp-data
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jira-mcp
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.primary: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"jira-mcp"}}'
