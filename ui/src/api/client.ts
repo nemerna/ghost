@@ -41,7 +41,7 @@ export default apiClient;
 // API Helper Functions
 // =============================================================================
 
-export async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
+export async function fetchApi<T>(url: string, _options?: RequestInit): Promise<T> {
   const response = await apiClient.get<T>(url);
   return response.data;
 }

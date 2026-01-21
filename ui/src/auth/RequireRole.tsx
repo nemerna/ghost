@@ -2,13 +2,10 @@
  * Route guard component that requires specific roles
  */
 
-import React from 'react';
 import {
   Bullseye,
   EmptyState,
   EmptyStateBody,
-  EmptyStateHeader,
-  EmptyStateIcon,
 } from '@patternfly/react-core';
 import { LockIcon } from '@patternfly/react-icons';
 import { useAuth } from './AuthContext';
@@ -34,12 +31,11 @@ export function RequireRole({ children, roles, fallback }: RequireRoleProps) {
 
     return (
       <Bullseye>
-        <EmptyState>
-          <EmptyStateHeader
-            titleText="Access Denied"
-            icon={<EmptyStateIcon icon={LockIcon} />}
-            headingLevel="h4"
-          />
+        <EmptyState
+          titleText="Access Denied"
+          icon={LockIcon}
+          headingLevel="h4"
+        >
           <EmptyStateBody>
             You don't have permission to access this page.
             Required role: {roles.join(' or ')}.

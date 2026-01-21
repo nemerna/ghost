@@ -2,7 +2,6 @@
  * Main application component with routing
  */
 
-import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { RequireAuth, RequireRole } from '@/auth';
 import { AppLayout } from '@/components/layout';

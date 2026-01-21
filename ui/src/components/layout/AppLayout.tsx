@@ -2,7 +2,7 @@
  * Main application layout with sidebar navigation
  */
 
-import React from 'react';
+import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Avatar,
@@ -54,8 +54,8 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
-  const [isUserMenuOpen, setIsUserMenuOpen] = React.useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   // Filter nav items based on user role
   const visibleNavItems = navItems.filter((item) => {
@@ -96,8 +96,8 @@ export function AppLayout() {
     <Toolbar id="header-toolbar" isFullHeight isStatic>
       <ToolbarContent>
         <ToolbarGroup
-          variant="icon-button-group"
-          align={{ default: 'alignRight' }}
+          variant="action-group-plain"
+          align={{ default: 'alignEnd' }}
         >
           <ToolbarItem>
             <Dropdown

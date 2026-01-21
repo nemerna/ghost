@@ -7,16 +7,21 @@
 # =============================================================================
 FROM registry.access.redhat.com/ubi9/nodejs-20:latest AS frontend-builder
 
+# Switch to root to create directories with proper permissions
+USER 0
+RUN mkdir -p /app/ui && chown -R 1001:0 /app/ui
+USER 1001
+
 WORKDIR /app/ui
 
 # Copy frontend package files
-COPY ui/package.json ui/package-lock.json* ./
+COPY --chown=1001:0 ui/package.json ui/package-lock.json* ./
 
 # Install dependencies
 RUN npm ci --prefer-offline --no-audit
 
 # Copy frontend source
-COPY ui/ ./
+COPY --chown=1001:0 ui/ ./
 
 # Build frontend
 RUN npm run build

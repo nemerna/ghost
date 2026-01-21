@@ -2,12 +2,13 @@
  * Admin Users page - manage users (admin only)
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Card,
   CardBody,
+  Content,
   Form,
   FormGroup,
   FormSelect,
@@ -17,9 +18,7 @@ import {
   ModalFooter,
   ModalHeader,
   PageSection,
-  PageSectionVariants,
   Pagination,
-  TextContent,
   TextInput,
   Title,
   Toolbar,
@@ -109,10 +108,10 @@ export function AdminUsersPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
-        <TextContent>
+      <PageSection>
+        <Content>
           <Title headingLevel="h1">User Management</Title>
-        </TextContent>
+        </Content>
       </PageSection>
 
       <PageSection>

@@ -2,14 +2,15 @@
  * Settings page - user preferences
  */
 
-import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import {
   Alert,
   Button,
   Card,
   CardBody,
   CardTitle,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -17,8 +18,6 @@ import {
   Form,
   FormGroup,
   PageSection,
-  PageSectionVariants,
-  TextContent,
   TextInput,
   Title,
 } from '@patternfly/react-core';
@@ -27,7 +26,6 @@ import { updateMyPreferences } from '@/api/users';
 
 export function SettingsPage() {
   const { user, refetchUser } = useAuth();
-  const queryClient = useQueryClient();
 
   const [preferences, setPreferences] = useState({
     default_project: (user?.preferences?.default_project as string) || '',
@@ -51,10 +49,10 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
-        <TextContent>
+      <PageSection>
+        <Content>
           <Title headingLevel="h1">Settings</Title>
-        </TextContent>
+        </Content>
       </PageSection>
 
       <PageSection>
@@ -88,11 +86,11 @@ export function SettingsPage() {
                 </DescriptionListDescription>
               </DescriptionListGroup>
             </DescriptionList>
-            <TextContent style={{ marginTop: '1rem' }}>
+            <Content style={{ marginTop: '1rem' }}>
               <p>
                 <em>Profile information is managed through OpenShift authentication.</em>
               </p>
-            </TextContent>
+            </Content>
           </CardBody>
         </Card>
 

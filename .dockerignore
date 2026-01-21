@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Node modules - will be installed during build
+node_modules/
+ui/node_modules/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# Local data
+data/
+*.db
+*.sqlite
+
+# Build artifacts
+dist/
+build/
+ui/dist/
+
+# Test/coverage
+htmlcov/
+.coverage
+.tox/
+.nox/
+
+# Misc
+.DS_Store
+*.log
+.env
+*.local
+docker-compose*.yaml
+temporary-github-token
+
+# OpenShift manifests not needed in image
+openshift/

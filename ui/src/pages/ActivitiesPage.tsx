@@ -2,15 +2,13 @@
  * Activities page - view and log activities
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Card,
   CardBody,
-  DatePicker,
-  Flex,
-  FlexItem,
+  Content,
   Form,
   FormGroup,
   FormSelect,
@@ -20,9 +18,7 @@ import {
   ModalFooter,
   ModalHeader,
   PageSection,
-  PageSectionVariants,
   Pagination,
-  TextContent,
   TextInput,
   Title,
   Toolbar,
@@ -33,7 +29,7 @@ import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { PlusIcon, TrashIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { getMyActivities, createActivity, deleteActivity } from '@/api/activities';
-import type { Activity, ActivityCreateRequest, ActionType } from '@/types';
+import type { ActivityCreateRequest, ActionType } from '@/types';
 
 const actionTypes: ActionType[] = ['view', 'create', 'update', 'comment', 'transition', 'link', 'other'];
 
@@ -104,10 +100,10 @@ export function ActivitiesPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
-        <TextContent>
+      <PageSection>
+        <Content>
           <Title headingLevel="h1">My Activities</Title>
-        </TextContent>
+        </Content>
       </PageSection>
 
       <PageSection>
@@ -135,7 +131,7 @@ export function ActivitiesPage() {
                     ))}
                   </FormSelect>
                 </ToolbarItem>
-                <ToolbarItem align={{ default: 'alignRight' }}>
+                <ToolbarItem align={{ default: 'alignEnd' }}>
                   <Button
                     variant="primary"
                     icon={<PlusIcon />}

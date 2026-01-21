@@ -2,12 +2,13 @@
  * Team Dashboard page - overview of team activities (manager only)
  */
 
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Card,
   CardBody,
   CardTitle,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -19,10 +20,7 @@ import {
   Gallery,
   GalleryItem,
   PageSection,
-  PageSectionVariants,
   Spinner,
-  Text,
-  TextContent,
   Title,
 } from '@patternfly/react-core';
 import { UsersIcon, ClipboardCheckIcon, CodeIcon } from '@patternfly/react-icons';
@@ -55,7 +53,7 @@ export function TeamDashboardPage() {
   const isLoading = teamsLoading || (selectedTeamId && (teamLoading || activityLoading));
 
   // Auto-select first team
-  React.useEffect(() => {
+  useEffect(() => {
     if (teamsData?.teams.length && !selectedTeamId) {
       setSelectedTeamId(teamsData.teams[0].id);
     }
@@ -63,12 +61,12 @@ export function TeamDashboardPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
+      <PageSection>
         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
           <FlexItem>
-            <TextContent>
+            <Content>
               <Title headingLevel="h1">Team Dashboard</Title>
-            </TextContent>
+            </Content>
           </FlexItem>
           <FlexItem>
             <FormSelect
@@ -94,7 +92,7 @@ export function TeamDashboardPage() {
         ) : !selectedTeamId ? (
           <Card>
             <CardBody>
-              <Text>Please select a team to view the dashboard.</Text>
+              <p>Please select a team to view the dashboard.</p>
             </CardBody>
           </Card>
         ) : (
@@ -110,9 +108,9 @@ export function TeamDashboardPage() {
                     </Flex>
                   </CardTitle>
                   <CardBody>
-                    <Text component="h2" style={{ fontSize: '2rem', fontWeight: 600 }}>
+                    <span style={{ fontSize: '2rem', fontWeight: 600 }}>
                       {teamDetails?.members.length || 0}
-                    </Text>
+                    </span>
                   </CardBody>
                 </Card>
               </GalleryItem>
@@ -125,9 +123,9 @@ export function TeamDashboardPage() {
                     </Flex>
                   </CardTitle>
                   <CardBody>
-                    <Text component="h2" style={{ fontSize: '2rem', fontWeight: 600 }}>
-                      {(activitySummary as Record<string, unknown>)?.total_activities || 0}
-                    </Text>
+                    <span style={{ fontSize: '2rem', fontWeight: 600 }}>
+                      {(activitySummary as { total_activities?: number })?.total_activities || 0}
+                    </span>
                   </CardBody>
                 </Card>
               </GalleryItem>
@@ -140,9 +138,9 @@ export function TeamDashboardPage() {
                     </Flex>
                   </CardTitle>
                   <CardBody>
-                    <Text component="h2" style={{ fontSize: '2rem', fontWeight: 600 }}>
-                      {(activitySummary as Record<string, unknown>)?.total_unique_tickets || 0}
-                    </Text>
+                    <span style={{ fontSize: '2rem', fontWeight: 600 }}>
+                      {(activitySummary as { total_unique_tickets?: number })?.total_unique_tickets || 0}
+                    </span>
                   </CardBody>
                 </Card>
               </GalleryItem>
@@ -161,17 +159,17 @@ export function TeamDashboardPage() {
                         </DescriptionListTerm>
                         <DescriptionListDescription>
                           {member.email} | {member.role}
-                          {(activitySummary as Record<string, Record<string, number>>)?.by_member?.[member.email] && (
-                            <Text component="small" style={{ marginLeft: '0.5rem' }}>
-                              ({(activitySummary as Record<string, Record<string, number>>).by_member[member.email]?.total_activities || 0} activities)
-                            </Text>
+                          {(activitySummary as { by_member?: Record<string, { total_activities?: number }> })?.by_member?.[member.email] && (
+                            <small style={{ marginLeft: '0.5rem' }}>
+                              ({(activitySummary as { by_member?: Record<string, { total_activities?: number }> }).by_member?.[member.email]?.total_activities || 0} activities)
+                            </small>
                           )}
                         </DescriptionListDescription>
                       </DescriptionListGroup>
                     ))}
                   </DescriptionList>
                 ) : (
-                  <Text>No team members</Text>
+                  <p>No team members</p>
                 )}
               </CardBody>
             </Card>

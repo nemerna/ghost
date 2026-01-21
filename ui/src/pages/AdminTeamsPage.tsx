@@ -2,13 +2,14 @@
  * Admin Teams page - manage teams (admin only)
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Card,
   CardBody,
   CardTitle,
+  Content,
   ExpandableSection,
   Flex,
   FlexItem,
@@ -22,10 +23,8 @@ import {
   ModalFooter,
   ModalHeader,
   PageSection,
-  PageSectionVariants,
   Spinner,
   TextArea,
-  TextContent,
   TextInput,
   Title,
 } from '@patternfly/react-core';
@@ -135,12 +134,12 @@ export function AdminTeamsPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
+      <PageSection>
         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
           <FlexItem>
-            <TextContent>
+            <Content>
               <Title headingLevel="h1">Team Management</Title>
-            </TextContent>
+            </Content>
           </FlexItem>
           <FlexItem>
             <Button
@@ -231,9 +230,9 @@ export function AdminTeamsPage() {
         ) : (
           <Card>
             <CardBody>
-              <TextContent>
+              <Content>
                 <p>No teams yet. Click "Create Team" to add one.</p>
-              </TextContent>
+              </Content>
             </CardBody>
           </Card>
         )}

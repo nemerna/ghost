@@ -2,7 +2,7 @@
  * My Reports page - view and create weekly reports
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -10,6 +10,7 @@ import {
   Card,
   CardBody,
   CardTitle,
+  Content,
   ExpandableSection,
   Flex,
   FlexItem,
@@ -21,21 +22,18 @@ import {
   ModalFooter,
   ModalHeader,
   PageSection,
-  PageSectionVariants,
   Spinner,
   TextArea,
-  TextContent,
   TextInput,
   Title,
 } from '@patternfly/react-core';
-import { format } from 'date-fns';
 import {
   generateWeeklyReport,
   getMyWeeklyReports,
   saveWeeklyReport,
   deleteWeeklyReport,
 } from '@/api/reports';
-import type { GeneratedReport, WeeklyReport } from '@/types';
+import type { GeneratedReport } from '@/types';
 
 export function MyReportsPage() {
   const queryClient = useQueryClient();
@@ -110,12 +108,12 @@ export function MyReportsPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
+      <PageSection>
         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
           <FlexItem>
-            <TextContent>
+            <Content>
               <Title headingLevel="h1">My Weekly Reports</Title>
-            </TextContent>
+            </Content>
           </FlexItem>
           <FlexItem>
             <Button variant="primary" onClick={handleOpenGenerateModal}>
@@ -176,9 +174,9 @@ export function MyReportsPage() {
         ) : (
           <Card>
             <CardBody>
-              <TextContent>
+              <Content>
                 <p>No reports yet. Click "Generate Report" to create your first weekly report.</p>
-              </TextContent>
+              </Content>
             </CardBody>
           </Card>
         )}

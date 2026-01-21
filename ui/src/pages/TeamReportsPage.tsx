@@ -2,12 +2,13 @@
  * Team Reports page - view team members' weekly reports (manager only)
  */
 
-import React, { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Card,
   CardBody,
   CardTitle,
+  Content,
   ExpandableSection,
   Flex,
   FlexItem,
@@ -15,10 +16,7 @@ import {
   FormSelectOption,
   Label,
   PageSection,
-  PageSectionVariants,
   Spinner,
-  Text,
-  TextContent,
   Title,
 } from '@patternfly/react-core';
 import { listTeams } from '@/api/teams';
@@ -43,14 +41,14 @@ export function TeamReportsPage() {
   const isLoading = teamsLoading || (selectedTeamId && reportsLoading);
 
   // Auto-select first team
-  React.useEffect(() => {
+  useEffect(() => {
     if (teamsData?.teams.length && !selectedTeamId) {
       setSelectedTeamId(teamsData.teams[0].id);
     }
   }, [teamsData, selectedTeamId]);
 
   // Group reports by week
-  const reportsByWeek = React.useMemo(() => {
+  const reportsByWeek = useMemo(() => {
     if (!reportsData?.reports) return {};
     
     const grouped: Record<string, typeof reportsData.reports> = {};
@@ -66,12 +64,12 @@ export function TeamReportsPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
+      <PageSection>
         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
           <FlexItem>
-            <TextContent>
+            <Content>
               <Title headingLevel="h1">Team Weekly Reports</Title>
-            </TextContent>
+            </Content>
           </FlexItem>
           <FlexItem>
             <FormSelect
@@ -97,13 +95,13 @@ export function TeamReportsPage() {
         ) : !selectedTeamId ? (
           <Card>
             <CardBody>
-              <Text>Please select a team to view reports.</Text>
+              <p>Please select a team to view reports.</p>
             </CardBody>
           </Card>
         ) : Object.keys(reportsByWeek).length === 0 ? (
           <Card>
             <CardBody>
-              <Text>No reports found for this team.</Text>
+              <p>No reports found for this team.</p>
             </CardBody>
           </Card>
         ) : (

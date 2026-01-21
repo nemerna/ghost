@@ -2,12 +2,12 @@
  * Dashboard page - shows activity summary and quick stats
  */
 
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Card,
   CardBody,
   CardTitle,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -17,10 +17,7 @@ import {
   Gallery,
   GalleryItem,
   PageSection,
-  PageSectionVariants,
   Spinner,
-  Text,
-  TextContent,
   Title,
 } from '@patternfly/react-core';
 import {
@@ -82,13 +79,13 @@ export function DashboardPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
-        <TextContent>
+      <PageSection>
+        <Content>
           <Title headingLevel="h1">Dashboard</Title>
-          <Text component="p">
+          <p>
             Welcome back, {user?.display_name || user?.email}!
-          </Text>
-        </TextContent>
+          </p>
+        </Content>
       </PageSection>
 
       <PageSection>
@@ -109,14 +106,14 @@ export function DashboardPage() {
                       <Flex>
                         <FlexItem>{stat.icon}</FlexItem>
                         <FlexItem>
-                          <Text component="small">{stat.title}</Text>
+                          <small>{stat.title}</small>
                         </FlexItem>
                       </Flex>
                     </CardTitle>
                     <CardBody>
-                      <Text component="h2" style={{ fontSize: '2rem', fontWeight: 600 }}>
+                      <span style={{ fontSize: '2rem', fontWeight: 600 }}>
                         {stat.value}
-                      </Text>
+                      </span>
                     </CardBody>
                   </Card>
                 </GalleryItem>
@@ -133,21 +130,21 @@ export function DashboardPage() {
                       <DescriptionListGroup key={activity.id}>
                         <DescriptionListTerm>
                           <strong>{activity.ticket_key}</strong>
-                          <Text component="small" style={{ marginLeft: '0.5rem' }}>
+                          <small style={{ marginLeft: '0.5rem' }}>
                             {activity.action_type}
-                          </Text>
+                          </small>
                         </DescriptionListTerm>
                         <DescriptionListDescription>
                           {activity.ticket_summary || 'No summary'}
-                          <Text component="small" style={{ display: 'block', color: 'var(--pf-v6-global--Color--200)' }}>
+                          <small style={{ display: 'block', color: 'var(--pf-v6-global--Color--200)' }}>
                             {format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
-                          </Text>
+                          </small>
                         </DescriptionListDescription>
                       </DescriptionListGroup>
                     ))}
                   </DescriptionList>
                 ) : (
-                  <Text>No recent activities</Text>
+                  <p>No recent activities</p>
                 )}
               </CardBody>
             </Card>
@@ -187,7 +184,7 @@ export function DashboardPage() {
                     ))}
                   </DescriptionList>
                 ) : (
-                  <Text>No reports yet</Text>
+                  <p>No reports yet</p>
                 )}
               </CardBody>
             </Card>

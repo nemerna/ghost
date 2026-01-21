@@ -2,7 +2,7 @@
  * Management Reports page - create and view management reports (manager only)
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -10,6 +10,7 @@ import {
   Card,
   CardBody,
   CardTitle,
+  Content,
   ExpandableSection,
   Flex,
   FlexItem,
@@ -21,11 +22,8 @@ import {
   ModalFooter,
   ModalHeader,
   PageSection,
-  PageSectionVariants,
   Spinner,
-  Text,
   TextArea,
-  TextContent,
   TextInput,
   Title,
 } from '@patternfly/react-core';
@@ -99,12 +97,12 @@ export function ManagementReportsPage() {
 
   return (
     <>
-      <PageSection variant={PageSectionVariants.light}>
+      <PageSection>
         <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
           <FlexItem>
-            <TextContent>
+            <Content>
               <Title headingLevel="h1">Management Reports</Title>
-            </TextContent>
+            </Content>
           </FlexItem>
           <FlexItem>
             <Button
@@ -142,9 +140,9 @@ export function ManagementReportsPage() {
                     )}
                   </FlexItem>
                   <FlexItem>
-                    <Text component="small">
+                    <small>
                       {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
-                    </Text>
+                    </small>
                     <Button
                       variant="link"
                       isDanger
@@ -188,7 +186,7 @@ export function ManagementReportsPage() {
         ) : (
           <Card>
             <CardBody>
-              <Text>No management reports yet. Click "Create Report" to add one.</Text>
+              <p>No management reports yet. Click "Create Report" to add one.</p>
             </CardBody>
           </Card>
         )}
