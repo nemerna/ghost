@@ -10,10 +10,11 @@ from contextvars import ContextVar
 from typing import Any, Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, Resource, ResourceContents, TextResourceContents
 
 from jira_mcp.jira_client import JiraClient, JiraClientError
 from jira_mcp.github_client import GitHubClient, GitHubClientError
+from jira_mcp.config import get_management_report_instructions
 
 from jira_mcp.tools.schemas import (
     ListTicketsInput,
@@ -841,6 +842,15 @@ GITHUB_TOOLS: list[Tool] = [
 # =============================================================================
 
 REPORTS_TOOLS: list[Tool] = [
+    # --- Instructions & Configuration ---
+    Tool(
+        name="get_report_instructions",
+        description="Get the instructions and guidelines for generating management reports. Call this BEFORE creating a management report to understand the expected format, style, content structure, and templates.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
     # --- Activity Tracking & Weekly Reports ---
     Tool(
         name="log_activity",
@@ -984,9 +994,12 @@ REPORTS_TOOLS: list[Tool] = [
         name="save_management_report",
         description="""Save an AI-generated management report for high-level stakeholders.
 
-IMPORTANT: Reports should be CONCISE and management-friendly:
+IMPORTANT: Before generating a report, read the instructions resource at 'reports://instructions/management-report' 
+for detailed formatting guidelines, style requirements, and templates.
+
+Quick summary:
 - one_liner: Single sentence (max 15 words) - the "elevator pitch"
-- executive_summary: 2-3 sentences, high-level outcomes only
+- executive_summary: 2-3 sentences, high-level outcomes only  
 - content: Short Markdown (aim for <500 words), use bullet points, include Jira links
 
 Focus on: What was delivered, business impact, blockers, next steps.
@@ -1207,6 +1220,39 @@ async def call_reports_tool(name: str, arguments: dict[str, Any]) -> list[TextCo
             "message": str(e),
         }
         return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
+
+
+# =============================================================================
+# Reports MCP Resources (Instructions & Templates)
+# =============================================================================
+
+@reports_mcp_server.list_resources()
+async def list_reports_resources() -> list[Resource]:
+    """List available resources for the Reports server."""
+    return [
+        Resource(
+            uri="reports://instructions/management-report",
+            name="Management Report Instructions",
+            description="Instructions and guidelines for generating management reports. Read this before creating a management report to understand the expected format, style, and content requirements.",
+            mimeType="text/markdown",
+        ),
+    ]
+
+
+@reports_mcp_server.read_resource()
+async def read_reports_resource(uri: str) -> ResourceContents:
+    """Read a resource by URI."""
+    if uri == "reports://instructions/management-report":
+        instructions = get_management_report_instructions()
+        return [
+            TextResourceContents(
+                uri=uri,
+                mimeType="text/markdown",
+                text=instructions,
+            )
+        ]
+    
+    raise ValueError(f"Unknown resource URI: {uri}")
 
 
 # =============================================================================
@@ -1460,9 +1506,18 @@ async def _execute_reports_tool(
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Execute a Reports tool and return the result."""
 
+    # --- Instructions & Configuration ---
+
+    if name == "get_report_instructions":
+        instructions = get_management_report_instructions()
+        return {
+            "instructions": instructions,
+            "note": "Follow these guidelines when generating management reports using the save_management_report tool.",
+        }
+
     # --- Activity Tracking & Weekly Reports ---
 
-    if name == "log_activity":
+    elif name == "log_activity":
         input_data = LogActivityInput(**arguments)
         
         action_details = None
