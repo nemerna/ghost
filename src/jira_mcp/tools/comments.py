@@ -1,6 +1,6 @@
 """Comment-related MCP tools for Jira operations."""
 
-from typing import Any, Optional
+from typing import Any
 
 from jira_mcp.jira_client import JiraClient, get_jira_client
 from jira_mcp.tools.schemas import AddCommentInput, GetCommentsInput
@@ -9,7 +9,7 @@ from jira_mcp.tools.schemas import AddCommentInput, GetCommentsInput
 def jira_add_comment(
     ticket_key: str,
     body: str,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """
     Add a comment to a Jira ticket.
@@ -39,7 +39,7 @@ def jira_add_comment(
 def jira_get_comments(
     ticket_key: str,
     max_results: int = 20,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get comments from a Jira ticket.
@@ -64,4 +64,3 @@ def jira_get_comments(
         issue_key=input_data.ticket_key,
         max_results=input_data.max_results,
     )
-

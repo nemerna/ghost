@@ -1,18 +1,18 @@
 """Discovery and metadata MCP tools for Jira operations."""
 
-from typing import Any, Optional
+from typing import Any
 
 from jira_mcp.jira_client import JiraClient, get_jira_client
 from jira_mcp.tools.schemas import (
+    GetTransitionsInput,
     ListComponentsInput,
     ListIssueTypesInput,
     ListStatusesInput,
-    GetTransitionsInput,
 )
 
 
 def jira_list_projects(
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     List all accessible Jira projects.
@@ -29,7 +29,7 @@ def jira_list_projects(
 
 def jira_list_components(
     project: str,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     List components for a Jira project.
@@ -51,7 +51,7 @@ def jira_list_components(
 
 def jira_list_issue_types(
     project: str,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     List available issue types for a Jira project.
@@ -72,7 +72,7 @@ def jira_list_issue_types(
 
 
 def jira_list_priorities(
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     List all available priorities in Jira.
@@ -89,7 +89,7 @@ def jira_list_priorities(
 
 def jira_list_statuses(
     project: str,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     List available statuses for a Jira project.
@@ -111,7 +111,7 @@ def jira_list_statuses(
 
 def jira_get_transitions(
     ticket_key: str,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get available workflow transitions for a Jira ticket.
@@ -132,7 +132,7 @@ def jira_get_transitions(
 
 
 def jira_get_current_user(
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """
     Get information about the currently authenticated user.
@@ -145,4 +145,3 @@ def jira_get_current_user(
     """
     client = jira_client or get_jira_client()
     return client.get_current_user()
-

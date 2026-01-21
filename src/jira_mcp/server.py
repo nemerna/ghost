@@ -4,63 +4,61 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Any
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent, Resource, ResourceContents, TextResourceContents
+from mcp.types import Resource, ResourceContents, TextContent, TextResourceContents, Tool
 
-from jira_mcp.jira_client import JiraClient, JiraClientError
-from jira_mcp.github_client import GitHubClient, GitHubClientError
 from jira_mcp.config import get_management_report_instructions
-
-from jira_mcp.tools.schemas import (
-    ListTicketsInput,
-    GetTicketInput,
-    CreateTicketInput,
-    UpdateTicketInput,
-    AddCommentInput,
-    GetCommentsInput,
-    UpdateCommentInput,
-    DeleteCommentInput,
-    ListComponentsInput,
-    ListIssueTypesInput,
-    ListStatusesInput,
-    GetTransitionsInput,
-    LinkIssuesInput,
-    CreateSubtaskInput,
-    SetEpicInput,
-    # Activity & Reports
-    LogActivityInput,
-    GetWeeklyActivityInput,
-    GenerateWeeklyReportInput,
-    SaveWeeklyReportInput,
-    ListSavedReportsInput,
-    GetSavedReportInput,
-    DeleteSavedReportInput,
-    # Management Reports
-    SaveManagementReportInput,
-    ListManagementReportsInput,
-    GetManagementReportInput,
-    UpdateManagementReportInput,
-    DeleteManagementReportInput,
-    # GitHub Pull Requests
-    GitHubListPRsInput,
-    GitHubGetPRInput,
-    GitHubGetPRDiffInput,
-    GitHubGetPRFilesInput,
-    GitHubGetPRCommitsInput,
-    GitHubGetPRReviewsInput,
-    GitHubGetPRCommentsInput,
-    GitHubAddPRCommentInput,
-    GitHubSearchPRsInput,
-)
+from jira_mcp.db import init_db
+from jira_mcp.github_client import GitHubClient, GitHubClientError
+from jira_mcp.jira_client import JiraClient, JiraClientError
 
 # Import activity tracking and report functions
 from jira_mcp.tools import reports as report_tools
-from jira_mcp.db import init_db
+from jira_mcp.tools.schemas import (
+    AddCommentInput,
+    CreateSubtaskInput,
+    CreateTicketInput,
+    DeleteCommentInput,
+    DeleteManagementReportInput,
+    DeleteSavedReportInput,
+    GenerateWeeklyReportInput,
+    GetCommentsInput,
+    GetManagementReportInput,
+    GetSavedReportInput,
+    GetTicketInput,
+    GetTransitionsInput,
+    GetWeeklyActivityInput,
+    GitHubAddPRCommentInput,
+    GitHubGetPRCommentsInput,
+    GitHubGetPRCommitsInput,
+    GitHubGetPRDiffInput,
+    GitHubGetPRFilesInput,
+    GitHubGetPRInput,
+    GitHubGetPRReviewsInput,
+    # GitHub Pull Requests
+    GitHubListPRsInput,
+    GitHubSearchPRsInput,
+    LinkIssuesInput,
+    ListComponentsInput,
+    ListIssueTypesInput,
+    ListManagementReportsInput,
+    ListSavedReportsInput,
+    ListStatusesInput,
+    ListTicketsInput,
+    # Activity & Reports
+    LogActivityInput,
+    # Management Reports
+    SaveManagementReportInput,
+    SaveWeeklyReportInput,
+    SetEpicInput,
+    UpdateCommentInput,
+    UpdateManagementReportInput,
+    UpdateTicketInput,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -72,14 +70,14 @@ github_mcp_server = Server("github-mcp")
 reports_mcp_server = Server("reports-mcp")
 
 # Context variables for per-connection clients (SSE mode)
-_jira_client_ctx: ContextVar[Optional[JiraClient]] = ContextVar("jira_client", default=None)
-_github_client_ctx: ContextVar[Optional[GitHubClient]] = ContextVar("github_client", default=None)
-_username_ctx: ContextVar[Optional[str]] = ContextVar("username", default=None)
+_jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("jira_client", default=None)
+_github_client_ctx: ContextVar[GitHubClient | None] = ContextVar("github_client", default=None)
+_username_ctx: ContextVar[str | None] = ContextVar("username", default=None)
 
 
 def create_jira_client(
-    server_url: Optional[str] = None,
-    token: Optional[str] = None,
+    server_url: str | None = None,
+    token: str | None = None,
     verify_ssl: bool = True,
 ) -> JiraClient:
     """Create a Jira client with the given configuration."""
@@ -87,7 +85,7 @@ def create_jira_client(
         raise ValueError("Jira server URL is required. Set X-Jira-Server-URL header.")
     if not token:
         raise ValueError("Jira token is required. Set X-Jira-Token header.")
-    
+
     return JiraClient(
         server_url=server_url,
         token=token,
@@ -99,18 +97,20 @@ def get_jira_client() -> JiraClient:
     """Get Jira client from context."""
     client = _jira_client_ctx.get()
     if client is None:
-        raise ValueError("Jira client not configured. Ensure X-Jira-Server-URL and X-Jira-Token headers are set.")
+        raise ValueError(
+            "Jira client not configured. Ensure X-Jira-Server-URL and X-Jira-Token headers are set."
+        )
     return client
 
 
 def create_github_client(
-    token: Optional[str] = None,
-    api_url: Optional[str] = None,
+    token: str | None = None,
+    api_url: str | None = None,
 ) -> GitHubClient:
     """Create a GitHub client with the given configuration."""
     if not token:
         raise ValueError("GitHub token is required. Set X-GitHub-Token header.")
-    
+
     return GitHubClient(
         token=token,
         api_url=api_url,
@@ -994,12 +994,12 @@ REPORTS_TOOLS: list[Tool] = [
         name="save_management_report",
         description="""Save an AI-generated management report for high-level stakeholders.
 
-IMPORTANT: Before generating a report, read the instructions resource at 'reports://instructions/management-report' 
+IMPORTANT: Before generating a report, read the instructions resource at 'reports://instructions/management-report'
 for detailed formatting guidelines, style requirements, and templates.
 
 Quick summary:
 - one_liner: Single sentence (max 15 words) - the "elevator pitch"
-- executive_summary: 2-3 sentences, high-level outcomes only  
+- executive_summary: 2-3 sentences, high-level outcomes only
 - content: Short Markdown (aim for <500 words), use bullet points, include Jira links
 
 Focus on: What was delivered, business impact, blockers, next steps.
@@ -1134,6 +1134,7 @@ Avoid: Technical details, implementation specifics, code-level information.""",
 # Jira MCP Server Handlers
 # =============================================================================
 
+
 @jira_mcp_server.list_tools()
 async def list_jira_tools() -> list[Tool]:
     """List available Jira MCP tools."""
@@ -1166,6 +1167,7 @@ async def call_jira_tool(name: str, arguments: dict[str, Any]) -> list[TextConte
 # =============================================================================
 # GitHub MCP Server Handlers
 # =============================================================================
+
 
 @github_mcp_server.list_tools()
 async def list_github_tools() -> list[Tool]:
@@ -1200,6 +1202,7 @@ async def call_github_tool(name: str, arguments: dict[str, Any]) -> list[TextCon
 # Reports MCP Server Handlers
 # =============================================================================
 
+
 @reports_mcp_server.list_tools()
 async def list_reports_tools() -> list[Tool]:
     """List available Reports MCP tools."""
@@ -1226,6 +1229,7 @@ async def call_reports_tool(name: str, arguments: dict[str, Any]) -> list[TextCo
 # Reports MCP Resources (Instructions & Templates)
 # =============================================================================
 
+
 @reports_mcp_server.list_resources()
 async def list_reports_resources() -> list[Resource]:
     """List available resources for the Reports server."""
@@ -1251,13 +1255,14 @@ async def read_reports_resource(uri: str) -> ResourceContents:
                 text=instructions,
             )
         ]
-    
+
     raise ValueError(f"Unknown resource URI: {uri}")
 
 
 # =============================================================================
 # Tool Execution
 # =============================================================================
+
 
 async def _execute_jira_tool(
     name: str, arguments: dict[str, Any], jira_client: JiraClient
@@ -1519,14 +1524,14 @@ async def _execute_reports_tool(
 
     elif name == "log_activity":
         input_data = LogActivityInput(**arguments)
-        
+
         action_details = None
         if input_data.action_details:
             try:
                 action_details = json.loads(input_data.action_details)
             except json.JSONDecodeError:
                 action_details = {"raw": input_data.action_details}
-        
+
         return report_tools.log_activity(
             username=username,
             ticket_key=input_data.ticket_key,
@@ -1634,6 +1639,7 @@ async def _execute_reports_tool(
 # SSE Transport
 # =============================================================================
 
+
 async def run_sse(host: str, port: int) -> None:
     """Run the MCP server with SSE transport (HTTP server mode)."""
     import uvicorn
@@ -1645,7 +1651,9 @@ async def run_sse(host: str, port: int) -> None:
     from starlette.types import Receive, Scope, Send
 
     logger.info(f"Starting MCP server with SSE transport on {host}:{port}")
-    logger.info("Endpoints: /jira (Jira tools), /github (GitHub tools), /reports (Activity & Reports)")
+    logger.info(
+        "Endpoints: /jira (Jira tools), /github (GitHub tools), /reports (Activity & Reports)"
+    )
 
     # Separate SSE transports for each server
     jira_sse_transport = SseServerTransport("/jira/messages/")
@@ -1654,14 +1662,16 @@ async def run_sse(host: str, port: int) -> None:
 
     async def health_check(request: Request) -> JSONResponse:
         """Health check endpoint."""
-        return JSONResponse({
-            "status": "healthy",
-            "endpoints": {
-                "jira": "/jira",
-                "github": "/github",
-                "reports": "/reports",
+        return JSONResponse(
+            {
+                "status": "healthy",
+                "endpoints": {
+                    "jira": "/jira",
+                    "github": "/github",
+                    "reports": "/reports",
+                },
             }
-        })
+        )
 
     def extract_headers(scope: Scope) -> dict[str, str]:
         """Extract headers from ASGI scope as string dict."""
@@ -1675,13 +1685,13 @@ async def run_sse(host: str, port: int) -> None:
     async def handle_jira_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
         """Handle Jira SSE connection."""
         headers = extract_headers(scope)
-        
+
         # Extract Jira configuration from headers
         server_url = headers.get("x-jira-server-url")
         token = headers.get("x-jira-token")
         verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
         verify_ssl = verify_ssl_str.lower() in ("true", "1", "yes")
-        
+
         # Create and set Jira client
         try:
             client = create_jira_client(
@@ -1693,7 +1703,7 @@ async def run_sse(host: str, port: int) -> None:
             logger.info(f"Jira SSE connection: {client.server_url}")
         except ValueError as e:
             logger.warning(f"Jira client config error: {e}")
-        
+
         async with jira_sse_transport.connect_sse(scope, receive, send) as streams:
             await jira_mcp_server.run(
                 streams[0],
@@ -1704,11 +1714,11 @@ async def run_sse(host: str, port: int) -> None:
     async def handle_github_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
         """Handle GitHub SSE connection."""
         headers = extract_headers(scope)
-        
+
         # Extract GitHub configuration from headers
         token = headers.get("x-github-token")
         api_url = headers.get("x-github-api-url")
-        
+
         # Create and set GitHub client
         try:
             client = create_github_client(
@@ -1719,7 +1729,7 @@ async def run_sse(host: str, port: int) -> None:
             logger.info(f"GitHub SSE connection: {client.api_url}")
         except ValueError as e:
             logger.warning(f"GitHub client config error: {e}")
-        
+
         async with github_sse_transport.connect_sse(scope, receive, send) as streams:
             await github_mcp_server.run(
                 streams[0],
@@ -1730,16 +1740,16 @@ async def run_sse(host: str, port: int) -> None:
     async def handle_reports_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
         """Handle Reports SSE connection."""
         headers = extract_headers(scope)
-        
+
         # Extract username from headers
         username = headers.get("x-username")
-        
+
         if username:
             _username_ctx.set(username)
             logger.info(f"Reports SSE connection: user={username}")
         else:
             logger.warning("Reports SSE connection: X-Username header not provided")
-        
+
         async with reports_sse_transport.connect_sse(scope, receive, send) as streams:
             await reports_mcp_server.run(
                 streams[0],
@@ -1794,7 +1804,7 @@ def main() -> None:
     # Initialize database on startup
     init_db()
     logger.info("Database initialized")
-    
+
     parser = argparse.ArgumentParser(
         description="Jira/GitHub/Reports MCP Server - Model Context Protocol server",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -1,9 +1,6 @@
 """Pydantic schemas for MCP tool inputs and outputs."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
-
 
 # --- Input Schemas ---
 
@@ -11,23 +8,23 @@ from pydantic import BaseModel, Field
 class ListTicketsInput(BaseModel):
     """Input schema for jira_list_tickets tool."""
 
-    assignee: Optional[str] = Field(
+    assignee: str | None = Field(
         default=None,
         description="Filter by assignee username. Use 'currentUser' for the authenticated user.",
     )
-    project: Optional[str] = Field(
+    project: str | None = Field(
         default=None,
         description="Filter by project key (e.g., 'PROJ').",
     )
-    component: Optional[str] = Field(
+    component: str | None = Field(
         default=None,
         description="Filter by component name.",
     )
-    epic_key: Optional[str] = Field(
+    epic_key: str | None = Field(
         default=None,
         description="Filter by epic issue key (e.g., 'PROJ-100').",
     )
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None,
         description="Filter by issue status (e.g., 'Open', 'In Progress', 'Done').",
     )
@@ -61,7 +58,7 @@ class CreateTicketInput(BaseModel):
         max_length=255,
         description="Issue title/summary.",
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="Issue description (supports Jira wiki markup).",
     )
@@ -69,23 +66,23 @@ class CreateTicketInput(BaseModel):
         default="Task",
         description="Issue type (e.g., 'Task', 'Bug', 'Story', 'Epic').",
     )
-    assignee: Optional[str] = Field(
+    assignee: str | None = Field(
         default=None,
         description="Assignee username.",
     )
-    components: Optional[list[str]] = Field(
+    components: list[str] | None = Field(
         default=None,
         description="List of component names.",
     )
-    epic_key: Optional[str] = Field(
+    epic_key: str | None = Field(
         default=None,
         description="Parent epic issue key.",
     )
-    priority: Optional[str] = Field(
+    priority: str | None = Field(
         default=None,
         description="Priority name (e.g., 'High', 'Medium', 'Low').",
     )
-    labels: Optional[list[str]] = Field(
+    labels: list[str] | None = Field(
         default=None,
         description="List of labels.",
     )
@@ -98,28 +95,28 @@ class UpdateTicketInput(BaseModel):
         ...,
         description="The issue key (e.g., 'PROJ-123').",
     )
-    summary: Optional[str] = Field(
+    summary: str | None = Field(
         default=None,
         max_length=255,
         description="New issue title/summary.",
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="New issue description (supports Jira wiki markup).",
     )
-    assignee: Optional[str] = Field(
+    assignee: str | None = Field(
         default=None,
         description="New assignee username. Use empty string to unassign.",
     )
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None,
         description="Transition to this status (e.g., 'In Progress', 'Done').",
     )
-    components: Optional[list[str]] = Field(
+    components: list[str] | None = Field(
         default=None,
         description="New list of component names (replaces existing).",
     )
-    priority: Optional[str] = Field(
+    priority: str | None = Field(
         default=None,
         description="New priority name.",
     )
@@ -257,15 +254,15 @@ class CreateSubtaskInput(BaseModel):
         max_length=255,
         description="Sub-task title/summary.",
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="Sub-task description (supports Jira wiki markup).",
     )
-    assignee: Optional[str] = Field(
+    assignee: str | None = Field(
         default=None,
         description="Assignee username.",
     )
-    priority: Optional[str] = Field(
+    priority: str | None = Field(
         default=None,
         description="Priority name (e.g., 'High', 'Medium', 'Low').",
     )
@@ -293,8 +290,8 @@ class TicketSummary(BaseModel):
     key: str
     summary: str
     status: str
-    assignee: Optional[str]
-    priority: Optional[str]
+    assignee: str | None
+    priority: str | None
     issue_type: str
     created: str
     updated: str
@@ -305,11 +302,11 @@ class TicketDetail(TicketSummary):
 
     id: str
     url: str
-    description: Optional[str]
-    reporter: Optional[str]
+    description: str | None
+    reporter: str | None
     components: list[str]
     labels: list[str]
-    epic_key: Optional[str]
+    epic_key: str | None
     comments_count: int
 
 
@@ -364,11 +361,11 @@ class LogActivityInput(BaseModel):
         default="other",
         description="Type of action: view, create, update, comment, transition, link, or other.",
     )
-    ticket_summary: Optional[str] = Field(
+    ticket_summary: str | None = Field(
         default=None,
         description="Optional ticket summary for context.",
     )
-    action_details: Optional[str] = Field(
+    action_details: str | None = Field(
         default=None,
         description="Optional JSON string with additional context.",
     )
@@ -383,7 +380,7 @@ class GetWeeklyActivityInput(BaseModel):
         le=0,
         description="Week offset from current week (0 = current, -1 = last week, etc.).",
     )
-    project: Optional[str] = Field(
+    project: str | None = Field(
         default=None,
         description="Optional project key to filter by.",
     )
@@ -413,12 +410,12 @@ class SaveWeeklyReportInput(BaseModel):
         le=0,
         description="Week offset from current week (0 = current, -1 = last week, etc.).",
     )
-    custom_title: Optional[str] = Field(
+    custom_title: str | None = Field(
         default=None,
         max_length=500,
         description="Optional custom title override.",
     )
-    custom_summary: Optional[str] = Field(
+    custom_summary: str | None = Field(
         default=None,
         description="Optional custom executive summary override.",
     )
@@ -464,7 +461,7 @@ class SaveManagementReportInput(BaseModel):
         max_length=500,
         description="Report title (e.g., 'APPENG Progress - Week 3').",
     )
-    one_liner: Optional[str] = Field(
+    one_liner: str | None = Field(
         default=None,
         max_length=200,
         description="Single sentence elevator pitch (max 15 words).",
@@ -477,15 +474,15 @@ class SaveManagementReportInput(BaseModel):
         ...,
         description="Concise Markdown report (<500 words). Use bullet points, include Jira links.",
     )
-    project_key: Optional[str] = Field(
+    project_key: str | None = Field(
         default=None,
         description="Project key (e.g., 'APPENG').",
     )
-    report_period: Optional[str] = Field(
+    report_period: str | None = Field(
         default=None,
         description="Period (e.g., 'Week 3, Jan 2026' or 'Sprint 42').",
     )
-    referenced_tickets: Optional[list[str]] = Field(
+    referenced_tickets: list[str] | None = Field(
         default=None,
         description="Jira ticket keys mentioned in report.",
     )
@@ -494,7 +491,7 @@ class SaveManagementReportInput(BaseModel):
 class ListManagementReportsInput(BaseModel):
     """Input schema for list_management_reports tool."""
 
-    project_key: Optional[str] = Field(
+    project_key: str | None = Field(
         default=None,
         description="Optional filter by project key.",
     )
@@ -522,29 +519,29 @@ class UpdateManagementReportInput(BaseModel):
         ...,
         description="The management report ID to update.",
     )
-    title: Optional[str] = Field(
+    title: str | None = Field(
         default=None,
         max_length=500,
         description="Optional new title.",
     )
-    one_liner: Optional[str] = Field(
+    one_liner: str | None = Field(
         default=None,
         max_length=200,
         description="Optional new one-liner elevator pitch.",
     )
-    executive_summary: Optional[str] = Field(
+    executive_summary: str | None = Field(
         default=None,
         description="Optional new executive summary.",
     )
-    content: Optional[str] = Field(
+    content: str | None = Field(
         default=None,
         description="Optional new Markdown content.",
     )
-    report_period: Optional[str] = Field(
+    report_period: str | None = Field(
         default=None,
         description="Optional new period.",
     )
-    referenced_tickets: Optional[list[str]] = Field(
+    referenced_tickets: list[str] | None = Field(
         default=None,
         description="Optional new list of referenced ticket keys.",
     )
@@ -577,11 +574,11 @@ class GitHubListPRsInput(BaseModel):
         default="open",
         description="Filter by state: 'open', 'closed', or 'all'.",
     )
-    head: Optional[str] = Field(
+    head: str | None = Field(
         default=None,
         description="Filter by head user/org and branch (format: 'user:branch').",
     )
-    base: Optional[str] = Field(
+    base: str | None = Field(
         default=None,
         description="Filter by base branch name.",
     )
@@ -772,7 +769,7 @@ class GitHubAddPRCommentInput(BaseModel):
         min_length=1,
         description="Comment body (Markdown).",
     )
-    in_reply_to: Optional[int] = Field(
+    in_reply_to: int | None = Field(
         default=None,
         description="Optional review comment ID to reply to. If provided, posts a reply in the review thread.",
     )
@@ -804,4 +801,3 @@ class GitHubSearchPRsInput(BaseModel):
         ge=1,
         description="Page number.",
     )
-

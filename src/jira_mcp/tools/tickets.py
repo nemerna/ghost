@@ -1,24 +1,24 @@
 """Ticket-related MCP tools for Jira operations."""
 
-from typing import Any, Optional
+from typing import Any
 
 from jira_mcp.jira_client import JiraClient, get_jira_client
 from jira_mcp.tools.schemas import (
-    ListTicketsInput,
-    GetTicketInput,
     CreateTicketInput,
+    GetTicketInput,
+    ListTicketsInput,
     UpdateTicketInput,
 )
 
 
 def jira_list_tickets(
-    assignee: Optional[str] = None,
-    project: Optional[str] = None,
-    component: Optional[str] = None,
-    epic_key: Optional[str] = None,
-    status: Optional[str] = None,
+    assignee: str | None = None,
+    project: str | None = None,
+    component: str | None = None,
+    epic_key: str | None = None,
+    status: str | None = None,
     max_results: int = 50,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> list[dict[str, Any]]:
     """
     List Jira tickets with optional filters.
@@ -60,7 +60,7 @@ def jira_list_tickets(
 
 def jira_get_ticket(
     ticket_key: str,
-    jira_client: Optional[JiraClient] = None,
+    jira_client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """
     Get full details of a specific Jira ticket.
@@ -84,14 +84,14 @@ def jira_get_ticket(
 def jira_create_ticket(
     project: str,
     summary: str,
-    description: Optional[str] = None,
+    description: str | None = None,
     issue_type: str = "Task",
-    assignee: Optional[str] = None,
-    components: Optional[list[str]] = None,
-    epic_key: Optional[str] = None,
-    priority: Optional[str] = None,
-    labels: Optional[list[str]] = None,
-    jira_client: Optional[JiraClient] = None,
+    assignee: str | None = None,
+    components: list[str] | None = None,
+    epic_key: str | None = None,
+    priority: str | None = None,
+    labels: list[str] | None = None,
+    jira_client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """
     Create a new Jira ticket with specified fields.
@@ -141,13 +141,13 @@ def jira_create_ticket(
 
 def jira_update_ticket(
     ticket_key: str,
-    summary: Optional[str] = None,
-    description: Optional[str] = None,
-    assignee: Optional[str] = None,
-    status: Optional[str] = None,
-    components: Optional[list[str]] = None,
-    priority: Optional[str] = None,
-    jira_client: Optional[JiraClient] = None,
+    summary: str | None = None,
+    description: str | None = None,
+    assignee: str | None = None,
+    status: str | None = None,
+    components: list[str] | None = None,
+    priority: str | None = None,
+    jira_client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """
     Update an existing Jira ticket's fields.
@@ -187,4 +187,3 @@ def jira_update_ticket(
         components=input_data.components,
         priority=input_data.priority,
     )
-

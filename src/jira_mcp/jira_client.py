@@ -2,7 +2,7 @@
 
 import os
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 from jira import JIRA
 from jira.exceptions import JIRAError
@@ -11,7 +11,7 @@ from jira.exceptions import JIRAError
 class JiraClientError(Exception):
     """Custom exception for Jira client errors."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None):
+    def __init__(self, message: str, status_code: int | None = None):
         self.message = message
         self.status_code = status_code
         super().__init__(self.message)
@@ -28,7 +28,7 @@ class JiraClient:
     ) -> None:
         """
         Initialize the Jira client with explicit configuration.
-        
+
         Args:
             server_url: Base URL of the Jira server (e.g., https://jira.example.com)
             token: Personal Access Token for authentication
@@ -49,12 +49,12 @@ class JiraClient:
 
     def build_jql(
         self,
-        assignee: Optional[str] = None,
-        project: Optional[str] = None,
-        component: Optional[str] = None,
-        epic_key: Optional[str] = None,
-        status: Optional[str] = None,
-        issue_type: Optional[str] = None,
+        assignee: str | None = None,
+        project: str | None = None,
+        component: str | None = None,
+        epic_key: str | None = None,
+        status: str | None = None,
+        issue_type: str | None = None,
     ) -> str:
         """Build a JQL query string from filter parameters."""
         conditions: list[str] = []
@@ -90,7 +90,7 @@ class JiraClient:
         self,
         jql: str,
         max_results: int = 50,
-        fields: Optional[list[str]] = None,
+        fields: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for issues using JQL."""
         try:
@@ -136,13 +136,13 @@ class JiraClient:
         self,
         project: str,
         summary: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         issue_type: str = "Task",
-        assignee: Optional[str] = None,
-        components: Optional[list[str]] = None,
-        epic_key: Optional[str] = None,
-        priority: Optional[str] = None,
-        labels: Optional[list[str]] = None,
+        assignee: str | None = None,
+        components: list[str] | None = None,
+        epic_key: str | None = None,
+        priority: str | None = None,
+        labels: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create a new Jira issue."""
         try:
@@ -195,12 +195,12 @@ class JiraClient:
     def update_issue(
         self,
         issue_key: str,
-        summary: Optional[str] = None,
-        description: Optional[str] = None,
-        assignee: Optional[str] = None,
-        status: Optional[str] = None,
-        components: Optional[list[str]] = None,
-        priority: Optional[str] = None,
+        summary: str | None = None,
+        description: str | None = None,
+        assignee: str | None = None,
+        status: str | None = None,
+        components: list[str] | None = None,
+        priority: str | None = None,
     ) -> dict[str, Any]:
         """Update an existing Jira issue."""
         try:
@@ -281,13 +281,15 @@ class JiraClient:
             results: list[dict[str, Any]] = []
 
             for comment in comments[:max_results]:
-                results.append({
-                    "id": comment.id,
-                    "author": str(comment.author),
-                    "body": comment.body,
-                    "created": str(comment.created),
-                    "updated": str(getattr(comment, "updated", comment.created)),
-                })
+                results.append(
+                    {
+                        "id": comment.id,
+                        "author": str(comment.author),
+                        "body": comment.body,
+                        "created": str(comment.created),
+                        "updated": str(getattr(comment, "updated", comment.created)),
+                    }
+                )
 
             return results
         except JIRAError as e:
@@ -304,14 +306,14 @@ class JiraClient:
     ) -> dict[str, Any]:
         """
         Update an existing comment on an issue.
-        
+
         Note: Only comments authored by the current user can be updated.
-        
+
         Args:
             issue_key: The issue key (e.g., 'PROJ-123').
             comment_id: The comment ID to update.
             body: New comment body (supports Jira wiki markup).
-            
+
         Returns:
             Updated comment details.
         """
@@ -341,13 +343,13 @@ class JiraClient:
     ) -> dict[str, Any]:
         """
         Delete a comment from an issue.
-        
+
         Note: Only comments authored by the current user can be deleted.
-        
+
         Args:
             issue_key: The issue key (e.g., 'PROJ-123').
             comment_id: The comment ID to delete.
-            
+
         Returns:
             Confirmation of deletion.
         """
@@ -363,7 +365,9 @@ class JiraClient:
         except JIRAError as e:
             error_msg = e.text
             if e.status_code == 403:
-                error_msg = f"Permission denied. You can only delete comments you authored. {e.text}"
+                error_msg = (
+                    f"Permission denied. You can only delete comments you authored. {e.text}"
+                )
             raise JiraClientError(
                 f"Failed to delete comment {comment_id} on {issue_key}: {error_msg}",
                 status_code=e.status_code,
@@ -378,12 +382,18 @@ class JiraClient:
             results: list[dict[str, Any]] = []
 
             for project in projects:
-                results.append({
-                    "key": project.key,
-                    "name": project.name,
-                    "lead": str(getattr(project, "lead", None)) if hasattr(project, "lead") else None,
-                    "url": f"{self._server_url}/browse/{project.key}",
-                })
+                results.append(
+                    {
+                        "key": project.key,
+                        "name": project.name,
+                        "lead": (
+                            str(getattr(project, "lead", None))
+                            if hasattr(project, "lead")
+                            else None
+                        ),
+                        "url": f"{self._server_url}/browse/{project.key}",
+                    }
+                )
 
             return results
         except JIRAError as e:
@@ -399,12 +409,18 @@ class JiraClient:
             results: list[dict[str, Any]] = []
 
             for component in components:
-                results.append({
-                    "id": component.id,
-                    "name": component.name,
-                    "description": getattr(component, "description", None),
-                    "lead": str(getattr(component, "lead", None)) if hasattr(component, "lead") and component.lead else None,
-                })
+                results.append(
+                    {
+                        "id": component.id,
+                        "name": component.name,
+                        "description": getattr(component, "description", None),
+                        "lead": (
+                            str(getattr(component, "lead", None))
+                            if hasattr(component, "lead") and component.lead
+                            else None
+                        ),
+                    }
+                )
 
             return results
         except JIRAError as e:
@@ -421,12 +437,14 @@ class JiraClient:
             results: list[dict[str, Any]] = []
 
             for issue_type in issue_types:
-                results.append({
-                    "id": issue_type.id,
-                    "name": issue_type.name,
-                    "description": getattr(issue_type, "description", None),
-                    "subtask": getattr(issue_type, "subtask", False),
-                })
+                results.append(
+                    {
+                        "id": issue_type.id,
+                        "name": issue_type.name,
+                        "description": getattr(issue_type, "description", None),
+                        "subtask": getattr(issue_type, "subtask", False),
+                    }
+                )
 
             return results
         except JIRAError as e:
@@ -442,12 +460,14 @@ class JiraClient:
             results: list[dict[str, Any]] = []
 
             for priority in priorities:
-                results.append({
-                    "id": priority.id,
-                    "name": priority.name,
-                    "description": getattr(priority, "description", None),
-                    "icon_url": getattr(priority, "iconUrl", None),
-                })
+                results.append(
+                    {
+                        "id": priority.id,
+                        "name": priority.name,
+                        "description": getattr(priority, "description", None),
+                        "icon_url": getattr(priority, "iconUrl", None),
+                    }
+                )
 
             return results
         except JIRAError as e:
@@ -468,12 +488,18 @@ class JiraClient:
                 for status in issue_type_statuses.statuses:
                     if status.id not in seen_ids:
                         seen_ids.add(status.id)
-                        results.append({
-                            "id": status.id,
-                            "name": status.name,
-                            "description": getattr(status, "description", None),
-                            "category": getattr(status.statusCategory, "name", None) if hasattr(status, "statusCategory") else None,
-                        })
+                        results.append(
+                            {
+                                "id": status.id,
+                                "name": status.name,
+                                "description": getattr(status, "description", None),
+                                "category": (
+                                    getattr(status.statusCategory, "name", None)
+                                    if hasattr(status, "statusCategory")
+                                    else None
+                                ),
+                            }
+                        )
 
             return results
         except JIRAError as e:
@@ -489,12 +515,14 @@ class JiraClient:
             results: list[dict[str, Any]] = []
 
             for transition in transitions:
-                results.append({
-                    "id": transition["id"],
-                    "name": transition["name"],
-                    "to_status": transition["to"]["name"],
-                    "to_status_id": transition["to"]["id"],
-                })
+                results.append(
+                    {
+                        "id": transition["id"],
+                        "name": transition["name"],
+                        "to_status": transition["to"]["name"],
+                        "to_status_id": transition["to"]["id"],
+                    }
+                )
 
             return results
         except JIRAError as e:
@@ -563,9 +591,9 @@ class JiraClient:
         self,
         parent_key: str,
         summary: str,
-        description: Optional[str] = None,
-        assignee: Optional[str] = None,
-        priority: Optional[str] = None,
+        description: str | None = None,
+        assignee: str | None = None,
+        priority: str | None = None,
     ) -> dict[str, Any]:
         """
         Create a sub-task under a parent issue.
@@ -663,7 +691,7 @@ class JiraClient:
             # Try updating Epic Link custom field (common field IDs)
             issue = self._jira.issue(issue_key)
             epic_link_fields = ["customfield_10014", "customfield_10008", "customfield_10000"]
-            
+
             for field_name in epic_link_fields:
                 try:
                     issue.update(fields={field_name: epic_key})
@@ -708,17 +736,19 @@ class JiraClient:
         result = self._format_issue_summary(issue)
 
         # Add additional fields for full view
-        result.update({
-            "id": issue.id,
-            "url": f"{self._server_url}/browse/{issue.key}",
-            "description": fields.description,
-            "reporter": str(fields.reporter) if fields.reporter else None,
-            "components": [str(c) for c in (fields.components or [])],
-            "labels": fields.labels or [],
-            "comments_count": (
-                len(fields.comment.comments) if hasattr(fields, "comment") else 0
-            ),
-        })
+        result.update(
+            {
+                "id": issue.id,
+                "url": f"{self._server_url}/browse/{issue.key}",
+                "description": fields.description,
+                "reporter": str(fields.reporter) if fields.reporter else None,
+                "components": [str(c) for c in (fields.components or [])],
+                "labels": fields.labels or [],
+                "comments_count": (
+                    len(fields.comment.comments) if hasattr(fields, "comment") else 0
+                ),
+            }
+        )
 
         # Try to get epic link (field name varies by Jira version)
         epic_link = None
@@ -736,10 +766,10 @@ class JiraClient:
 def get_jira_client() -> JiraClient:
     """
     Get a cached Jira client instance from environment variables.
-    
+
     This is a convenience function for standalone usage.
     For MCP server usage, the client is managed per-connection.
-    
+
     Environment Variables:
         JIRA_SERVER_URL: Jira server URL (required)
         JIRA_PERSONAL_ACCESS_TOKEN: Personal Access Token (required)
@@ -748,12 +778,12 @@ def get_jira_client() -> JiraClient:
     server_url = os.environ.get("JIRA_SERVER_URL")
     token = os.environ.get("JIRA_PERSONAL_ACCESS_TOKEN")
     verify_ssl = os.environ.get("JIRA_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
-    
+
     if not server_url:
         raise ValueError("JIRA_SERVER_URL environment variable is required")
     if not token:
         raise ValueError("JIRA_PERSONAL_ACCESS_TOKEN environment variable is required")
-    
+
     return JiraClient(
         server_url=server_url,
         token=token,

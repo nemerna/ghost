@@ -1,7 +1,6 @@
 """GitHub API client wrapper for Pull Request operations."""
 
-import os
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -9,7 +8,7 @@ import httpx
 class GitHubClientError(Exception):
     """Custom exception for GitHub client errors."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None):
+    def __init__(self, message: str, status_code: int | None = None):
         self.message = message
         self.status_code = status_code
         super().__init__(self.message)
@@ -21,7 +20,7 @@ class GitHubClient:
     def __init__(
         self,
         token: str,
-        api_url: Optional[str] = None,
+        api_url: str | None = None,
     ) -> None:
         """
         Initialize the GitHub client.
@@ -47,9 +46,9 @@ class GitHubClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[dict[str, Any]] = None,
-        headers: Optional[dict[str, str]] = None,
-        json_body: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        json_body: dict[str, Any] | None = None,
     ) -> Any:
         """Make an HTTP request to the GitHub API."""
         url = f"{self._api_url}{endpoint}"
@@ -99,8 +98,8 @@ class GitHubClient:
     def _get(
         self,
         endpoint: str,
-        params: Optional[dict[str, Any]] = None,
-        headers: Optional[dict[str, str]] = None,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """Make a GET request to the GitHub API."""
         return self._request("GET", endpoint, params=params, headers=headers)
@@ -109,7 +108,7 @@ class GitHubClient:
         self,
         endpoint: str,
         json_body: dict[str, Any],
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """Make a POST request to the GitHub API."""
         return self._request("POST", endpoint, headers=headers, json_body=json_body)
@@ -121,8 +120,8 @@ class GitHubClient:
         owner: str,
         repo: str,
         state: str = "open",
-        head: Optional[str] = None,
-        base: Optional[str] = None,
+        head: str | None = None,
+        base: str | None = None,
         sort: str = "created",
         direction: str = "desc",
         per_page: int = 30,
@@ -523,9 +522,7 @@ class GitHubClient:
         return {
             "total_count": result["total_count"],
             "incomplete_results": result["incomplete_results"],
-            "pull_requests": [
-                self._format_search_result(item) for item in result["items"]
-            ],
+            "pull_requests": [self._format_search_result(item) for item in result["items"]],
         }
 
     def get_current_user(self) -> dict[str, Any]:
@@ -565,28 +562,28 @@ class GitHubClient:
     def _format_pr_detail(self, pr: dict[str, Any]) -> dict[str, Any]:
         """Format a PR with full details."""
         result = self._format_pr_summary(pr)
-        result.update({
-            "id": pr["id"],
-            "body": pr["body"],
-            "merged": pr.get("merged", False),
-            "mergeable": pr.get("mergeable"),
-            "mergeable_state": pr.get("mergeable_state"),
-            "merged_at": pr.get("merged_at"),
-            "merged_by": pr["merged_by"]["login"] if pr.get("merged_by") else None,
-            "additions": pr["additions"],
-            "deletions": pr["deletions"],
-            "changed_files": pr["changed_files"],
-            "commits": pr["commits"],
-            "comments": pr["comments"],
-            "review_comments": pr["review_comments"],
-            "labels": [label["name"] for label in pr.get("labels", [])],
-            "assignees": [a["login"] for a in pr.get("assignees", [])],
-            "requested_reviewers": [
-                r["login"] for r in pr.get("requested_reviewers", [])
-            ],
-            "milestone": pr["milestone"]["title"] if pr.get("milestone") else None,
-            "closed_at": pr.get("closed_at"),
-        })
+        result.update(
+            {
+                "id": pr["id"],
+                "body": pr["body"],
+                "merged": pr.get("merged", False),
+                "mergeable": pr.get("mergeable"),
+                "mergeable_state": pr.get("mergeable_state"),
+                "merged_at": pr.get("merged_at"),
+                "merged_by": pr["merged_by"]["login"] if pr.get("merged_by") else None,
+                "additions": pr["additions"],
+                "deletions": pr["deletions"],
+                "changed_files": pr["changed_files"],
+                "commits": pr["commits"],
+                "comments": pr["comments"],
+                "review_comments": pr["review_comments"],
+                "labels": [label["name"] for label in pr.get("labels", [])],
+                "assignees": [a["login"] for a in pr.get("assignees", [])],
+                "requested_reviewers": [r["login"] for r in pr.get("requested_reviewers", [])],
+                "milestone": pr["milestone"]["title"] if pr.get("milestone") else None,
+                "closed_at": pr.get("closed_at"),
+            }
+        )
         return result
 
     def _format_search_result(self, item: dict[str, Any]) -> dict[str, Any]:

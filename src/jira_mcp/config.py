@@ -3,11 +3,9 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # Default instructions for management report generation
 DEFAULT_MANAGEMENT_REPORT_INSTRUCTIONS = """
@@ -111,23 +109,23 @@ class Settings(BaseSettings):
     )
 
     # Optional: Default project for operations
-    jira_default_project: Optional[str] = Field(
+    jira_default_project: str | None = Field(
         default=None,
         description="Default Jira project key to use when not specified",
     )
 
     # GitHub Configuration (optional)
-    github_personal_access_token: Optional[str] = Field(
+    github_personal_access_token: str | None = Field(
         default=None,
         description="Personal Access Token for GitHub API authentication",
     )
-    github_api_url: Optional[str] = Field(
+    github_api_url: str | None = Field(
         default=None,
         description="GitHub API base URL (for GitHub Enterprise). Leave empty for github.com",
     )
 
     # Management Report Instructions
-    management_report_instructions_file: Optional[str] = Field(
+    management_report_instructions_file: str | None = Field(
         default=None,
         description="Path to a file containing custom management report instructions. If not set, uses default instructions.",
     )
@@ -156,28 +154,27 @@ def get_settings() -> Settings:
 def get_management_report_instructions() -> str:
     """
     Get management report instructions.
-    
+
     Loads from file if MANAGEMENT_REPORT_INSTRUCTIONS_FILE is set,
     otherwise returns default instructions.
     """
     # Check environment variable for file path
     instructions_file = os.environ.get("MANAGEMENT_REPORT_INSTRUCTIONS_FILE")
-    
+
     if instructions_file:
         path = Path(instructions_file)
         if path.exists():
             return path.read_text(encoding="utf-8").strip()
-    
+
     # Also check for a default location
     default_paths = [
         Path("management_report_instructions.md"),
         Path("config/management_report_instructions.md"),
         Path.home() / ".config" / "jira-mcp" / "management_report_instructions.md",
     ]
-    
+
     for path in default_paths:
         if path.exists():
             return path.read_text(encoding="utf-8").strip()
-    
-    return DEFAULT_MANAGEMENT_REPORT_INSTRUCTIONS
 
+    return DEFAULT_MANAGEMENT_REPORT_INSTRUCTIONS
