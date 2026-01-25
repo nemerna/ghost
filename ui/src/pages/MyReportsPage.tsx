@@ -27,24 +27,14 @@ import {
   TextInput,
   Title,
 } from '@patternfly/react-core';
-import Markdown from 'react-markdown';
 import {
   generateWeeklyReport,
   getMyWeeklyReports,
   saveWeeklyReport,
   deleteWeeklyReport,
 } from '@/api/reports';
+import { StyledMarkdown, InlineMarkdown } from '@/components/StyledMarkdown';
 import type { GeneratedReport } from '@/types';
-
-// Styles for rendered markdown
-const markdownContainerStyle: React.CSSProperties = {
-  padding: '1rem',
-  background: 'var(--pf-v6-global--BackgroundColor--200)',
-  borderRadius: '4px',
-  marginTop: '1rem',
-  maxHeight: '400px',
-  overflow: 'auto',
-};
 
 export function MyReportsPage() {
   const queryClient = useQueryClient();
@@ -164,13 +154,11 @@ export function MyReportsPage() {
                 </CardTitle>
                 <CardBody>
                   <p><strong>Period:</strong> {report.week_start} to {report.week_end}</p>
-                  <p><strong>Summary:</strong> {report.summary}</p>
+                  <p><strong>Summary:</strong> <InlineMarkdown>{report.summary}</InlineMarkdown></p>
                   <p><strong>Projects:</strong> {report.projects.join(', ') || 'None'}</p>
                   
                   <ExpandableSection toggleText="View full report">
-                    <div style={markdownContainerStyle}>
-                      <Markdown>{report.content}</Markdown>
-                    </div>
+                    <StyledMarkdown maxHeight="400px">{report.content}</StyledMarkdown>
                   </ExpandableSection>
                 </CardBody>
               </Card>
@@ -255,9 +243,7 @@ export function MyReportsPage() {
                 </FormGroup>
 
                 <FormGroup label="Preview" fieldId="preview">
-                  <div style={{ ...markdownContainerStyle, maxHeight: '300px' }}>
-                    <Markdown>{generatedReport.content}</Markdown>
-                  </div>
+                  <StyledMarkdown maxHeight="300px">{generatedReport.content}</StyledMarkdown>
                 </FormGroup>
               </>
             )}

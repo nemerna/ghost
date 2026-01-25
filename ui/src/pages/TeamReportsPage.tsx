@@ -20,6 +20,7 @@ import {
   Title,
 } from '@patternfly/react-core';
 import { listTeams } from '@/api/teams';
+import { StyledMarkdown, InlineMarkdown } from '@/components/StyledMarkdown';
 import { getTeamWeeklyReports } from '@/api/reports';
 
 export function TeamReportsPage() {
@@ -123,19 +124,9 @@ export function TeamReportsPage() {
                     <Card isPlain>
                       <CardBody>
                         <p><strong>Title:</strong> {report.title}</p>
-                        <p><strong>Summary:</strong> {report.summary}</p>
+                        <p><strong>Summary:</strong> <InlineMarkdown>{report.summary}</InlineMarkdown></p>
                         <p><strong>Projects:</strong> {report.projects.join(', ') || 'None'}</p>
-                        <pre style={{ 
-                          whiteSpace: 'pre-wrap', 
-                          background: 'var(--pf-v6-global--BackgroundColor--200)',
-                          padding: '1rem',
-                          borderRadius: '4px',
-                          marginTop: '1rem',
-                          maxHeight: '300px',
-                          overflow: 'auto'
-                        }}>
-                          {report.content}
-                        </pre>
+                        <StyledMarkdown maxHeight="300px">{report.content}</StyledMarkdown>
                       </CardBody>
                     </Card>
                   </ExpandableSection>

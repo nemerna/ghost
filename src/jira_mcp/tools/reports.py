@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta
 from typing import Any
@@ -263,6 +264,37 @@ def get_weekly_activity(
     }
 
 
+def _get_ticket_link(ticket_key: str, source: str, github_repo: str | None = None) -> str:
+    """
+    Generate a clickable markdown link for a ticket.
+
+    Args:
+        ticket_key: The ticket key (e.g., PROJ-123 or owner/repo#123)
+        source: The ticket source ('jira' or 'github')
+        github_repo: GitHub repository in 'owner/repo' format (for GitHub issues)
+
+    Returns:
+        Markdown link string for the ticket
+    """
+    if source == "github":
+        # For GitHub issues, extract issue number and construct URL
+        if "#" in ticket_key:
+            # Extract repo and issue number from key like "owner/repo#123"
+            parts = ticket_key.split("#")
+            if len(parts) == 2:
+                repo = parts[0] if parts[0] else github_repo
+                issue_num = parts[1]
+                if repo:
+                    return f"[{ticket_key}](https://github.com/{repo}/issues/{issue_num})"
+        return ticket_key  # Fallback to plain text if can't parse
+    else:
+        # For Jira tickets, use the JIRA_SERVER_URL from environment
+        jira_url = os.environ.get("JIRA_SERVER_URL", "").rstrip("/")
+        if jira_url:
+            return f"[{ticket_key}]({jira_url}/browse/{ticket_key})"
+        return ticket_key  # Fallback to plain text if no URL configured
+
+
 def generate_weekly_report(
     username: str,
     week_offset: int = 0,
@@ -379,8 +411,12 @@ def generate_weekly_report(
             source = ticket.get("ticket_source", "jira")
             source_label = "Jira" if source == "jira" else "GitHub"
             project_or_repo = ticket["project_key"] or ticket.get("github_repo") or "N/A"
+            # Generate clickable link for the ticket
+            ticket_link = _get_ticket_link(
+                ticket["ticket_key"], source, ticket.get("github_repo")
+            )
             content_lines.append(
-                f"| {source_label} | {ticket['ticket_key']} | {summary_text} | "
+                f"| {source_label} | {ticket_link} | {summary_text} | "
                 f"{project_or_repo} | {ticket['action_count']} |"
             )
 
@@ -402,7 +438,11 @@ def generate_weekly_report(
                 for action in actions[:10]:  # Limit to 10 per type
                     source = action.get("ticket_source", "jira")
                     source_label = "[Jira]" if source == "jira" else "[GitHub]"
-                    line = f"- {source_label} **{action['ticket_key']}**: {action['ticket_summary'] or 'N/A'}"
+                    # Generate clickable link for the ticket
+                    ticket_link = _get_ticket_link(
+                        action["ticket_key"], source, action.get("github_repo")
+                    )
+                    line = f"- {source_label} **{ticket_link}**: {action['ticket_summary'] or 'N/A'}"
                     if action.get("action_details"):
                         details = action["action_details"]
                         if isinstance(details, dict):

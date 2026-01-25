@@ -27,23 +27,13 @@ import {
 } from '@patternfly/react-core';
 import { PlusIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
-import Markdown from 'react-markdown';
 import {
   listManagementReports,
   createManagementReport,
   deleteManagementReport,
 } from '@/api/reports';
+import { StyledMarkdown } from '@/components/StyledMarkdown';
 import type { ManagementReportCreateRequest } from '@/types';
-
-// Styles for rendered markdown
-const markdownContainerStyle: React.CSSProperties = {
-  padding: '1rem',
-  background: 'var(--pf-v6-global--BackgroundColor--200)',
-  borderRadius: '4px',
-  marginTop: '1rem',
-  maxHeight: '400px',
-  overflow: 'auto',
-};
 
 export function ManagementReportsPage() {
   const queryClient = useQueryClient();
@@ -160,9 +150,7 @@ export function ManagementReportsPage() {
                 </Flex>
               </CardTitle>
               <CardBody>
-                <div style={markdownContainerStyle}>
-                  <Markdown>{report.content}</Markdown>
-                </div>
+                <StyledMarkdown maxHeight="400px">{report.content}</StyledMarkdown>
                 
                 {report.referenced_tickets.length > 0 && (
                   <p style={{ marginTop: '1rem' }}>
