@@ -29,12 +29,23 @@ import {
 } from '@patternfly/react-core';
 import { PlusIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
+import Markdown from 'react-markdown';
 import {
   listManagementReports,
   createManagementReport,
   deleteManagementReport,
 } from '@/api/reports';
 import type { ManagementReportCreateRequest } from '@/types';
+
+// Styles for rendered markdown
+const markdownContainerStyle: React.CSSProperties = {
+  padding: '1rem',
+  background: 'var(--pf-v6-global--BackgroundColor--200)',
+  borderRadius: '4px',
+  marginTop: '1rem',
+  maxHeight: '400px',
+  overflow: 'auto',
+};
 
 export function ManagementReportsPage() {
   const queryClient = useQueryClient();
@@ -170,15 +181,9 @@ export function ManagementReportsPage() {
                 )}
 
                 <ExpandableSection toggleText="View full report">
-                  <pre style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    background: 'var(--pf-v6-global--BackgroundColor--200)',
-                    padding: '1rem',
-                    borderRadius: '4px',
-                    marginTop: '1rem'
-                  }}>
-                    {report.content}
-                  </pre>
+                  <div style={markdownContainerStyle}>
+                    <Markdown>{report.content}</Markdown>
+                  </div>
                 </ExpandableSection>
               </CardBody>
             </Card>

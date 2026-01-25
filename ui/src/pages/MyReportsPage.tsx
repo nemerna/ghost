@@ -27,6 +27,7 @@ import {
   TextInput,
   Title,
 } from '@patternfly/react-core';
+import Markdown from 'react-markdown';
 import {
   generateWeeklyReport,
   getMyWeeklyReports,
@@ -34,6 +35,16 @@ import {
   deleteWeeklyReport,
 } from '@/api/reports';
 import type { GeneratedReport } from '@/types';
+
+// Styles for rendered markdown
+const markdownContainerStyle: React.CSSProperties = {
+  padding: '1rem',
+  background: 'var(--pf-v6-global--BackgroundColor--200)',
+  borderRadius: '4px',
+  marginTop: '1rem',
+  maxHeight: '400px',
+  overflow: 'auto',
+};
 
 export function MyReportsPage() {
   const queryClient = useQueryClient();
@@ -157,15 +168,9 @@ export function MyReportsPage() {
                   <p><strong>Projects:</strong> {report.projects.join(', ') || 'None'}</p>
                   
                   <ExpandableSection toggleText="View full report">
-                    <pre style={{ 
-                      whiteSpace: 'pre-wrap', 
-                      background: 'var(--pf-v6-global--BackgroundColor--200)',
-                      padding: '1rem',
-                      borderRadius: '4px',
-                      marginTop: '1rem'
-                    }}>
-                      {report.content}
-                    </pre>
+                    <div style={markdownContainerStyle}>
+                      <Markdown>{report.content}</Markdown>
+                    </div>
                   </ExpandableSection>
                 </CardBody>
               </Card>
@@ -250,16 +255,9 @@ export function MyReportsPage() {
                 </FormGroup>
 
                 <FormGroup label="Preview" fieldId="preview">
-                  <pre style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    background: 'var(--pf-v6-global--BackgroundColor--200)',
-                    padding: '1rem',
-                    borderRadius: '4px',
-                    maxHeight: '300px',
-                    overflow: 'auto'
-                  }}>
-                    {generatedReport.content}
-                  </pre>
+                  <div style={{ ...markdownContainerStyle, maxHeight: '300px' }}>
+                    <Markdown>{generatedReport.content}</Markdown>
+                  </div>
                 </FormGroup>
               </>
             )}

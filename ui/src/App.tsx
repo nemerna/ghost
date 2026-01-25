@@ -47,14 +47,7 @@ function App() {
               </RequireRole>
             }
           />
-          <Route
-            path="management-reports"
-            element={
-              <RequireRole roles={['manager', 'admin']}>
-                <ManagementReportsPage />
-              </RequireRole>
-            }
-          />
+          <Route path="management-reports" element={<ManagementReportsPage />} />
           
           {/* Admin routes */}
           <Route
