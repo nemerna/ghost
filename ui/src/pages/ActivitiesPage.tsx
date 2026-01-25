@@ -30,12 +30,36 @@ import {
   ToolbarItem,
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
-import { PlusIcon, TrashIcon } from '@patternfly/react-icons';
+import { PlusIcon, TrashIcon, ExternalLinkAltIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { getMyActivities, createActivity, deleteActivity } from '@/api/activities';
-import type { ActivityCreateRequest, ActionType, TicketSource } from '@/types';
+import type { Activity, ActivityCreateRequest, ActionType, TicketSource } from '@/types';
 
 const actionTypes: ActionType[] = ['view', 'create', 'update', 'comment', 'transition', 'link', 'other'];
+
+/**
+ * Generate a URL for a ticket based on its source and key.
+ * GitHub: https://github.com/owner/repo/issues/number
+ * Jira: Uses configured server URL from environment or falls back to null
+ */
+function getTicketUrl(activity: Activity): string | null {
+  if (activity.ticket_source === 'github') {
+    // GitHub format: owner/repo#number
+    const match = activity.ticket_key.match(/^([^#]+)#(\d+)$/);
+    if (match) {
+      const [, repo, issueNumber] = match;
+      return `https://github.com/${repo}/issues/${issueNumber}`;
+    }
+  } else if (activity.ticket_source === 'jira' && activity.project_key) {
+    // Jira format: Try to use JIRA_SERVER_URL from window config or environment
+    const jiraServerUrl = (window as unknown as { JIRA_SERVER_URL?: string }).JIRA_SERVER_URL 
+      || import.meta.env.VITE_JIRA_SERVER_URL;
+    if (jiraServerUrl) {
+      return `${jiraServerUrl}/browse/${activity.ticket_key}`;
+    }
+  }
+  return null;
+}
 const ticketSources: Array<{ value: TicketSource | ''; label: string }> = [
   { value: '', label: 'All sources' },
   { value: 'jira', label: 'Jira' },
@@ -187,7 +211,22 @@ export function ActivitiesPage() {
                         </Label>
                       </Td>
                       <Td dataLabel="Ticket">
-                        <strong>{activity.ticket_key}</strong>
+                        {(() => {
+                          const url = getTicketUrl(activity);
+                          return url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <strong>{activity.ticket_key}</strong>
+                              <ExternalLinkAltIcon style={{ fontSize: '0.75em' }} />
+                            </a>
+                          ) : (
+                            <strong>{activity.ticket_key}</strong>
+                          );
+                        })()}
                       </Td>
                       <Td dataLabel="Summary">
                         {activity.ticket_summary || '-'}
