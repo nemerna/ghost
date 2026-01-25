@@ -31,6 +31,56 @@ MIGRATIONS = [
             "ALTER TABLE activity_log ADD COLUMN github_repo VARCHAR(255)",
         ],
     },
+    # Migration 2: Drop one_liner and executive_summary from management_reports
+    # These columns are no longer needed - reports now only store content (bullet list)
+    # Note: SQLite < 3.35.0 doesn't support DROP COLUMN, so the columns may remain
+    # but won't be used. This is safe - they're just ignored by the application.
+    {
+        "id": "002_simplify_management_reports",
+        "description": "Drop one_liner and executive_summary columns from management_reports",
+        "check": lambda inspector: "management_reports" in inspector.get_table_names()
+        and "one_liner" in [c["name"] for c in inspector.get_columns("management_reports")],
+        "sql": [
+            # PostgreSQL and SQLite 3.35.0+ support DROP COLUMN
+            "ALTER TABLE management_reports DROP COLUMN one_liner",
+            "ALTER TABLE management_reports DROP COLUMN executive_summary",
+        ],
+        "optional": True,  # Allow failure on older SQLite - columns will remain but unused
+    },
+    # Migration 3: Recreate management_reports table without deprecated columns
+    # This handles SQLite < 3.35.0 which doesn't support DROP COLUMN
+    {
+        "id": "003_recreate_management_reports",
+        "description": "Recreate management_reports table without one_liner and executive_summary",
+        "check": lambda inspector: "management_reports" in inspector.get_table_names()
+        and "executive_summary" in [c["name"] for c in inspector.get_columns("management_reports")],
+        "sql": [
+            # Rename old table
+            "ALTER TABLE management_reports RENAME TO management_reports_old",
+            # Create new table without deprecated columns
+            """CREATE TABLE management_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username VARCHAR(255) NOT NULL,
+                title VARCHAR(500) NOT NULL,
+                project_key VARCHAR(50),
+                report_period VARCHAR(100),
+                content TEXT NOT NULL,
+                referenced_tickets TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME
+            )""",
+            # Copy data from old table
+            """INSERT INTO management_reports (id, username, title, project_key, report_period, content, referenced_tickets, created_at, updated_at)
+               SELECT id, username, title, project_key, report_period, content, referenced_tickets, created_at, updated_at
+               FROM management_reports_old""",
+            # Drop old table
+            "DROP TABLE management_reports_old",
+            # Recreate indexes
+            "CREATE INDEX idx_mgmt_user_created ON management_reports (username, created_at)",
+            "CREATE INDEX idx_mgmt_project ON management_reports (project_key, created_at)",
+        ],
+        "optional": False,
+    },
 ]
 
 
@@ -112,6 +162,7 @@ class Database:
             try:
                 if migration["check"](inspector):
                     logger.info(f"Running migration: {migration['id']} - {migration['description']}")
+                    is_optional = migration.get("optional", False)
                     with self._engine.connect() as conn:
                         for sql in migration["sql"]:
                             try:
@@ -119,9 +170,14 @@ class Database:
                                 conn.commit()
                                 logger.info(f"  Executed: {sql[:50]}...")
                             except Exception as e:
+                                error_msg = str(e).lower()
                                 # Column might already exist in some edge cases
-                                if "duplicate column" in str(e).lower():
+                                if "duplicate column" in error_msg:
                                     logger.warning(f"  Column already exists, skipping: {sql[:50]}...")
+                                # SQLite < 3.35.0 doesn't support DROP COLUMN
+                                elif is_optional and ("drop column" in sql.lower() or "no such column" in error_msg):
+                                    logger.warning(f"  Optional migration step failed (likely SQLite limitation): {sql[:50]}...")
+                                    logger.warning(f"  Columns will remain in database but are unused by the application")
                                 else:
                                     raise
                     logger.info(f"Migration {migration['id']} completed")

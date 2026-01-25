@@ -292,12 +292,10 @@ class ManagementReport(Base):
         String(100), nullable=True
     )  # e.g., "Week 3, January 2026" or "Sprint 42"
 
-    # Report content (AI-generated Markdown) - CONCISE
-    one_liner = Column(String(200), nullable=True)  # Single sentence elevator pitch (max 15 words)
-    executive_summary = Column(Text, nullable=False)  # 2-3 sentence high-level summary
-    content = Column(Text, nullable=False)  # Full Markdown report (aim for <500 words)
+    # Report content - simple bullet list of work items with embedded links
+    content = Column(Text, nullable=False)
 
-    # Referenced Jira tickets (comma-separated keys for linking)
+    # Referenced tickets (comma-separated keys for indexing)
     referenced_tickets = Column(Text, nullable=True)  # e.g., "APPENG-4112,APPENG-4256"
 
     # Timestamps
@@ -317,8 +315,6 @@ class ManagementReport(Base):
             "title": self.title,
             "project_key": self.project_key,
             "report_period": self.report_period,
-            "one_liner": self.one_liner,
-            "executive_summary": self.executive_summary,
             "content": self.content,
             "referenced_tickets": (
                 self.referenced_tickets.split(",") if self.referenced_tickets else []

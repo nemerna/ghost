@@ -463,20 +463,11 @@ class SaveManagementReportInput(BaseModel):
     title: str = Field(
         ...,
         max_length=500,
-        description="Report title (e.g., 'APPENG Progress - Week 3').",
-    )
-    one_liner: str | None = Field(
-        default=None,
-        max_length=200,
-        description="Single sentence elevator pitch (max 15 words).",
-    )
-    executive_summary: str = Field(
-        ...,
-        description="2-3 sentence high-level summary. Focus on outcomes, not technical details.",
+        description="Report title (e.g., 'Week 4, January 2026').",
     )
     content: str = Field(
         ...,
-        description="Concise Markdown report (<500 words). Use bullet points, include Jira links.",
+        description="Bullet list of work items with embedded links. No summaries or future plans.",
     )
     project_key: str | None = Field(
         default=None,
@@ -488,7 +479,7 @@ class SaveManagementReportInput(BaseModel):
     )
     referenced_tickets: list[str] | None = Field(
         default=None,
-        description="Jira ticket keys mentioned in report.",
+        description="Ticket keys mentioned in report (for indexing).",
     )
 
 
@@ -528,18 +519,9 @@ class UpdateManagementReportInput(BaseModel):
         max_length=500,
         description="Optional new title.",
     )
-    one_liner: str | None = Field(
-        default=None,
-        max_length=200,
-        description="Optional new one-liner elevator pitch.",
-    )
-    executive_summary: str | None = Field(
-        default=None,
-        description="Optional new executive summary.",
-    )
     content: str | None = Field(
         default=None,
-        description="Optional new Markdown content.",
+        description="Optional new content (bullet list of work items).",
     )
     report_period: str | None = Field(
         default=None,

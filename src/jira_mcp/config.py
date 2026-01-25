@@ -11,66 +11,37 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_MANAGEMENT_REPORT_INSTRUCTIONS = """
 # Management Report Generation Instructions
 
-You are generating weekly status updates for directors and executive management.
+Generate a simple bullet list of work items with embedded links.
 
-## Audience & Purpose
-- **Audience**: Directors and executive-level management
-- **Purpose**: Information sharing across teams and higher-level organizations
+## Link Formatting Rules
 
-## Critical Rules
-
-### 1. NO Raw Jira Ticket Numbers
+### NO Raw Ticket Numbers
 WRONG: "Worked on PROJ-7654"
-RIGHT: "[Implemented](PR-URL) [user authentication](JIRA-URL) for the platform"
+RIGHT: "[Completed](PR-URL) [user authentication](ISSUE-URL)"
 
-Never write ticket numbers like "PROJ-123" in the text. Summarize what the ticket is about and hyperlink that summary to the Jira URL.
-
-### 2. Embed Links Naturally - Never Append
+### Embed Links Naturally
 WRONG: "Fixed the login bug. (JIRA: PROJ-123, PR: #456)"
-RIGHT: "[Fixed](PR-URL) the [login bug](JIRA-URL) affecting mobile users"
+RIGHT: "[Fixed](PR-URL) the [login bug](ISSUE-URL)"
 
-### 3. Link Action Verbs to PRs/MRs
-The action verb (Completed, Implemented, Fixed) should link to the GitHub PR or GitLab MR.
+### Format
+Each item follows this pattern:
+- [Action Verb](PR-URL) [brief description](ISSUE-URL) plus any additional context.
 
-### 4. Link Description to Issue
-The first few words describing the work should link to the Jira issue.
+Action verbs: Completed, Implemented, Fixed, Added, Updated, Started, etc.
 
-### 5. Keep Updates Concise
-Each item should be 1-2 sentences maximum.
+## Report Content
 
-## Formatting Template
-Each status item follows this pattern:
-```
-[Action Verb](PR-URL) [brief description](JIRA-URL) plus any additional context.
-```
+The report is ONLY a bullet list. No sections, no headers, no summaries, no future plans.
 
-## Style Requirements
-1. **No abbreviations/acronyms**: Spell out terms for clarity
-2. **Team-centric language**: Say "the team" or "stakeholders", never individual names
-3. **Short link text**: Keep linked text brief
-4. **No private links**: Only link to accessible documents
-
-## Report Structure
-
-### Completed This Week
-List items that were finished/merged/resolved.
-
-### In Progress
-List substantial ongoing work.
-
-### Blockers (if any)
-Only include if there are actual blockers.
-
-## Example Output
+### Example Output
 - [Completed](https://github.com/org/repo/pull/160) the [security mitigation](https://jira.example.com/browse/PROJ-1012) to minimize RBAC permissions
 - [Implemented](https://github.com/org/repo/pull/1) the [workflow API](https://jira.example.com/browse/PROJ-896) and addressed review comments
 - [Started](https://github.com/org/repo/pull/6) [work](https://jira.example.com/browse/PROJ-789) on promoting the workflow to production
 
 ## Field Mapping for save_management_report
-- **one_liner**: Single sentence (max 15 words), no links
-- **executive_summary**: 2-3 sentences, high-level outcomes, no links
-- **content**: Full Markdown report with properly embedded links
-- **referenced_tickets**: Array of all Jira ticket keys mentioned
+- **title**: Report title (e.g., "Week 4, January 2026")
+- **content**: The bullet list of work items with embedded links
+- **referenced_tickets**: Array of all ticket keys mentioned (for indexing)
 """.strip()
 
 

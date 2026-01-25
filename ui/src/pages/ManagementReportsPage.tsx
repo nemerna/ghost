@@ -5,13 +5,11 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Alert,
   Button,
   Card,
   CardBody,
   CardTitle,
   Content,
-  ExpandableSection,
   Flex,
   FlexItem,
   Form,
@@ -54,9 +52,7 @@ export function ManagementReportsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newReport, setNewReport] = useState<ManagementReportCreateRequest>({
     title: '',
-    executive_summary: '',
     content: '',
-    one_liner: '',
     project_key: '',
     report_period: '',
     referenced_tickets: [],
@@ -76,9 +72,7 @@ export function ManagementReportsPage() {
       setIsModalOpen(false);
       setNewReport({
         title: '',
-        executive_summary: '',
         content: '',
-        one_liner: '',
         project_key: '',
         report_period: '',
         referenced_tickets: [],
@@ -95,7 +89,7 @@ export function ManagementReportsPage() {
   });
 
   const handleCreate = () => {
-    if (newReport.title && newReport.executive_summary && newReport.content) {
+    if (newReport.title && newReport.content) {
       createMutation.mutate(newReport);
     }
   };
@@ -166,25 +160,16 @@ export function ManagementReportsPage() {
                 </Flex>
               </CardTitle>
               <CardBody>
-                {report.one_liner && (
-                  <Alert variant="info" isInline title={report.one_liner} style={{ marginBottom: '1rem' }} />
-                )}
-                
-                <p><strong>Executive Summary:</strong></p>
-                <p style={{ marginBottom: '1rem' }}>{report.executive_summary}</p>
+                <div style={markdownContainerStyle}>
+                  <Markdown>{report.content}</Markdown>
+                </div>
                 
                 {report.referenced_tickets.length > 0 && (
-                  <p>
+                  <p style={{ marginTop: '1rem' }}>
                     <strong>Referenced Tickets:</strong>{' '}
                     {report.referenced_tickets.join(', ')}
                   </p>
                 )}
-
-                <ExpandableSection toggleText="View full report">
-                  <div style={markdownContainerStyle}>
-                    <Markdown>{report.content}</Markdown>
-                  </div>
-                </ExpandableSection>
               </CardBody>
             </Card>
           ))
@@ -213,16 +198,7 @@ export function ManagementReportsPage() {
                 id="title"
                 value={newReport.title}
                 onChange={(_event, value) => setNewReport({ ...newReport, title: value })}
-                placeholder="e.g., APPENG Progress - Week 3"
-              />
-            </FormGroup>
-
-            <FormGroup label="One-liner (max 15 words)" fieldId="one-liner">
-              <TextInput
-                id="one-liner"
-                value={newReport.one_liner || ''}
-                onChange={(_event, value) => setNewReport({ ...newReport, one_liner: value })}
-                placeholder="Brief elevator pitch"
+                placeholder="e.g., Week 4, January 2026"
               />
             </FormGroup>
 
@@ -244,25 +220,14 @@ export function ManagementReportsPage() {
               />
             </FormGroup>
 
-            <FormGroup label="Executive Summary" isRequired fieldId="executive-summary">
-              <TextArea
-                isRequired
-                id="executive-summary"
-                value={newReport.executive_summary}
-                onChange={(_event, value) => setNewReport({ ...newReport, executive_summary: value })}
-                placeholder="2-3 sentences summarizing the key outcomes"
-                rows={3}
-              />
-            </FormGroup>
-
-            <FormGroup label="Full Report Content (Markdown)" isRequired fieldId="content">
+            <FormGroup label="Report Content (Markdown)" isRequired fieldId="content">
               <TextArea
                 isRequired
                 id="content"
                 value={newReport.content}
                 onChange={(_event, value) => setNewReport({ ...newReport, content: value })}
-                placeholder="Full report content in Markdown format"
-                rows={10}
+                placeholder="Bullet list of work items with embedded links"
+                rows={12}
               />
             </FormGroup>
 
@@ -276,7 +241,7 @@ export function ManagementReportsPage() {
                     referenced_tickets: value.split(',').map((t) => t.trim()).filter(Boolean),
                   })
                 }
-                placeholder="e.g., PROJ-123, PROJ-456"
+                placeholder="e.g., PROJ-123, owner/repo#456"
               />
             </FormGroup>
           </Form>
@@ -286,7 +251,7 @@ export function ManagementReportsPage() {
             variant="primary"
             onClick={handleCreate}
             isLoading={createMutation.isPending}
-            isDisabled={!newReport.title || !newReport.executive_summary || !newReport.content}
+            isDisabled={!newReport.title || !newReport.content}
           >
             Create Report
           </Button>

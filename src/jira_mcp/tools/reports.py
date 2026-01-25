@@ -632,30 +632,24 @@ def delete_saved_report(
 def save_management_report(
     username: str,
     title: str,
-    executive_summary: str,
     content: str,
-    one_liner: str | None = None,
     project_key: str | None = None,
     report_period: str | None = None,
     referenced_tickets: list[str] | None = None,
 ) -> dict[str, Any]:
     """
-    Save an AI-generated management report to the database.
+    Save a management report to the database.
 
-    Reports should be CONCISE and management-friendly:
-    - one_liner: Single sentence (max 15 words) - the "elevator pitch"
-    - executive_summary: 2-3 sentences, high-level outcomes only
-    - content: Short Markdown (<500 words), bullet points, Jira links
+    The report content should be a simple bullet list of work items with embedded links.
+    No summaries, no future plans - just the list of completed/in-progress items.
 
     Args:
         username: The author/engineer username.
-        title: Report title (e.g., "APPENG Progress - Week 3").
-        executive_summary: 2-3 sentence high-level summary.
-        content: Concise Markdown report (<500 words).
-        one_liner: Optional single sentence elevator pitch (max 15 words).
+        title: Report title (e.g., "Week 4, January 2026").
+        content: Bullet list of work items with embedded links.
         project_key: Optional project key this report focuses on.
         report_period: Optional period (e.g., "Week 3, Jan 2026").
-        referenced_tickets: Optional list of Jira ticket keys.
+        referenced_tickets: Optional list of ticket keys for indexing.
 
     Returns:
         Saved report details with ID.
@@ -666,8 +660,6 @@ def save_management_report(
         report = ManagementReport(
             username=username,
             title=title,
-            one_liner=one_liner,
-            executive_summary=executive_summary,
             content=content,
             project_key=project_key,
             report_period=report_period,
@@ -720,8 +712,6 @@ def list_management_reports(
             {
                 "id": r.id,
                 "title": r.title,
-                "one_liner": r.one_liner,
-                "executive_summary": r.executive_summary,
                 "project_key": r.project_key,
                 "report_period": r.report_period,
                 "referenced_tickets": (
@@ -769,8 +759,6 @@ def get_management_report(
 def update_management_report(
     report_id: int,
     title: str | None = None,
-    one_liner: str | None = None,
-    executive_summary: str | None = None,
     content: str | None = None,
     report_period: str | None = None,
     referenced_tickets: list[str] | None = None,
@@ -781,9 +769,7 @@ def update_management_report(
     Args:
         report_id: The report ID to update.
         title: Optional new title.
-        one_liner: Optional new one-liner elevator pitch.
-        executive_summary: Optional new executive summary.
-        content: Optional new full content.
+        content: Optional new content (bullet list of work items).
         report_period: Optional new period description.
         referenced_tickets: Optional new list of referenced tickets.
 
@@ -809,10 +795,6 @@ def update_management_report(
 
         if title is not None:
             report.title = title
-        if one_liner is not None:
-            report.one_liner = one_liner
-        if executive_summary is not None:
-            report.executive_summary = executive_summary
         if content is not None:
             report.content = content
         if report_period is not None:

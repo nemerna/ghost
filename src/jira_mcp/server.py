@@ -1341,36 +1341,19 @@ REPORTS_TOOLS: list[Tool] = [
     # --- Management Reports (AI-generated for stakeholders) ---
     Tool(
         name="save_management_report",
-        description="""Save an AI-generated management report for high-level stakeholders.
+        description="""Save a management report. Read instructions at 'reports://instructions/management-report' first.
 
-IMPORTANT: Before generating a report, read the instructions resource at 'reports://instructions/management-report'
-for detailed formatting guidelines, style requirements, and templates.
-
-Quick summary:
-- one_liner: Single sentence (max 15 words) - the "elevator pitch"
-- executive_summary: 2-3 sentences, high-level outcomes only
-- content: Short Markdown (aim for <500 words), use bullet points, include Jira links
-
-Focus on: What was delivered, business impact, blockers, next steps.
-Avoid: Technical details, implementation specifics, code-level information.""",
+The report is a simple bullet list of work items with embedded links. No summaries, no future plans.""",
         inputSchema={
             "type": "object",
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Report title (e.g., 'APPENG Progress - Week 3').",
-                },
-                "one_liner": {
-                    "type": "string",
-                    "description": "Single sentence elevator pitch (max 15 words). E.g., 'Delivered OAuth integration, 3 bugs fixed, on track for Q1.'",
-                },
-                "executive_summary": {
-                    "type": "string",
-                    "description": "2-3 sentence summary. Focus on outcomes and business impact, not technical details.",
+                    "description": "Report title (e.g., 'Week 4, January 2026').",
                 },
                 "content": {
                     "type": "string",
-                    "description": "Concise Markdown report (<500 words). Use bullet points. Include Jira links. Sections: Delivered, In Progress, Blockers, Next Week.",
+                    "description": "Bullet list of work items with embedded links. No summaries or future plans.",
                 },
                 "project_key": {
                     "type": "string",
@@ -1383,10 +1366,10 @@ Avoid: Technical details, implementation specifics, code-level information.""",
                 "referenced_tickets": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Jira ticket keys mentioned in report.",
+                    "description": "Ticket keys mentioned in report (for indexing).",
                 },
             },
-            "required": ["title", "executive_summary", "content"],
+            "required": ["title", "content"],
         },
     ),
     Tool(
@@ -1437,17 +1420,9 @@ Avoid: Technical details, implementation specifics, code-level information.""",
                     "type": "string",
                     "description": "Optional new title.",
                 },
-                "one_liner": {
-                    "type": "string",
-                    "description": "Optional new one-liner elevator pitch.",
-                },
-                "executive_summary": {
-                    "type": "string",
-                    "description": "Optional new executive summary.",
-                },
                 "content": {
                     "type": "string",
-                    "description": "Optional new Markdown content.",
+                    "description": "Optional new content (bullet list of work items).",
                 },
                 "report_period": {
                     "type": "string",
@@ -2041,8 +2016,6 @@ async def _execute_reports_tool(
         return report_tools.save_management_report(
             username=username,
             title=input_data.title,
-            one_liner=input_data.one_liner,
-            executive_summary=input_data.executive_summary,
             content=input_data.content,
             project_key=input_data.project_key,
             report_period=input_data.report_period,
@@ -2068,8 +2041,6 @@ async def _execute_reports_tool(
         return report_tools.update_management_report(
             report_id=input_data.report_id,
             title=input_data.title,
-            one_liner=input_data.one_liner,
-            executive_summary=input_data.executive_summary,
             content=input_data.content,
             report_period=input_data.report_period,
             referenced_tickets=input_data.referenced_tickets,

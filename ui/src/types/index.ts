@@ -147,8 +147,6 @@ export interface ManagementReport {
   title: string;
   project_key: string | null;
   report_period: string | null;
-  one_liner: string | null;
-  executive_summary: string;
   content: string;
   referenced_tickets: string[];
   created_at: string | null;
@@ -162,9 +160,7 @@ export interface ManagementReportListResponse {
 
 export interface ManagementReportCreateRequest {
   title: string;
-  executive_summary: string;
   content: string;
-  one_liner?: string;
   project_key?: string;
   report_period?: string;
   referenced_tickets?: string[];

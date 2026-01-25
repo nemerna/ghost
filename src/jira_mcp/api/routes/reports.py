@@ -58,8 +58,6 @@ class ManagementReportResponse(BaseModel):
     title: str
     project_key: str | None
     report_period: str | None
-    one_liner: str | None
-    executive_summary: str
     content: str
     referenced_tickets: list[str]
     created_at: str | None
@@ -70,9 +68,7 @@ class ManagementReportCreateRequest(BaseModel):
     """Request model for creating a management report."""
     
     title: str
-    executive_summary: str
     content: str
-    one_liner: str | None = None
     project_key: str | None = None
     report_period: str | None = None
     referenced_tickets: list[str] | None = None
@@ -82,9 +78,7 @@ class ManagementReportUpdateRequest(BaseModel):
     """Request model for updating a management report."""
     
     title: str | None = None
-    executive_summary: str | None = None
     content: str | None = None
-    one_liner: str | None = None
     report_period: str | None = None
     referenced_tickets: list[str] | None = None
 
@@ -139,8 +133,6 @@ def management_report_to_response(report: ManagementReport) -> ManagementReportR
         title=report.title,
         project_key=report.project_key,
         report_period=report.report_period,
-        one_liner=report.one_liner,
-        executive_summary=report.executive_summary,
         content=report.content,
         referenced_tickets=report.referenced_tickets.split(",") if report.referenced_tickets else [],
         created_at=report.created_at.isoformat() if report.created_at else None,
@@ -369,8 +361,6 @@ async def create_management_report(
         report = ManagementReport(
             username=user.email,
             title=request.title,
-            one_liner=request.one_liner,
-            executive_summary=request.executive_summary,
             content=request.content,
             project_key=request.project_key,
             report_period=request.report_period,
@@ -424,12 +414,8 @@ async def update_management_report(
         
         if request.title is not None:
             report.title = request.title
-        if request.executive_summary is not None:
-            report.executive_summary = request.executive_summary
         if request.content is not None:
             report.content = request.content
-        if request.one_liner is not None:
-            report.one_liner = request.one_liner
         if request.report_period is not None:
             report.report_period = request.report_period
         if request.referenced_tickets is not None:
