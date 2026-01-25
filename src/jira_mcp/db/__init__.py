@@ -7,6 +7,7 @@ from jira_mcp.db.models import (
     ManagementReport,
     Team,
     TeamMembership,
+    TicketSource,
     User,
     UserRole,
     WeeklyReport,
@@ -19,6 +20,7 @@ __all__ = [
     "Database",
     # Enums
     "ActionType",
+    "TicketSource",
     "UserRole",
     # User & Team Models
     "User",

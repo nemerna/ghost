@@ -38,6 +38,13 @@ class ActionType(str, enum.Enum):
     OTHER = "other"
 
 
+class TicketSource(str, enum.Enum):
+    """Source of the ticket (Jira or GitHub Issues)."""
+
+    JIRA = "jira"
+    GITHUB = "github"
+
+
 # =============================================================================
 # User & Team Models
 # =============================================================================
@@ -171,7 +178,7 @@ class TeamMembership(Base):
 
 
 class ActivityLog(Base):
-    """Log of Jira ticket interactions for activity tracking."""
+    """Log of Jira/GitHub ticket interactions for activity tracking."""
 
     __tablename__ = "activity_log"
 
@@ -182,9 +189,15 @@ class ActivityLog(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # Ticket info
-    ticket_key = Column(String(50), nullable=False, index=True)
+    ticket_key = Column(String(100), nullable=False, index=True)  # PROJ-123 or owner/repo#123
     ticket_summary = Column(String(500), nullable=True)
-    project_key = Column(String(50), nullable=True, index=True)
+    project_key = Column(String(50), nullable=True, index=True)  # For Jira: project key
+
+    # Ticket source (Jira or GitHub)
+    ticket_source = Column(
+        Enum(TicketSource), nullable=False, default=TicketSource.JIRA, index=True
+    )
+    github_repo = Column(String(255), nullable=True, index=True)  # For GitHub: owner/repo
 
     # Action info
     action_type = Column(Enum(ActionType), nullable=False, default=ActionType.OTHER)
@@ -197,6 +210,7 @@ class ActivityLog(Base):
     __table_args__ = (
         Index("idx_user_timestamp", "username", "timestamp"),
         Index("idx_user_project_timestamp", "username", "project_key", "timestamp"),
+        Index("idx_user_source_timestamp", "username", "ticket_source", "timestamp"),
     )
 
     def to_dict(self) -> dict:
@@ -207,6 +221,8 @@ class ActivityLog(Base):
             "ticket_key": self.ticket_key,
             "ticket_summary": self.ticket_summary,
             "project_key": self.project_key,
+            "ticket_source": self.ticket_source.value if self.ticket_source else "jira",
+            "github_repo": self.github_repo,
             "action_type": self.action_type.value if self.action_type else None,
             "action_details": self.action_details,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,

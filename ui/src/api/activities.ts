@@ -3,12 +3,14 @@
  */
 
 import apiClient from './client';
-import type { Activity, ActivityCreateRequest, ActivityListResponse, ActivitySummary } from '@/types';
+import type { Activity, ActivityCreateRequest, ActivityListResponse, ActivitySummary, TicketSource } from '@/types';
 
 export async function getMyActivities(params?: {
   start_date?: string;
   end_date?: string;
   project_key?: string;
+  ticket_source?: TicketSource;
+  github_repo?: string;
   action_type?: string;
   ticket_key?: string;
   limit?: number;
@@ -18,8 +20,11 @@ export async function getMyActivities(params?: {
   return response.data;
 }
 
-export async function getMyActivitySummary(days: number = 7): Promise<ActivitySummary> {
-  const response = await apiClient.get<ActivitySummary>('/activities/my/summary', { params: { days } });
+export async function getMyActivitySummary(params?: {
+  days?: number;
+  ticket_source?: TicketSource;
+}): Promise<ActivitySummary> {
+  const response = await apiClient.get<ActivitySummary>('/activities/my/summary', { params: { days: params?.days ?? 7, ...params } });
   return response.data;
 }
 
@@ -36,6 +41,8 @@ export async function getTeamActivities(teamId: number, params?: {
   start_date?: string;
   end_date?: string;
   project_key?: string;
+  ticket_source?: TicketSource;
+  github_repo?: string;
   member_id?: number;
   limit?: number;
   offset?: number;
@@ -44,7 +51,10 @@ export async function getTeamActivities(teamId: number, params?: {
   return response.data;
 }
 
-export async function getTeamActivitySummary(teamId: number, days: number = 7): Promise<Record<string, unknown>> {
-  const response = await apiClient.get(`/activities/team/${teamId}/summary`, { params: { days } });
+export async function getTeamActivitySummary(teamId: number, params?: {
+  days?: number;
+  ticket_source?: TicketSource;
+}): Promise<Record<string, unknown>> {
+  const response = await apiClient.get(`/activities/team/${teamId}/summary`, { params: { days: params?.days ?? 7, ...params } });
   return response.data;
 }

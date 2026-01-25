@@ -1,4 +1,4 @@
-"""GitHub API client wrapper for Pull Request operations."""
+"""GitHub API client wrapper for Pull Request and Issue operations."""
 
 from typing import Any
 
@@ -112,6 +112,15 @@ class GitHubClient:
     ) -> Any:
         """Make a POST request to the GitHub API."""
         return self._request("POST", endpoint, headers=headers, json_body=json_body)
+
+    def _patch(
+        self,
+        endpoint: str,
+        json_body: dict[str, Any],
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Make a PATCH request to the GitHub API."""
+        return self._request("PATCH", endpoint, headers=headers, json_body=json_body)
 
     # --- Pull Request Methods ---
 
@@ -537,6 +546,347 @@ class GitHubClient:
             "type": user["type"],
         }
 
+    # --- Issue Methods ---
+
+    def list_issues(
+        self,
+        owner: str,
+        repo: str,
+        state: str = "open",
+        labels: str | None = None,
+        assignee: str | None = None,
+        creator: str | None = None,
+        milestone: str | None = None,
+        sort: str = "created",
+        direction: str = "desc",
+        since: str | None = None,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> list[dict[str, Any]]:
+        """
+        List issues for a repository.
+
+        Args:
+            owner: Repository owner (user or organization)
+            repo: Repository name
+            state: Filter by state: 'open', 'closed', or 'all'
+            labels: Comma-separated list of label names
+            assignee: Filter by assignee username. Use '*' for any, 'none' for unassigned
+            creator: Filter by creator username
+            milestone: Filter by milestone number or '*' for any, 'none' for no milestone
+            sort: Sort by: 'created', 'updated', 'comments'
+            direction: Sort direction: 'asc' or 'desc'
+            since: Only issues updated after this ISO 8601 timestamp
+            per_page: Results per page (max 100)
+            page: Page number
+
+        Returns:
+            List of issue summaries (excludes pull requests)
+        """
+        params: dict[str, Any] = {
+            "state": state,
+            "sort": sort,
+            "direction": direction,
+            "per_page": min(per_page, 100),
+            "page": page,
+        }
+
+        if labels:
+            params["labels"] = labels
+        if assignee:
+            params["assignee"] = assignee
+        if creator:
+            params["creator"] = creator
+        if milestone:
+            params["milestone"] = milestone
+        if since:
+            params["since"] = since
+
+        issues = self._get(f"/repos/{owner}/{repo}/issues", params=params)
+
+        # Filter out pull requests (they appear in the issues endpoint)
+        issues = [i for i in issues if "pull_request" not in i]
+
+        return [self._format_issue_summary(issue, owner, repo) for issue in issues]
+
+    def get_issue(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+    ) -> dict[str, Any]:
+        """
+        Get details of a specific issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            issue_number: Issue number
+
+        Returns:
+            Full issue details
+        """
+        issue = self._get(f"/repos/{owner}/{repo}/issues/{issue_number}")
+        return self._format_issue_detail(issue, owner, repo)
+
+    def create_issue(
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        body: str | None = None,
+        assignees: list[str] | None = None,
+        labels: list[str] | None = None,
+        milestone: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create a new issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            title: Issue title
+            body: Issue body (Markdown)
+            assignees: List of usernames to assign
+            labels: List of label names
+            milestone: Milestone number to associate
+
+        Returns:
+            Created issue details
+        """
+        json_body: dict[str, Any] = {"title": title}
+
+        if body:
+            json_body["body"] = body
+        if assignees:
+            json_body["assignees"] = assignees
+        if labels:
+            json_body["labels"] = labels
+        if milestone is not None:
+            json_body["milestone"] = milestone
+
+        issue = self._post(f"/repos/{owner}/{repo}/issues", json_body=json_body)
+        return self._format_issue_detail(issue, owner, repo)
+
+    def update_issue(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+        title: str | None = None,
+        body: str | None = None,
+        state: str | None = None,
+        assignees: list[str] | None = None,
+        labels: list[str] | None = None,
+        milestone: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Update an existing issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            issue_number: Issue number
+            title: New title
+            body: New body (Markdown)
+            state: New state: 'open' or 'closed'
+            assignees: New list of assignees (replaces existing)
+            labels: New list of labels (replaces existing)
+            milestone: New milestone number (use 0 or None to clear)
+
+        Returns:
+            Updated issue details
+        """
+        json_body: dict[str, Any] = {}
+
+        if title is not None:
+            json_body["title"] = title
+        if body is not None:
+            json_body["body"] = body
+        if state is not None:
+            json_body["state"] = state
+        if assignees is not None:
+            json_body["assignees"] = assignees
+        if labels is not None:
+            json_body["labels"] = labels
+        if milestone is not None:
+            json_body["milestone"] = milestone if milestone > 0 else None
+
+        issue = self._patch(f"/repos/{owner}/{repo}/issues/{issue_number}", json_body=json_body)
+        return self._format_issue_detail(issue, owner, repo)
+
+    def close_issue(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+        state_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Close an issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            issue_number: Issue number
+            state_reason: Reason for closing: 'completed' or 'not_planned'
+
+        Returns:
+            Updated issue details
+        """
+        json_body: dict[str, Any] = {"state": "closed"}
+
+        if state_reason:
+            json_body["state_reason"] = state_reason
+
+        issue = self._patch(f"/repos/{owner}/{repo}/issues/{issue_number}", json_body=json_body)
+        return self._format_issue_detail(issue, owner, repo)
+
+    def reopen_issue(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+    ) -> dict[str, Any]:
+        """
+        Reopen a closed issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            issue_number: Issue number
+
+        Returns:
+            Updated issue details
+        """
+        issue = self._patch(
+            f"/repos/{owner}/{repo}/issues/{issue_number}",
+            json_body={"state": "open"},
+        )
+        return self._format_issue_detail(issue, owner, repo)
+
+    def get_issue_comments(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+        since: str | None = None,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> list[dict[str, Any]]:
+        """
+        Get comments on an issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            issue_number: Issue number
+            since: Only comments updated after this ISO 8601 timestamp
+            per_page: Results per page (max 100)
+            page: Page number
+
+        Returns:
+            List of comments
+        """
+        params: dict[str, Any] = {
+            "per_page": min(per_page, 100),
+            "page": page,
+        }
+
+        if since:
+            params["since"] = since
+
+        comments = self._get(
+            f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            params=params,
+        )
+
+        return [
+            {
+                "id": c["id"],
+                "user": c["user"]["login"] if c["user"] else None,
+                "body": c["body"],
+                "created_at": c["created_at"],
+                "updated_at": c["updated_at"],
+                "url": c["html_url"],
+            }
+            for c in comments
+        ]
+
+    def add_issue_comment(
+        self,
+        owner: str,
+        repo: str,
+        issue_number: int,
+        body: str,
+    ) -> dict[str, Any]:
+        """
+        Add a comment to an issue.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            issue_number: Issue number
+            body: Comment body (Markdown)
+
+        Returns:
+            Created comment details
+        """
+        comment = self._post(
+            f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+
+        return {
+            "id": comment["id"],
+            "user": comment["user"]["login"] if comment["user"] else None,
+            "body": comment["body"],
+            "created_at": comment["created_at"],
+            "updated_at": comment["updated_at"],
+            "url": comment["html_url"],
+        }
+
+    def search_issues(
+        self,
+        query: str,
+        sort: str = "created",
+        order: str = "desc",
+        per_page: int = 30,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """
+        Search for issues across repositories.
+
+        Args:
+            query: GitHub search query (e.g., 'is:issue author:username repo:owner/repo')
+            sort: Sort by: 'created', 'updated', 'comments'
+            order: Sort order: 'asc' or 'desc'
+            per_page: Results per page (max 100)
+            page: Page number
+
+        Returns:
+            Search results with total count and issues list
+        """
+        # Ensure query includes type:issue (exclude PRs)
+        if "type:issue" not in query and "is:issue" not in query:
+            query = f"is:issue {query}"
+
+        params = {
+            "q": query,
+            "sort": sort,
+            "order": order,
+            "per_page": min(per_page, 100),
+            "page": page,
+        }
+
+        result = self._get("/search/issues", params=params)
+
+        return {
+            "total_count": result["total_count"],
+            "incomplete_results": result["incomplete_results"],
+            "issues": [self._format_issue_search_result(item) for item in result["items"]],
+        }
+
     # --- Formatting Methods ---
 
     def _format_pr_summary(self, pr: dict[str, Any]) -> dict[str, Any]:
@@ -603,5 +953,72 @@ class GitHubClient:
             "updated_at": item["updated_at"],
             "closed_at": item.get("closed_at"),
             "labels": [label["name"] for label in item.get("labels", [])],
+            "url": item["html_url"],
+        }
+
+    def _format_issue_summary(
+        self, issue: dict[str, Any], owner: str, repo: str
+    ) -> dict[str, Any]:
+        """Format an issue for summary display."""
+        return {
+            "number": issue["number"],
+            "title": issue["title"],
+            "state": issue["state"],
+            "user": issue["user"]["login"] if issue["user"] else None,
+            "assignees": [a["login"] for a in issue.get("assignees", [])],
+            "labels": [label["name"] for label in issue.get("labels", [])],
+            "comments": issue.get("comments", 0),
+            "created_at": issue["created_at"],
+            "updated_at": issue["updated_at"],
+            "closed_at": issue.get("closed_at"),
+            "repository": f"{owner}/{repo}",
+            "issue_key": f"{owner}/{repo}#{issue['number']}",
+            "url": issue["html_url"],
+        }
+
+    def _format_issue_detail(
+        self, issue: dict[str, Any], owner: str, repo: str
+    ) -> dict[str, Any]:
+        """Format an issue with full details."""
+        result = self._format_issue_summary(issue, owner, repo)
+        result.update(
+            {
+                "id": issue["id"],
+                "body": issue.get("body"),
+                "milestone": issue["milestone"]["title"] if issue.get("milestone") else None,
+                "milestone_number": (
+                    issue["milestone"]["number"] if issue.get("milestone") else None
+                ),
+                "state_reason": issue.get("state_reason"),
+                "locked": issue.get("locked", False),
+                "reactions": {
+                    "total": issue.get("reactions", {}).get("total_count", 0),
+                    "+1": issue.get("reactions", {}).get("+1", 0),
+                    "-1": issue.get("reactions", {}).get("-1", 0),
+                },
+            }
+        )
+        return result
+
+    def _format_issue_search_result(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Format an issue search result item."""
+        # Parse owner/repo from repository_url
+        repo_parts = item.get("repository_url", "").split("/")
+        owner = repo_parts[-2] if len(repo_parts) >= 2 else None
+        repo = repo_parts[-1] if len(repo_parts) >= 1 else None
+
+        return {
+            "number": item["number"],
+            "title": item["title"],
+            "state": item["state"],
+            "user": item["user"]["login"] if item["user"] else None,
+            "repository": f"{owner}/{repo}" if owner and repo else None,
+            "issue_key": f"{owner}/{repo}#{item['number']}" if owner and repo else None,
+            "assignees": [a["login"] for a in item.get("assignees", [])],
+            "labels": [label["name"] for label in item.get("labels", [])],
+            "comments": item.get("comments", 0),
+            "created_at": item["created_at"],
+            "updated_at": item["updated_at"],
+            "closed_at": item.get("closed_at"),
             "url": item["html_url"],
         }

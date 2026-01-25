@@ -32,6 +32,7 @@ from jira_mcp.tools.schemas import (
     GetTicketInput,
     GetTransitionsInput,
     GetWeeklyActivityInput,
+    # GitHub Pull Requests
     GitHubAddPRCommentInput,
     GitHubGetPRCommentsInput,
     GitHubGetPRCommitsInput,
@@ -39,9 +40,19 @@ from jira_mcp.tools.schemas import (
     GitHubGetPRFilesInput,
     GitHubGetPRInput,
     GitHubGetPRReviewsInput,
-    # GitHub Pull Requests
     GitHubListPRsInput,
     GitHubSearchPRsInput,
+    # GitHub Issues
+    GitHubAddIssueCommentInput,
+    GitHubCloseIssueInput,
+    GitHubCreateIssueInput,
+    GitHubGetIssueCommentsInput,
+    GitHubGetIssueInput,
+    GitHubListIssuesInput,
+    GitHubReopenIssueInput,
+    GitHubSearchIssuesInput,
+    GitHubUpdateIssueInput,
+    # Jira
     LinkIssuesInput,
     ListComponentsInput,
     ListIssueTypesInput,
@@ -834,6 +845,340 @@ GITHUB_TOOLS: list[Tool] = [
             "properties": {},
         },
     ),
+    # --- GitHub Issues Tools ---
+    Tool(
+        name="github_list_issues",
+        description="List issues for a GitHub repository. Returns issue summaries including number, title, state, assignees, and labels. Excludes pull requests.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "Filter by state: 'open', 'closed', or 'all'. Default: 'open'.",
+                    "default": "open",
+                    "enum": ["open", "closed", "all"],
+                },
+                "labels": {
+                    "type": "string",
+                    "description": "Comma-separated list of label names to filter by.",
+                },
+                "assignee": {
+                    "type": "string",
+                    "description": "Filter by assignee username. Use '*' for any, 'none' for unassigned.",
+                },
+                "creator": {
+                    "type": "string",
+                    "description": "Filter by creator username.",
+                },
+                "milestone": {
+                    "type": "string",
+                    "description": "Filter by milestone number, '*' for any, or 'none' for no milestone.",
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Sort by: 'created', 'updated', 'comments'. Default: 'created'.",
+                    "default": "created",
+                    "enum": ["created", "updated", "comments"],
+                },
+                "direction": {
+                    "type": "string",
+                    "description": "Sort direction: 'asc' or 'desc'. Default: 'desc'.",
+                    "default": "desc",
+                    "enum": ["asc", "desc"],
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Only issues updated after this ISO 8601 timestamp.",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo"],
+        },
+    ),
+    Tool(
+        name="github_get_issue",
+        description="Get full details of a specific GitHub issue including body, milestone, reactions, and state reason.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number.",
+                },
+            },
+            "required": ["owner", "repo", "issue_number"],
+        },
+    ),
+    Tool(
+        name="github_create_issue",
+        description="Create a new GitHub issue. Returns the created issue with its number and URL. Use this to document work that was done without a ticket.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Issue title.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Issue body (Markdown).",
+                },
+                "assignees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of usernames to assign.",
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of label names.",
+                },
+                "milestone": {
+                    "type": "integer",
+                    "description": "Milestone number to associate.",
+                },
+            },
+            "required": ["owner", "repo", "title"],
+        },
+    ),
+    Tool(
+        name="github_update_issue",
+        description="Update an existing GitHub issue. Can change title, body, state, assignees, labels, and milestone.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "New issue title.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "New issue body (Markdown).",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "New state: 'open' or 'closed'.",
+                    "enum": ["open", "closed"],
+                },
+                "assignees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "New list of assignees (replaces existing).",
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "New list of labels (replaces existing).",
+                },
+                "milestone": {
+                    "type": "integer",
+                    "description": "New milestone number (use 0 to clear).",
+                },
+            },
+            "required": ["owner", "repo", "issue_number"],
+        },
+    ),
+    Tool(
+        name="github_close_issue",
+        description="Close a GitHub issue with optional reason.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number.",
+                },
+                "state_reason": {
+                    "type": "string",
+                    "description": "Reason for closing: 'completed' or 'not_planned'.",
+                    "enum": ["completed", "not_planned"],
+                },
+            },
+            "required": ["owner", "repo", "issue_number"],
+        },
+    ),
+    Tool(
+        name="github_reopen_issue",
+        description="Reopen a closed GitHub issue.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number.",
+                },
+            },
+            "required": ["owner", "repo", "issue_number"],
+        },
+    ),
+    Tool(
+        name="github_get_issue_comments",
+        description="Get comments on a GitHub issue.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Only comments updated after this ISO 8601 timestamp.",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["owner", "repo", "issue_number"],
+        },
+    ),
+    Tool(
+        name="github_add_issue_comment",
+        description="Add a comment to a GitHub issue.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Comment body (Markdown).",
+                },
+            },
+            "required": ["owner", "repo", "issue_number", "body"],
+        },
+    ),
+    Tool(
+        name="github_search_issues",
+        description="Search for issues across GitHub repositories. Use GitHub search qualifiers like 'author:username', 'repo:owner/repo', 'state:open', 'label:bug'. Returns issue_key in 'owner/repo#number' format for activity logging.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "GitHub search query. Examples: 'author:octocat', 'repo:facebook/react state:open', 'org:microsoft label:bug'. 'is:issue' is added automatically.",
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Sort by: 'created', 'updated', 'comments'. Default: 'created'.",
+                    "default": "created",
+                    "enum": ["created", "updated", "comments"],
+                },
+                "order": {
+                    "type": "string",
+                    "description": "Sort order: 'asc' or 'desc'. Default: 'desc'.",
+                    "default": "desc",
+                    "enum": ["asc", "desc"],
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (1-100). Default: 30.",
+                    "default": 30,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number. Default: 1.",
+                    "default": 1,
+                    "minimum": 1,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
 ]
 
 
@@ -854,13 +1199,13 @@ REPORTS_TOOLS: list[Tool] = [
     # --- Activity Tracking & Weekly Reports ---
     Tool(
         name="log_activity",
-        description="Log a work activity for weekly report tracking. Call this when working on tickets to track your work.",
+        description="Log a work activity for weekly report tracking. Supports both Jira tickets (PROJ-123) and GitHub issues (owner/repo#123). Call this when working on tickets to track your work.",
         inputSchema={
             "type": "object",
             "properties": {
                 "ticket_key": {
                     "type": "string",
-                    "description": "The ticket key (e.g., 'PROJ-123').",
+                    "description": "The ticket key. Jira: 'PROJ-123'. GitHub: 'owner/repo#123' or '#123' (with github_repo).",
                 },
                 "action_type": {
                     "type": "string",
@@ -871,6 +1216,10 @@ REPORTS_TOOLS: list[Tool] = [
                 "ticket_summary": {
                     "type": "string",
                     "description": "Optional ticket summary for context.",
+                },
+                "github_repo": {
+                    "type": "string",
+                    "description": "For GitHub issues: repository in 'owner/repo' format. Required if using short '#123' format.",
                 },
                 "action_details": {
                     "type": "string",
@@ -1502,6 +1851,106 @@ async def _execute_github_tool(
     elif name == "github_get_current_user":
         return github_client.get_current_user()
 
+    # --- GitHub Issues Tools ---
+
+    elif name == "github_list_issues":
+        input_data = GitHubListIssuesInput(**arguments)
+        return github_client.list_issues(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            state=input_data.state,
+            labels=input_data.labels,
+            assignee=input_data.assignee,
+            creator=input_data.creator,
+            milestone=input_data.milestone,
+            sort=input_data.sort,
+            direction=input_data.direction,
+            since=input_data.since,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_get_issue":
+        input_data = GitHubGetIssueInput(**arguments)
+        return github_client.get_issue(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            issue_number=input_data.issue_number,
+        )
+
+    elif name == "github_create_issue":
+        input_data = GitHubCreateIssueInput(**arguments)
+        return github_client.create_issue(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            title=input_data.title,
+            body=input_data.body,
+            assignees=input_data.assignees,
+            labels=input_data.labels,
+            milestone=input_data.milestone,
+        )
+
+    elif name == "github_update_issue":
+        input_data = GitHubUpdateIssueInput(**arguments)
+        return github_client.update_issue(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            issue_number=input_data.issue_number,
+            title=input_data.title,
+            body=input_data.body,
+            state=input_data.state,
+            assignees=input_data.assignees,
+            labels=input_data.labels,
+            milestone=input_data.milestone,
+        )
+
+    elif name == "github_close_issue":
+        input_data = GitHubCloseIssueInput(**arguments)
+        return github_client.close_issue(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            issue_number=input_data.issue_number,
+            state_reason=input_data.state_reason,
+        )
+
+    elif name == "github_reopen_issue":
+        input_data = GitHubReopenIssueInput(**arguments)
+        return github_client.reopen_issue(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            issue_number=input_data.issue_number,
+        )
+
+    elif name == "github_get_issue_comments":
+        input_data = GitHubGetIssueCommentsInput(**arguments)
+        return github_client.get_issue_comments(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            issue_number=input_data.issue_number,
+            since=input_data.since,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
+    elif name == "github_add_issue_comment":
+        input_data = GitHubAddIssueCommentInput(**arguments)
+        return github_client.add_issue_comment(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            issue_number=input_data.issue_number,
+            body=input_data.body,
+        )
+
+    elif name == "github_search_issues":
+        input_data = GitHubSearchIssuesInput(**arguments)
+        return github_client.search_issues(
+            query=input_data.query,
+            sort=input_data.sort,
+            order=input_data.order,
+            per_page=input_data.per_page,
+            page=input_data.page,
+        )
+
     else:
         raise ValueError(f"Unknown GitHub tool: {name}")
 
@@ -1537,6 +1986,7 @@ async def _execute_reports_tool(
             ticket_key=input_data.ticket_key,
             action_type=input_data.action_type,
             ticket_summary=input_data.ticket_summary,
+            github_repo=input_data.github_repo,
             action_details=action_details,
         )
 

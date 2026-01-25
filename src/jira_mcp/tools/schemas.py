@@ -351,11 +351,11 @@ class CreatedComment(BaseModel):
 
 
 class LogActivityInput(BaseModel):
-    """Input schema for log_jira_activity tool."""
+    """Input schema for log_activity tool."""
 
     ticket_key: str = Field(
         ...,
-        description="The Jira ticket key (e.g., 'PROJ-123').",
+        description="The ticket key. Jira format: 'PROJ-123'. GitHub format: 'owner/repo#123' or '#123' (with github_repo).",
     )
     action_type: str = Field(
         default="other",
@@ -364,6 +364,10 @@ class LogActivityInput(BaseModel):
     ticket_summary: str | None = Field(
         default=None,
         description="Optional ticket summary for context.",
+    )
+    github_repo: str | None = Field(
+        default=None,
+        description="For GitHub issues: repository in 'owner/repo' format. Required if using short '#123' format.",
     )
     action_details: str | None = Field(
         default=None,
@@ -781,6 +785,279 @@ class GitHubSearchPRsInput(BaseModel):
     query: str = Field(
         ...,
         description="GitHub search query. Examples: 'author:username', 'repo:owner/repo', 'state:open', 'label:bug'. Use 'is:pr' prefix is added automatically.",
+    )
+    sort: str = Field(
+        default="created",
+        description="Sort by: 'created', 'updated', 'comments'.",
+    )
+    order: str = Field(
+        default="desc",
+        description="Sort order: 'asc' or 'desc'.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+# --- GitHub Issues Input Schemas ---
+
+
+class GitHubListIssuesInput(BaseModel):
+    """Input schema for github_list_issues tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    state: str = Field(
+        default="open",
+        description="Filter by state: 'open', 'closed', or 'all'.",
+    )
+    labels: str | None = Field(
+        default=None,
+        description="Comma-separated list of label names to filter by.",
+    )
+    assignee: str | None = Field(
+        default=None,
+        description="Filter by assignee username. Use '*' for any, 'none' for unassigned.",
+    )
+    creator: str | None = Field(
+        default=None,
+        description="Filter by creator username.",
+    )
+    milestone: str | None = Field(
+        default=None,
+        description="Filter by milestone number, '*' for any, or 'none' for no milestone.",
+    )
+    sort: str = Field(
+        default="created",
+        description="Sort by: 'created', 'updated', 'comments'.",
+    )
+    direction: str = Field(
+        default="desc",
+        description="Sort direction: 'asc' or 'desc'.",
+    )
+    since: str | None = Field(
+        default=None,
+        description="Only issues updated after this ISO 8601 timestamp.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubGetIssueInput(BaseModel):
+    """Input schema for github_get_issue tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    issue_number: int = Field(
+        ...,
+        description="Issue number.",
+    )
+
+
+class GitHubCreateIssueInput(BaseModel):
+    """Input schema for github_create_issue tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Issue title.",
+    )
+    body: str | None = Field(
+        default=None,
+        description="Issue body (Markdown).",
+    )
+    assignees: list[str] | None = Field(
+        default=None,
+        description="List of usernames to assign.",
+    )
+    labels: list[str] | None = Field(
+        default=None,
+        description="List of label names.",
+    )
+    milestone: int | None = Field(
+        default=None,
+        description="Milestone number to associate.",
+    )
+
+
+class GitHubUpdateIssueInput(BaseModel):
+    """Input schema for github_update_issue tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    issue_number: int = Field(
+        ...,
+        description="Issue number.",
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=256,
+        description="New issue title.",
+    )
+    body: str | None = Field(
+        default=None,
+        description="New issue body (Markdown).",
+    )
+    state: str | None = Field(
+        default=None,
+        description="New state: 'open' or 'closed'.",
+    )
+    assignees: list[str] | None = Field(
+        default=None,
+        description="New list of assignees (replaces existing).",
+    )
+    labels: list[str] | None = Field(
+        default=None,
+        description="New list of labels (replaces existing).",
+    )
+    milestone: int | None = Field(
+        default=None,
+        description="New milestone number (use 0 to clear).",
+    )
+
+
+class GitHubCloseIssueInput(BaseModel):
+    """Input schema for github_close_issue tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    issue_number: int = Field(
+        ...,
+        description="Issue number.",
+    )
+    state_reason: str | None = Field(
+        default=None,
+        description="Reason for closing: 'completed' or 'not_planned'.",
+    )
+
+
+class GitHubReopenIssueInput(BaseModel):
+    """Input schema for github_reopen_issue tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    issue_number: int = Field(
+        ...,
+        description="Issue number.",
+    )
+
+
+class GitHubGetIssueCommentsInput(BaseModel):
+    """Input schema for github_get_issue_comments tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    issue_number: int = Field(
+        ...,
+        description="Issue number.",
+    )
+    since: str | None = Field(
+        default=None,
+        description="Only comments updated after this ISO 8601 timestamp.",
+    )
+    per_page: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Results per page (max 100).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number.",
+    )
+
+
+class GitHubAddIssueCommentInput(BaseModel):
+    """Input schema for github_add_issue_comment tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    issue_number: int = Field(
+        ...,
+        description="Issue number.",
+    )
+    body: str = Field(
+        ...,
+        min_length=1,
+        description="Comment body (Markdown).",
+    )
+
+
+class GitHubSearchIssuesInput(BaseModel):
+    """Input schema for github_search_issues tool."""
+
+    query: str = Field(
+        ...,
+        description="GitHub search query. Examples: 'author:username', 'repo:owner/repo', 'state:open', 'label:bug'. 'is:issue' prefix is added automatically.",
     )
     sort: str = Field(
         default="created",

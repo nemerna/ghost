@@ -11,8 +11,12 @@ import {
   Content,
   Form,
   FormGroup,
+  FormHelperText,
   FormSelect,
   FormSelectOption,
+  HelperText,
+  HelperTextItem,
+  Label,
   Modal,
   ModalBody,
   ModalFooter,
@@ -29,9 +33,14 @@ import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { PlusIcon, TrashIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { getMyActivities, createActivity, deleteActivity } from '@/api/activities';
-import type { ActivityCreateRequest, ActionType } from '@/types';
+import type { ActivityCreateRequest, ActionType, TicketSource } from '@/types';
 
 const actionTypes: ActionType[] = ['view', 'create', 'update', 'comment', 'transition', 'link', 'other'];
+const ticketSources: Array<{ value: TicketSource | ''; label: string }> = [
+  { value: '', label: 'All sources' },
+  { value: 'jira', label: 'Jira' },
+  { value: 'github', label: 'GitHub' },
+];
 
 export function ActivitiesPage() {
   const queryClient = useQueryClient();
@@ -43,6 +52,7 @@ export function ActivitiesPage() {
   // Filter state
   const [projectFilter, setProjectFilter] = useState('');
   const [actionTypeFilter, setActionTypeFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<TicketSource | ''>('');
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -54,13 +64,14 @@ export function ActivitiesPage() {
 
   // Fetch activities
   const { data: activities, isLoading } = useQuery({
-    queryKey: ['myActivities', page, perPage, projectFilter, actionTypeFilter],
+    queryKey: ['myActivities', page, perPage, projectFilter, actionTypeFilter, sourceFilter],
     queryFn: () =>
       getMyActivities({
         limit: perPage,
         offset: (page - 1) * perPage,
         project_key: projectFilter || undefined,
         action_type: actionTypeFilter || undefined,
+        ticket_source: sourceFilter || undefined,
       }),
   });
 
@@ -96,7 +107,7 @@ export function ActivitiesPage() {
     }
   };
 
-  const columns = ['Ticket', 'Summary', 'Project', 'Action', 'Timestamp', 'Actions'];
+  const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Action', 'Timestamp', 'Actions'];
 
   return (
     <>
@@ -112,8 +123,19 @@ export function ActivitiesPage() {
             <Toolbar>
               <ToolbarContent>
                 <ToolbarItem>
+                  <FormSelect
+                    value={sourceFilter}
+                    onChange={(_event, value) => setSourceFilter(value as TicketSource | '')}
+                    aria-label="Filter by source"
+                  >
+                    {ticketSources.map((source) => (
+                      <FormSelectOption key={source.value} value={source.value} label={source.label} />
+                    ))}
+                  </FormSelect>
+                </ToolbarItem>
+                <ToolbarItem>
                   <TextInput
-                    placeholder="Filter by project"
+                    placeholder="Filter by project/repo"
                     value={projectFilter}
                     onChange={(_event, value) => setProjectFilter(value)}
                     aria-label="Filter by project"
@@ -159,14 +181,19 @@ export function ActivitiesPage() {
                 ) : activities?.activities.length ? (
                   activities.activities.map((activity) => (
                     <Tr key={activity.id}>
+                      <Td dataLabel="Source">
+                        <Label color={activity.ticket_source === 'github' ? 'purple' : 'blue'}>
+                          {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
+                        </Label>
+                      </Td>
                       <Td dataLabel="Ticket">
                         <strong>{activity.ticket_key}</strong>
                       </Td>
                       <Td dataLabel="Summary">
                         {activity.ticket_summary || '-'}
                       </Td>
-                      <Td dataLabel="Project">
-                        {activity.project_key || '-'}
+                      <Td dataLabel="Project/Repo">
+                        {activity.project_key || activity.github_repo || '-'}
                       </Td>
                       <Td dataLabel="Action">
                         {activity.action_type}
@@ -227,8 +254,15 @@ export function ActivitiesPage() {
                 onChange={(_event, value) =>
                   setNewActivity({ ...newActivity, ticket_key: value })
                 }
-                placeholder="e.g., PROJ-123"
+                placeholder="e.g., PROJ-123 or owner/repo#42"
               />
+              <FormHelperText>
+                <HelperText>
+                  <HelperTextItem>
+                    Jira: PROJ-123 | GitHub: owner/repo#42
+                  </HelperTextItem>
+                </HelperText>
+              </FormHelperText>
             </FormGroup>
             <FormGroup label="Summary" fieldId="ticket-summary">
               <TextInput

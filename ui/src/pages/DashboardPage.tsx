@@ -16,6 +16,7 @@ import {
   FlexItem,
   Gallery,
   GalleryItem,
+  Label,
   PageSection,
   Spinner,
   Title,
@@ -24,7 +25,7 @@ import {
   CheckCircleIcon,
   ClipboardCheckIcon,
   CodeIcon,
-  CommentIcon,
+  GithubIcon,
 } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
 import { getMyActivitySummary, getMyActivities } from '@/api/activities';
@@ -37,7 +38,7 @@ export function DashboardPage() {
   // Fetch activity summary for last 7 days
   const { data: activitySummary, isLoading: summaryLoading } = useQuery({
     queryKey: ['activitySummary', 7],
-    queryFn: () => getMyActivitySummary(7),
+    queryFn: () => getMyActivitySummary({ days: 7 }),
   });
 
   // Fetch recent activities
@@ -66,14 +67,14 @@ export function DashboardPage() {
       icon: <CodeIcon />,
     },
     {
-      title: 'Comments Added',
-      value: activitySummary?.by_action_type?.comment || 0,
-      icon: <CommentIcon />,
+      title: 'Jira Activities',
+      value: activitySummary?.by_source?.jira || 0,
+      icon: <CheckCircleIcon />,
     },
     {
-      title: 'Tickets Created',
-      value: activitySummary?.by_action_type?.create || 0,
-      icon: <CheckCircleIcon />,
+      title: 'GitHub Activities',
+      value: activitySummary?.by_source?.github || 0,
+      icon: <GithubIcon />,
     },
   ];
 
@@ -129,6 +130,13 @@ export function DashboardPage() {
                     {recentActivities.activities.map((activity) => (
                       <DescriptionListGroup key={activity.id}>
                         <DescriptionListTerm>
+                          <Label 
+                            color={activity.ticket_source === 'github' ? 'purple' : 'blue'}
+                            isCompact
+                            style={{ marginRight: '0.5rem' }}
+                          >
+                            {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
+                          </Label>
                           <strong>{activity.ticket_key}</strong>
                           <small style={{ marginLeft: '0.5rem' }}>
                             {activity.action_type}

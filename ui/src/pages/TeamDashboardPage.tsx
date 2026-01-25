@@ -46,7 +46,7 @@ export function TeamDashboardPage() {
   // Fetch team activity summary
   const { data: activitySummary, isLoading: activityLoading } = useQuery({
     queryKey: ['teamActivitySummary', selectedTeamId],
-    queryFn: () => getTeamActivitySummary(selectedTeamId!, 7),
+    queryFn: () => getTeamActivitySummary(selectedTeamId!, { days: 7 }),
     enabled: !!selectedTeamId,
   });
 

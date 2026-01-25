@@ -2,15 +2,58 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func
 
-from jira_mcp.db import ActivityLog, ManagementReport, WeeklyReport, get_db
+from jira_mcp.db import ActivityLog, ManagementReport, TicketSource, WeeklyReport, get_db
 from jira_mcp.db.models import ActionType
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_ticket_key(
+    ticket_key: str, github_repo: str | None = None
+) -> tuple[TicketSource, str, str | None, str | None]:
+    """
+    Parse a ticket key and determine its source.
+
+    Args:
+        ticket_key: The ticket key (PROJ-123, owner/repo#123, or #123)
+        github_repo: Optional GitHub repo for short #123 format
+
+    Returns:
+        Tuple of (source, normalized_key, project_key_or_none, github_repo_or_none)
+    """
+    # GitHub Issue patterns
+    # Full format: owner/repo#123
+    github_full_pattern = r"^([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)#(\d+)$"
+    # Short format: #123 (requires github_repo)
+    github_short_pattern = r"^#(\d+)$"
+
+    # Check for full GitHub format (owner/repo#123)
+    full_match = re.match(github_full_pattern, ticket_key)
+    if full_match:
+        repo = full_match.group(1)
+        issue_num = full_match.group(2)
+        return TicketSource.GITHUB, ticket_key, None, repo
+
+    # Check for short GitHub format (#123)
+    short_match = re.match(github_short_pattern, ticket_key)
+    if short_match and github_repo:
+        issue_num = short_match.group(1)
+        full_key = f"{github_repo}#{issue_num}"
+        return TicketSource.GITHUB, full_key, None, github_repo
+
+    # Default: Jira ticket (PROJ-123 format)
+    # Extract project key from Jira ticket
+    project_key = None
+    if "-" in ticket_key:
+        project_key = ticket_key.split("-")[0]
+
+    return TicketSource.JIRA, ticket_key, project_key, None
 
 
 def log_activity(
@@ -19,27 +62,34 @@ def log_activity(
     action_type: str,
     ticket_summary: str | None = None,
     project_key: str | None = None,
+    github_repo: str | None = None,
     action_details: dict | None = None,
 ) -> dict[str, Any]:
     """
-    Log a Jira activity for tracking.
+    Log a Jira or GitHub activity for tracking.
 
     Args:
         username: The username performing the action.
-        ticket_key: The Jira ticket key (e.g., 'PROJ-123').
+        ticket_key: The ticket key. Jira: 'PROJ-123'. GitHub: 'owner/repo#123' or '#123'.
         action_type: Type of action (view, create, update, comment, transition, link, other).
         ticket_summary: Optional ticket summary.
-        project_key: Optional project key (extracted from ticket_key if not provided).
+        project_key: Optional Jira project key (extracted from ticket_key if not provided).
+        github_repo: Optional GitHub repo in 'owner/repo' format. Required for short '#123' format.
         action_details: Optional dict with additional context.
 
     Returns:
-        Confirmation with activity ID.
+        Confirmation with activity ID and detected source.
     """
     db = get_db()
 
-    # Extract project key from ticket if not provided
-    if not project_key and "-" in ticket_key:
-        project_key = ticket_key.split("-")[0]
+    # Parse ticket key and determine source
+    source, normalized_key, detected_project, detected_repo = _parse_ticket_key(
+        ticket_key, github_repo
+    )
+
+    # Use detected values or provided overrides
+    final_project_key = project_key or detected_project
+    final_github_repo = github_repo or detected_repo
 
     # Map action type string to enum
     try:
@@ -50,9 +100,11 @@ def log_activity(
     with db.session() as session:
         activity = ActivityLog(
             username=username,
-            ticket_key=ticket_key,
+            ticket_key=normalized_key,
             ticket_summary=ticket_summary,
-            project_key=project_key,
+            project_key=final_project_key,
+            ticket_source=source,
+            github_repo=final_github_repo,
             action_type=action_enum,
             action_details=json.dumps(action_details) if action_details else None,
             timestamp=datetime.utcnow(),
@@ -61,12 +113,16 @@ def log_activity(
         session.flush()
         activity_id = activity.id
 
-    logger.info(f"Logged activity {activity_id}: {username} {action_type} {ticket_key}")
+    logger.info(
+        f"Logged activity {activity_id}: {username} {action_type} {normalized_key} (source: {source.value})"
+    )
 
     return {
         "success": True,
         "activity_id": activity_id,
-        "message": f"Activity logged: {action_type} on {ticket_key}",
+        "ticket_source": source.value,
+        "ticket_key": normalized_key,
+        "message": f"Activity logged: {action_type} on {normalized_key} ({source.value})",
     }
 
 
@@ -74,6 +130,7 @@ def get_weekly_activity(
     username: str,
     week_offset: int = 0,
     project: str | None = None,
+    ticket_source: str | None = None,
 ) -> dict[str, Any]:
     """
     Get activity summary for a specific week.
@@ -81,10 +138,11 @@ def get_weekly_activity(
     Args:
         username: The username to get activity for.
         week_offset: Week offset from current week (0 = current, -1 = last week, etc.).
-        project: Optional project key to filter by.
+        project: Optional project key to filter by (Jira only).
+        ticket_source: Optional filter by source ('jira' or 'github').
 
     Returns:
-        Activity summary with tickets worked on, grouped by action type.
+        Activity summary with tickets worked on, grouped by action type and source.
     """
     db = get_db()
 
@@ -107,13 +165,22 @@ def get_weekly_activity(
         if project:
             query = query.filter(ActivityLog.project_key == project)
 
+        if ticket_source:
+            try:
+                source_enum = TicketSource(ticket_source.lower())
+                query = query.filter(ActivityLog.ticket_source == source_enum)
+            except ValueError:
+                pass  # Invalid source, ignore filter
+
         activities = query.order_by(ActivityLog.timestamp.desc()).all()
 
-        # Get unique tickets
-        unique_tickets = session.query(
+        # Get unique tickets with source info
+        unique_tickets_query = session.query(
             ActivityLog.ticket_key,
             ActivityLog.ticket_summary,
             ActivityLog.project_key,
+            ActivityLog.ticket_source,
+            ActivityLog.github_repo,
             func.count(ActivityLog.id).label("action_count"),
         ).filter(
             ActivityLog.username == username,
@@ -122,12 +189,25 @@ def get_weekly_activity(
         )
 
         if project:
-            unique_tickets = unique_tickets.filter(ActivityLog.project_key == project)
+            unique_tickets_query = unique_tickets_query.filter(
+                ActivityLog.project_key == project
+            )
 
-        unique_tickets = unique_tickets.group_by(
+        if ticket_source:
+            try:
+                source_enum = TicketSource(ticket_source.lower())
+                unique_tickets_query = unique_tickets_query.filter(
+                    ActivityLog.ticket_source == source_enum
+                )
+            except ValueError:
+                pass
+
+        unique_tickets = unique_tickets_query.group_by(
             ActivityLog.ticket_key,
             ActivityLog.ticket_summary,
             ActivityLog.project_key,
+            ActivityLog.ticket_source,
+            ActivityLog.github_repo,
         ).all()
 
         # Group activities by action type
@@ -140,12 +220,24 @@ def get_weekly_activity(
                 {
                     "ticket_key": activity.ticket_key,
                     "ticket_summary": activity.ticket_summary,
+                    "ticket_source": (
+                        activity.ticket_source.value if activity.ticket_source else "jira"
+                    ),
+                    "github_repo": activity.github_repo,
                     "timestamp": activity.timestamp.isoformat(),
                     "action_details": (
                         json.loads(activity.action_details) if activity.action_details else None
                     ),
                 }
             )
+
+        # Count by source
+        jira_count = sum(
+            1 for t in unique_tickets if t.ticket_source == TicketSource.JIRA
+        )
+        github_count = sum(
+            1 for t in unique_tickets if t.ticket_source == TicketSource.GITHUB
+        )
 
     return {
         "username": username,
@@ -156,11 +248,17 @@ def get_weekly_activity(
             {
                 "ticket_key": t.ticket_key,
                 "ticket_summary": t.ticket_summary,
+                "ticket_source": t.ticket_source.value if t.ticket_source else "jira",
                 "project_key": t.project_key,
+                "github_repo": t.github_repo,
                 "action_count": t.action_count,
             }
             for t in unique_tickets
         ],
+        "by_source": {
+            "jira": jira_count,
+            "github": github_count,
+        },
         "by_action_type": by_action,
     }
 
@@ -188,10 +286,16 @@ def generate_weekly_report(
     week_end = activity["week_end"]
     unique_tickets = activity["unique_tickets"]
     by_action = activity["by_action_type"]
+    by_source = activity.get("by_source", {"jira": 0, "github": 0})
 
     # Calculate statistics
     total_tickets = len(unique_tickets)
-    projects = list(set(t["project_key"] for t in unique_tickets if t["project_key"]))
+    jira_projects = list(
+        set(t["project_key"] for t in unique_tickets if t["project_key"])
+    )
+    github_repos = list(
+        set(t["github_repo"] for t in unique_tickets if t["github_repo"])
+    )
 
     # Count by action type
     created_count = len(by_action.get("create", []))
@@ -203,8 +307,20 @@ def generate_weekly_report(
     title = f"Weekly Report: {week_start} to {week_end}"
 
     summary_parts = [f"Worked on **{total_tickets} tickets**"]
-    if projects:
-        summary_parts.append(f"across **{len(projects)} projects** ({', '.join(projects)})")
+
+    # Add source breakdown
+    source_parts = []
+    if by_source.get("jira", 0) > 0:
+        source_parts.append(f"{by_source['jira']} Jira")
+    if by_source.get("github", 0) > 0:
+        source_parts.append(f"{by_source['github']} GitHub")
+    if source_parts:
+        summary_parts.append(f"({', '.join(source_parts)})")
+
+    if jira_projects:
+        summary_parts.append(f"across **{len(jira_projects)} Jira projects**")
+    if github_repos:
+        summary_parts.append(f"and **{len(github_repos)} GitHub repos**")
 
     action_summary = []
     if created_count:
@@ -235,7 +351,10 @@ def generate_weekly_report(
         "## Key Metrics",
         "",
         f"- **Total Tickets:** {total_tickets}",
-        f"- **Projects:** {', '.join(projects) if projects else 'N/A'}",
+        f"- **Jira Tickets:** {by_source.get('jira', 0)}",
+        f"- **GitHub Issues:** {by_source.get('github', 0)}",
+        f"- **Jira Projects:** {', '.join(jira_projects) if jira_projects else 'N/A'}",
+        f"- **GitHub Repos:** {', '.join(github_repos) if github_repos else 'N/A'}",
         f"- **Tickets Created:** {created_count}",
         f"- **Tickets Updated:** {updated_count}",
         f"- **Status Transitions:** {transitioned_count}",
@@ -248,8 +367,8 @@ def generate_weekly_report(
             [
                 "## Tickets Worked On",
                 "",
-                "| Ticket | Summary | Project | Actions |",
-                "|--------|---------|---------|---------|",
+                "| Source | Ticket | Summary | Project/Repo | Actions |",
+                "|--------|--------|---------|--------------|---------|",
             ]
         )
 
@@ -257,9 +376,12 @@ def generate_weekly_report(
             summary_text = (ticket["ticket_summary"] or "N/A")[:50]
             if len(ticket["ticket_summary"] or "") > 50:
                 summary_text += "..."
+            source = ticket.get("ticket_source", "jira")
+            source_label = "Jira" if source == "jira" else "GitHub"
+            project_or_repo = ticket["project_key"] or ticket.get("github_repo") or "N/A"
             content_lines.append(
-                f"| {ticket['ticket_key']} | {summary_text} | "
-                f"{ticket['project_key'] or 'N/A'} | {ticket['action_count']} |"
+                f"| {source_label} | {ticket['ticket_key']} | {summary_text} | "
+                f"{project_or_repo} | {ticket['action_count']} |"
             )
 
         content_lines.append("")
@@ -278,7 +400,9 @@ def generate_weekly_report(
                 content_lines.append(f"### {action_type.title()} ({len(actions)})")
                 content_lines.append("")
                 for action in actions[:10]:  # Limit to 10 per type
-                    line = f"- **{action['ticket_key']}**: {action['ticket_summary'] or 'N/A'}"
+                    source = action.get("ticket_source", "jira")
+                    source_label = "[Jira]" if source == "jira" else "[GitHub]"
+                    line = f"- {source_label} **{action['ticket_key']}**: {action['ticket_summary'] or 'N/A'}"
                     if action.get("action_details"):
                         details = action["action_details"]
                         if isinstance(details, dict):
@@ -301,7 +425,9 @@ def generate_weekly_report(
         "week_start": week_start,
         "week_end": week_end,
         "tickets_count": total_tickets,
-        "projects": projects,
+        "projects": jira_projects,
+        "github_repos": github_repos,
+        "by_source": by_source,
         "statistics": {
             "created": created_count,
             "updated": updated_count,
