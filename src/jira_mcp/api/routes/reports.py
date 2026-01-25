@@ -448,6 +448,56 @@ async def delete_management_report(
     return {"message": "Report deleted successfully"}
 
 
+@router.get("/management/team/{team_id}", response_model=ManagementReportListResponse)
+async def get_team_management_reports(
+    team_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+    report_period: str | None = Query(None, description="Filter by report period"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Get management reports from all team members (manager or admin only)."""
+    db = get_db()
+    
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get team member emails
+        memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
+        member_ids = [m.user_id for m in memberships]
+        if team.manager_id:
+            member_ids.append(team.manager_id)
+        
+        members = session.query(User).filter(User.id.in_(member_ids)).all()
+        member_emails = [m.email for m in members]
+        
+        # Query management reports from team members
+        query = session.query(ManagementReport).filter(ManagementReport.username.in_(member_emails))
+        
+        if report_period:
+            query = query.filter(ManagementReport.report_period == report_period)
+        
+        total = query.count()
+        
+        reports = (
+            query.order_by(ManagementReport.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        
+        return ManagementReportListResponse(
+            reports=[management_report_to_response(r) for r in reports],
+            total=total,
+        )
+
+
 @router.get("/management/aggregate/{team_id}", response_model=dict)
 async def get_team_report_aggregate(
     team_id: int,

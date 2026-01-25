@@ -95,6 +95,15 @@ export async function deleteManagementReport(reportId: number): Promise<void> {
   await apiClient.delete(`/reports/management/${reportId}`);
 }
 
+export async function getTeamManagementReports(teamId: number, params?: {
+  report_period?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ManagementReportListResponse> {
+  const response = await apiClient.get<ManagementReportListResponse>(`/reports/management/team/${teamId}`, { params });
+  return response.data;
+}
+
 export async function getTeamReportAggregate(teamId: number, weekOffset: number = 0): Promise<TeamReportAggregate> {
   const response = await apiClient.get<TeamReportAggregate>(`/reports/management/aggregate/${teamId}`, {
     params: { week_offset: weekOffset },

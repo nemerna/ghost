@@ -1,19 +1,24 @@
 /**
- * Management Reports page - create and view management reports (manager only)
+ * Management Reports page - create and view management reports
+ * Managers can view team members' reports and generate consolidated reports
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  Alert,
   Button,
   Card,
   CardBody,
   CardTitle,
   Content,
+  ExpandableSection,
   Flex,
   FlexItem,
   Form,
   FormGroup,
+  FormSelect,
+  FormSelectOption,
   Label,
   Modal,
   ModalBody,
@@ -25,18 +30,35 @@ import {
   TextInput,
   Title,
 } from '@patternfly/react-core';
-import { PlusIcon } from '@patternfly/react-icons';
+import { PlusIcon, CopyIcon, UsersIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
+import { marked } from 'marked';
 import {
   listManagementReports,
   createManagementReport,
   deleteManagementReport,
+  getTeamManagementReports,
 } from '@/api/reports';
+import { listTeams } from '@/api/teams';
+import { useAuth } from '@/auth';
 import { StyledMarkdown } from '@/components/StyledMarkdown';
-import type { ManagementReportCreateRequest } from '@/types';
+import type { ManagementReportCreateRequest, ManagementReport } from '@/types';
+
+// Configure marked for safe HTML output
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
 
 export function ManagementReportsPage() {
   const queryClient = useQueryClient();
+  const { isManager, isAdmin } = useAuth();
+  const canViewTeams = isManager || isAdmin;
+
+  // Team selection state
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [showConsolidated, setShowConsolidated] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -48,11 +70,28 @@ export function ManagementReportsPage() {
     referenced_tickets: [],
   });
 
-  // Fetch management reports
-  const { data: reportsData, isLoading } = useQuery({
-    queryKey: ['managementReports'],
-    queryFn: () => listManagementReports({ limit: 50 }),
+  // Fetch teams (for managers/admins)
+  const { data: teamsData } = useQuery({
+    queryKey: ['teams'],
+    queryFn: () => listTeams({ all_teams: true }),
+    enabled: canViewTeams,
   });
+
+  // Fetch management reports (either own or team-based)
+  const { data: reportsData, isLoading } = useQuery({
+    queryKey: ['managementReports', selectedTeamId],
+    queryFn: () => 
+      selectedTeamId 
+        ? getTeamManagementReports(selectedTeamId, { limit: 100 })
+        : listManagementReports({ limit: 50 }),
+  });
+
+  // Auto-select first team for managers
+  useEffect(() => {
+    if (canViewTeams && teamsData?.teams.length && selectedTeamId === null) {
+      // Don't auto-select, let user choose "My Reports" or a team
+    }
+  }, [canViewTeams, teamsData, selectedTeamId]);
 
   // Create report mutation
   const createMutation = useMutation({
@@ -90,26 +129,198 @@ export function ManagementReportsPage() {
     }
   };
 
+  // Group reports by author
+  const reportsByAuthor = useMemo(() => {
+    if (!reportsData?.reports) return {};
+    
+    const grouped: Record<string, ManagementReport[]> = {};
+    reportsData.reports.forEach((report) => {
+      if (!grouped[report.username]) {
+        grouped[report.username] = [];
+      }
+      grouped[report.username].push(report);
+    });
+    return grouped;
+  }, [reportsData]);
+
+  // Generate consolidated markdown content
+  const consolidatedMarkdown = useMemo(() => {
+    if (!reportsData?.reports.length) return '';
+    
+    const lines: string[] = [];
+    
+    // Group by author and get their latest report
+    const latestByAuthor = new Map<string, ManagementReport>();
+    reportsData.reports.forEach((report) => {
+      const existing = latestByAuthor.get(report.username);
+      if (!existing || (report.created_at && existing.created_at && report.created_at > existing.created_at)) {
+        latestByAuthor.set(report.username, report);
+      }
+    });
+    
+    // Build consolidated content
+    latestByAuthor.forEach((report, author) => {
+      // Extract just the username part from email
+      const displayName = author.split('@')[0];
+      lines.push(`## ${displayName}`);
+      lines.push('');
+      lines.push(report.content);
+      lines.push('');
+    });
+    
+    return lines.join('\n');
+  }, [reportsData]);
+
+  // Copy consolidated report as HTML for Gmail
+  const handleCopyToClipboard = async () => {
+    try {
+      // Convert markdown to HTML
+      const html = await marked.parse(consolidatedMarkdown);
+      
+      // Create styled HTML for Gmail
+      const styledHtml = `
+        <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
+          ${html}
+        </div>
+      `;
+      
+      // Write to clipboard with both HTML and plain text
+      const htmlBlob = new Blob([styledHtml], { type: 'text/html' });
+      const textBlob = new Blob([consolidatedMarkdown], { type: 'text/plain' });
+      
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': htmlBlob,
+          'text/plain': textBlob,
+        }),
+      ]);
+      
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 3000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      // Fallback to plain text copy
+      try {
+        await navigator.clipboard.writeText(consolidatedMarkdown);
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 3000);
+      } catch (fallbackErr) {
+        console.error('Fallback copy also failed:', fallbackErr);
+      }
+    }
+  };
+
+  const handleTeamChange = (_event: React.FormEvent<HTMLSelectElement>, value: string) => {
+    if (value === 'my') {
+      setSelectedTeamId(null);
+    } else {
+      setSelectedTeamId(Number(value));
+    }
+    setShowConsolidated(false);
+  };
+
   return (
     <>
       <PageSection>
-        <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
+        <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }}>
           <FlexItem>
             <Content>
               <Title headingLevel="h1">Management Reports</Title>
             </Content>
           </FlexItem>
           <FlexItem>
-            <Button
-              variant="primary"
-              icon={<PlusIcon />}
-              onClick={() => setIsModalOpen(true)}
-            >
-              Create Report
-            </Button>
+            <Flex>
+              {canViewTeams && teamsData?.teams.length ? (
+                <FlexItem>
+                  <FormSelect
+                    value={selectedTeamId?.toString() || 'my'}
+                    onChange={handleTeamChange}
+                    aria-label="Select view"
+                    style={{ minWidth: '200px' }}
+                  >
+                    <FormSelectOption value="my" label="My Reports" />
+                    {teamsData.teams.map((team) => (
+                      <FormSelectOption key={team.id} value={team.id.toString()} label={`Team: ${team.name}`} />
+                    ))}
+                  </FormSelect>
+                </FlexItem>
+              ) : null}
+              <FlexItem>
+                <Button
+                  variant="primary"
+                  icon={<PlusIcon />}
+                  onClick={() => setIsModalOpen(true)}
+                >
+                  Create Report
+                </Button>
+              </FlexItem>
+            </Flex>
           </FlexItem>
         </Flex>
       </PageSection>
+
+      {/* Consolidated Report Section - only show when viewing a team */}
+      {selectedTeamId && reportsData?.reports.length ? (
+        <PageSection>
+          <Card>
+            <CardTitle>
+              <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }}>
+                <FlexItem>
+                  <Flex alignItems={{ default: 'alignItemsCenter' }}>
+                    <FlexItem>
+                      <UsersIcon style={{ marginRight: '0.5rem' }} />
+                    </FlexItem>
+                    <FlexItem>
+                      Consolidated Team Report
+                    </FlexItem>
+                    <FlexItem>
+                      <Label color="blue" style={{ marginLeft: '0.5rem' }}>
+                        {Object.keys(reportsByAuthor).length} members
+                      </Label>
+                    </FlexItem>
+                  </Flex>
+                </FlexItem>
+                <FlexItem>
+                  <Flex>
+                    <FlexItem>
+                      <Button
+                        variant="secondary"
+                        onClick={() => setShowConsolidated(!showConsolidated)}
+                      >
+                        {showConsolidated ? 'Hide' : 'Show'} Consolidated View
+                      </Button>
+                    </FlexItem>
+                    {showConsolidated && (
+                      <FlexItem>
+                        <Button
+                          variant="primary"
+                          icon={<CopyIcon />}
+                          onClick={handleCopyToClipboard}
+                        >
+                          {copySuccess ? 'Copied!' : 'Copy for Gmail'}
+                        </Button>
+                      </FlexItem>
+                    )}
+                  </Flex>
+                </FlexItem>
+              </Flex>
+            </CardTitle>
+            {showConsolidated && (
+              <CardBody>
+                {copySuccess && (
+                  <Alert
+                    variant="success"
+                    isInline
+                    title="Report copied to clipboard! You can now paste it in Gmail."
+                    style={{ marginBottom: '1rem' }}
+                  />
+                )}
+                <StyledMarkdown maxHeight="600px">{consolidatedMarkdown}</StyledMarkdown>
+              </CardBody>
+            )}
+          </Card>
+        </PageSection>
+      ) : null}
 
       <PageSection>
         {isLoading ? (
@@ -117,54 +328,117 @@ export function ManagementReportsPage() {
             <Spinner size="xl" />
           </Flex>
         ) : reportsData?.reports.length ? (
-          reportsData.reports.map((report) => (
-            <Card key={report.id} style={{ marginBottom: '1rem' }}>
-              <CardTitle>
-                <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
-                  <FlexItem>
-                    {report.title}
-                    {report.project_key && (
-                      <Label color="blue" style={{ marginLeft: '0.5rem' }}>
-                        {report.project_key}
-                      </Label>
-                    )}
-                    {report.report_period && (
+          selectedTeamId ? (
+            // Team view - group by author
+            Object.entries(reportsByAuthor).map(([author, reports]) => (
+              <Card key={author} style={{ marginBottom: '1rem' }}>
+                <CardTitle>
+                  <Flex alignItems={{ default: 'alignItemsCenter' }}>
+                    <FlexItem>{author}</FlexItem>
+                    <FlexItem>
                       <Label color="grey" style={{ marginLeft: '0.5rem' }}>
-                        {report.report_period}
+                        {reports.length} report{reports.length !== 1 ? 's' : ''}
                       </Label>
-                    )}
-                  </FlexItem>
-                  <FlexItem>
-                    <small>
-                      {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
-                    </small>
-                    <Button
-                      variant="link"
-                      isDanger
-                      onClick={() => handleDelete(report.id)}
-                      style={{ marginLeft: '1rem' }}
+                    </FlexItem>
+                  </Flex>
+                </CardTitle>
+                <CardBody>
+                  {reports.map((report) => (
+                    <ExpandableSection
+                      key={report.id}
+                      toggleText={`${report.title}${report.report_period ? ` - ${report.report_period}` : ''}`}
+                      style={{ marginBottom: '0.5rem' }}
                     >
-                      Delete
-                    </Button>
-                  </FlexItem>
-                </Flex>
-              </CardTitle>
-              <CardBody>
-                <StyledMarkdown maxHeight="400px">{report.content}</StyledMarkdown>
-                
-                {report.referenced_tickets.length > 0 && (
-                  <p style={{ marginTop: '1rem' }}>
-                    <strong>Referenced Tickets:</strong>{' '}
-                    {report.referenced_tickets.join(', ')}
-                  </p>
-                )}
-              </CardBody>
-            </Card>
-          ))
+                      <Card isPlain>
+                        <CardBody>
+                          <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginBottom: '0.5rem' }}>
+                            <FlexItem>
+                              {report.project_key && (
+                                <Label color="blue" style={{ marginRight: '0.5rem' }}>
+                                  {report.project_key}
+                                </Label>
+                              )}
+                              {report.report_period && (
+                                <Label color="grey">
+                                  {report.report_period}
+                                </Label>
+                              )}
+                            </FlexItem>
+                            <FlexItem>
+                              <small>
+                                {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
+                              </small>
+                            </FlexItem>
+                          </Flex>
+                          <StyledMarkdown maxHeight="300px">{report.content}</StyledMarkdown>
+                          {report.referenced_tickets.length > 0 && (
+                            <p style={{ marginTop: '1rem' }}>
+                              <strong>Referenced Tickets:</strong>{' '}
+                              {report.referenced_tickets.join(', ')}
+                            </p>
+                          )}
+                        </CardBody>
+                      </Card>
+                    </ExpandableSection>
+                  ))}
+                </CardBody>
+              </Card>
+            ))
+          ) : (
+            // Personal view - flat list
+            reportsData.reports.map((report) => (
+              <Card key={report.id} style={{ marginBottom: '1rem' }}>
+                <CardTitle>
+                  <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
+                    <FlexItem>
+                      {report.title}
+                      {report.project_key && (
+                        <Label color="blue" style={{ marginLeft: '0.5rem' }}>
+                          {report.project_key}
+                        </Label>
+                      )}
+                      {report.report_period && (
+                        <Label color="grey" style={{ marginLeft: '0.5rem' }}>
+                          {report.report_period}
+                        </Label>
+                      )}
+                    </FlexItem>
+                    <FlexItem>
+                      <small>
+                        {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
+                      </small>
+                      <Button
+                        variant="link"
+                        isDanger
+                        onClick={() => handleDelete(report.id)}
+                        style={{ marginLeft: '1rem' }}
+                      >
+                        Delete
+                      </Button>
+                    </FlexItem>
+                  </Flex>
+                </CardTitle>
+                <CardBody>
+                  <StyledMarkdown maxHeight="400px">{report.content}</StyledMarkdown>
+                  
+                  {report.referenced_tickets.length > 0 && (
+                    <p style={{ marginTop: '1rem' }}>
+                      <strong>Referenced Tickets:</strong>{' '}
+                      {report.referenced_tickets.join(', ')}
+                    </p>
+                  )}
+                </CardBody>
+              </Card>
+            ))
+          )
         ) : (
           <Card>
             <CardBody>
-              <p>No management reports yet. Click "Create Report" to add one.</p>
+              <p>
+                {selectedTeamId 
+                  ? 'No management reports from team members yet.'
+                  : 'No management reports yet. Click "Create Report" to add one.'}
+              </p>
             </CardBody>
           </Card>
         )}
