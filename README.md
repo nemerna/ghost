@@ -9,35 +9,31 @@ A Model Context Protocol (MCP) server that connects Jira and GitHub to AI-powere
 ## Quick Start
 
 ```bash
-# 1. Install
+# 1. Clone and start with Docker Compose
 git clone <repository-url> && cd jira-mcp
-python -m venv venv && source venv/bin/activate
-pip install -e .
+docker-compose up -d
 
-# 2. Run server
-jira-mcp --port 8080
-
-# 3. Configure Cursor IDE (.cursor/mcp.json)
+# 2. Configure Cursor IDE (.cursor/mcp.json)
 ```
 
 ```json
 {
   "mcpServers": {
     "jira": {
-      "url": "http://localhost:8080/jira",
+      "url": "http://localhost:8080/mcp/jira",
       "headers": {
         "X-Jira-Server-URL": "https://jira.example.com",
         "X-Jira-Token": "your-jira-pat"
       }
     },
     "github": {
-      "url": "http://localhost:8080/github",
+      "url": "http://localhost:8080/mcp/github",
       "headers": {
         "X-GitHub-Token": "your-github-pat"
       }
     },
     "reports": {
-      "url": "http://localhost:8080/reports",
+      "url": "http://localhost:8080/mcp/reports",
       "headers": {
         "X-Username": "your-username"
       }
@@ -50,20 +46,38 @@ jira-mcp --port 8080
 
 Developers interact with Jira and GitHub daily. This server exposes those systems as structured MCP tools via separate endpoints, tracks activity locally, and generates weekly or management reports on demand. Credentials flow from the client via HTTP headers; the server stores only activity logs and reports.
 
+The project includes a web UI for viewing activity, managing reports, and team administration.
+
+## Architecture
+
+The system uses a multi-container architecture with three main components:
+
 ```mermaid
 flowchart TB
     subgraph Client["MCP Client (Cursor)"]
         IDE[AI Agent]
-        JiraConfig["Jira Config<br/>─────────<br/>X-Jira-Server-URL<br/>X-Jira-Token"]
-        GitHubConfig["GitHub Config<br/>─────────<br/>X-GitHub-Token"]
-        ReportsConfig["Reports Config<br/>─────────<br/>X-Username"]
+        JiraConfig["Jira Config"]
+        GitHubConfig["GitHub Config"]
+        ReportsConfig["Reports Config"]
     end
 
-    subgraph Server["MCP Server :8080"]
-        JiraSSE["/jira<br/>SSE Endpoint"]
-        GitHubSSE["/github<br/>SSE Endpoint"]
-        ReportsSSE["/reports<br/>SSE Endpoint"]
-        DB[(Activity DB)]
+    subgraph Browser["Web Browser"]
+        WebUI[PatternFly React UI]
+    end
+
+    subgraph Containers["Container Stack"]
+        subgraph Frontend["Frontend :8080"]
+            Nginx[Nginx]
+        end
+        subgraph Backend["Backend :8000"]
+            FastAPI[FastAPI REST API]
+        end
+        subgraph MCP["MCP Server :8001"]
+            JiraSSE["/mcp/jira SSE"]
+            GitHubSSE["/mcp/github SSE"]
+            ReportsSSE["/mcp/reports SSE"]
+        end
+        DB[(SQLite/PostgreSQL)]
     end
 
     subgraph External["External Services"]
@@ -71,16 +85,26 @@ flowchart TB
         GitHub[GitHub API]
     end
 
-    JiraConfig -->|Headers| JiraSSE
-    GitHubConfig -->|Headers| GitHubSSE
-    ReportsConfig -->|Headers| ReportsSSE
-    IDE <-->|MCP| JiraSSE
-    IDE <-->|MCP| GitHubSSE
-    IDE <-->|MCP| ReportsSSE
+    WebUI -->|OAuth SSO| Nginx
+    Nginx -->|"/api/*"| FastAPI
+    Nginx -->|"/mcp/*"| MCP
+    FastAPI <--> DB
+    MCP <--> DB
+
+    JiraConfig -->|Headers| Nginx
+    GitHubConfig -->|Headers| Nginx
+    ReportsConfig -->|Headers| Nginx
+    IDE <-->|MCP Protocol| Nginx
+
     JiraSSE <-->|PAT| Jira
-    ReportsSSE <--> DB
     GitHubSSE <-->|PAT| GitHub
 ```
+
+| Container | Port | Description |
+|-----------|------|-------------|
+| Frontend | 8080 | Nginx serving static UI, proxying `/api/*` to backend and `/mcp/*` to MCP server |
+| Backend | 8000 | FastAPI REST API for web UI (users, teams, activities, reports) |
+| MCP Server | 8001 | SSE server providing MCP tools for AI integration |
 
 ## Report Generation Flow
 
@@ -88,8 +112,8 @@ flowchart TB
 sequenceDiagram
     participant Dev as Developer
     participant IDE as AI Agent
-    participant Jira as /jira Endpoint
-    participant Reports as /reports Endpoint
+    participant Jira as /mcp/jira Endpoint
+    participant Reports as /mcp/reports Endpoint
     participant DB as Activity DB
     participant JiraAPI as Jira Server
 
@@ -115,29 +139,61 @@ sequenceDiagram
 
 ## Features
 
-### Jira Operations (`/jira` endpoint)
+### MCP Tools (for AI Agents)
+
+#### Jira Operations (`/mcp/jira` endpoint)
 - **Tickets** — List, view, create, update
 - **Comments** — Add, update, delete
 - **Hierarchy** — Link issues, create subtasks, set epics
 - **Metadata** — Projects, components, issue types, statuses, transitions, priorities
 
-### GitHub Operations (`/github` endpoint)
+#### GitHub Operations (`/mcp/github` endpoint)
 - **Pull Requests** — List, view details, files, commits, diff
-- **Reviews & Comments** — Fetch feedback threads, add comments
-- **Search** — Query PRs across repositories
+- **Issues** — List, view, create, update, close, reopen
+- **Comments** — Add comments to PRs and issues
+- **Search** — Query PRs and issues across repositories
 
-### Reports Operations (`/reports` endpoint)
-- **Activity Tracking** — Log actions on tickets for later reporting
+#### Reports Operations (`/mcp/reports` endpoint)
+- **Activity Tracking** — Log actions on Jira tickets (`PROJ-123`) and GitHub issues (`owner/repo#123`)
 - **Weekly Reports** — Generate and save Markdown reports from logged activity
 - **Management Reports** — Store and manage AI-written summaries for stakeholders
 
+### Web UI (PatternFly React)
+
+The web UI provides a dashboard for activity tracking and report management:
+
+- **Dashboard** — Overview of recent activity
+- **Activities** — View and search logged activities with clickable ticket links
+- **My Reports** — Personal weekly and management reports
+- **Management Reports** — View all management reports (accessible to all users)
+- **Team Dashboard** — Team activity overview (manager/admin only)
+- **Team Reports** — Team report management (manager/admin only)
+- **Admin** — User and team administration (admin only)
+- **Settings** — User preferences
+- **Dark Mode** — Toggle between light and dark themes
+
+**Authentication:** The UI integrates with OpenShift OAuth for single sign-on. In development mode, authentication can be bypassed.
+
 ## Requirements
 
-- Python 3.11+
+- Docker and Docker Compose (recommended)
+- Or: Python 3.11+ for local development
 - Jira Server or Data Center with PAT authentication
-- (Optional) GitHub PAT for PR tools
+- (Optional) GitHub PAT for PR and issue tools
 
 ## Installation
+
+### Docker Compose (Recommended)
+
+```bash
+git clone <repository-url>
+cd jira-mcp
+docker-compose up -d
+```
+
+Access the web UI at `http://localhost:8080`
+
+### Local Development
 
 ```bash
 git clone <repository-url>
@@ -145,6 +201,12 @@ cd jira-mcp
 python -m venv venv
 source venv/bin/activate
 pip install -e .
+
+# Run MCP server only
+python -m jira_mcp.server --host 0.0.0.0 --port 8001
+
+# Or run the REST API backend
+uvicorn jira_mcp.api.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Creating Personal Access Tokens
@@ -174,11 +236,11 @@ pip install -e .
 
 ## Configuration
 
-### Client-Side Headers
+### MCP Client Headers
 
 Credentials are passed from the MCP client via headers. Each endpoint requires its own headers.
 
-**Jira (`/jira`):**
+**Jira (`/mcp/jira`):**
 
 | Header | Required | Description |
 |--------|----------|-------------|
@@ -186,27 +248,29 @@ Credentials are passed from the MCP client via headers. Each endpoint requires i
 | `X-Jira-Token` | Yes | Jira Personal Access Token |
 | `X-Jira-Verify-SSL` | No | `true` (default) or `false` |
 
-**GitHub (`/github`):**
+**GitHub (`/mcp/github`):**
 
 | Header | Required | Description |
 |--------|----------|-------------|
 | `X-GitHub-Token` | Yes | GitHub PAT |
 | `X-GitHub-API-URL` | No | GitHub Enterprise API URL |
 
-**Reports (`/reports`):**
+**Reports (`/mcp/reports`):**
 
 | Header | Required | Description |
 |--------|----------|-------------|
 | `X-Username` | Yes | Username for activity tracking |
 
-### Server-Side (Optional)
-
-Only needed for database configuration.
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | — | PostgreSQL connection string |
+| `DATABASE_URL` | — | PostgreSQL connection string (leave empty for SQLite) |
 | `JIRA_MCP_DATA_DIR` | `./data` | SQLite storage directory |
+| `DEV_MODE` | `false` | Enable development mode (bypass OAuth, enable API docs) |
+| `DEV_EMAIL` | `dev@example.com` | Email to use in development mode |
+| `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
+| `MANAGEMENT_REPORT_INSTRUCTIONS_FILE` | — | Path to custom management report instructions |
 
 ## Client Setup
 
@@ -218,20 +282,20 @@ Configure three MCP servers in `.cursor/mcp.json`:
 {
   "mcpServers": {
     "jira": {
-      "url": "http://localhost:8080/jira",
+      "url": "http://localhost:8080/mcp/jira",
       "headers": {
         "X-Jira-Server-URL": "https://jira.example.com",
         "X-Jira-Token": "your-jira-pat"
       }
     },
     "github": {
-      "url": "http://localhost:8080/github",
+      "url": "http://localhost:8080/mcp/github",
       "headers": {
         "X-GitHub-Token": "your-github-pat"
       }
     },
     "reports": {
-      "url": "http://localhost:8080/reports",
+      "url": "http://localhost:8080/mcp/reports",
       "headers": {
         "X-Username": "your-username"
       }
@@ -246,7 +310,7 @@ For GitHub Enterprise:
 {
   "mcpServers": {
     "github": {
-      "url": "http://localhost:8080/github",
+      "url": "http://localhost:8080/mcp/github",
       "headers": {
         "X-GitHub-Token": "your-github-pat",
         "X-GitHub-API-URL": "https://github.yourcompany.com/api/v3"
@@ -258,44 +322,86 @@ For GitHub Enterprise:
 
 ## Running the Server
 
-### Local
-
-```bash
-jira-mcp --host 0.0.0.0 --port 8080
-```
-
-### Docker
-
-```bash
-docker build -t jira-mcp:latest -f Containerfile .
-docker run -d -p 8080:8080 -v jira-mcp-data:/app/data --name jira-mcp jira-mcp:latest
-```
-
 ### Docker Compose
 
 ```bash
-# SQLite (default)
-docker-compose up -d jira-mcp
+# SQLite mode (default) - 3 containers: frontend, backend, mcp
+docker-compose up -d
 
-# PostgreSQL
+# PostgreSQL mode - adds postgres container
 docker-compose --profile postgres up -d
 ```
 
+### Building Container Images
+
+```bash
+# Build backend image
+docker build -t jira-mcp:backend -f Containerfile.backend .
+
+# Build frontend image
+docker build -t jira-mcp:frontend -f Containerfile.frontend .
+```
+
+### Local Development
+
+```bash
+# MCP server only (for AI tool integration)
+python -m jira_mcp.server --host 0.0.0.0 --port 8001
+
+# REST API backend (for web UI)
+DEV_MODE=true uvicorn jira_mcp.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Frontend development (requires Node.js 22+)
+cd ui
+npm install
+npm run dev
+```
+
+### OpenShift Deployment
+
+Kubernetes manifests are provided in the `openshift/` directory:
+
+```bash
+# Apply all manifests
+kubectl apply -k openshift/
+
+# Or using oc
+oc apply -k openshift/
+```
+
+The OpenShift deployment includes:
+- OAuth proxy sidecar for SSO authentication
+- Persistent volume for database storage
+- ConfigMap and Secrets for configuration
+- Service and Route for external access
+
 ## Endpoints
+
+### REST API (Web UI)
 
 | Endpoint | Description |
 |----------|-------------|
-| `/health` | Health check |
-| `/jira` | Jira MCP tools (SSE) |
-| `/jira/messages/` | Jira message handler |
-| `/github` | GitHub MCP tools (SSE) |
-| `/github/messages/` | GitHub message handler |
-| `/reports` | Reports MCP tools (SSE) |
-| `/reports/messages/` | Reports message handler |
+| `/api/health` | Health check |
+| `/api/users/*` | User management |
+| `/api/teams/*` | Team management |
+| `/api/activities/*` | Activity tracking |
+| `/api/reports/*` | Report management |
+
+### MCP Server (AI Tools)
+
+| Endpoint | Description |
+|----------|-------------|
+| `/mcp/jira` | Jira MCP tools (SSE) |
+| `/mcp/jira/messages/` | Jira message handler |
+| `/mcp/github` | GitHub MCP tools (SSE) |
+| `/mcp/github/messages/` | GitHub message handler |
+| `/mcp/reports` | Reports MCP tools (SSE) |
+| `/mcp/reports/messages/` | Reports message handler |
+| `/health` | MCP server health check |
 
 ## Tool Reference
 
-### Jira Tools (`/jira`)
+### Jira Tools (`/mcp/jira`)
 
 | Tool | Description |
 |------|-------------|
@@ -318,7 +424,9 @@ docker-compose --profile postgres up -d
 | `jira_get_transitions` | Get available transitions for a ticket |
 | `jira_get_current_user` | Get authenticated user info |
 
-### GitHub Tools (`/github`)
+### GitHub Tools (`/mcp/github`)
+
+#### Pull Requests
 
 | Tool | Description |
 |------|-------------|
@@ -331,19 +439,39 @@ docker-compose --profile postgres up -d
 | `github_get_pr_comments` | Get issue and review comments |
 | `github_add_pr_comment` | Add a comment to a PR |
 | `github_search_prs` | Search PRs across repositories |
-| `github_get_current_user` | Get authenticated GitHub user |
 
-### Reports Tools (`/reports`)
+#### Issues
 
 | Tool | Description |
 |------|-------------|
-| `log_activity` | Record work on a ticket |
+| `github_list_issues` | List issues for a repository |
+| `github_get_issue` | Get full issue details |
+| `github_create_issue` | Create a new issue |
+| `github_update_issue` | Update an existing issue |
+| `github_close_issue` | Close an issue with optional reason |
+| `github_reopen_issue` | Reopen a closed issue |
+| `github_get_issue_comments` | Get comments on an issue |
+| `github_add_issue_comment` | Add a comment to an issue |
+| `github_search_issues` | Search issues across repositories |
+
+#### User
+
+| Tool | Description |
+|------|-------------|
+| `github_get_current_user` | Get authenticated GitHub user |
+
+### Reports Tools (`/mcp/reports`)
+
+| Tool | Description |
+|------|-------------|
+| `log_activity` | Record work on a Jira ticket (`PROJ-123`) or GitHub issue (`owner/repo#123`) |
 | `get_weekly_activity` | Summarize activity for a week |
 | `generate_weekly_report` | Generate Markdown report |
 | `save_weekly_report` | Persist report to database |
 | `list_saved_reports` | List saved reports |
 | `get_saved_report` | Retrieve a report by ID |
 | `delete_saved_report` | Delete a report |
+| `get_report_instructions` | Get management report generation instructions |
 | `save_management_report` | Store AI-generated stakeholder report |
 | `list_management_reports` | List reports, optionally by project |
 | `get_management_report` | Retrieve full report content |
@@ -352,34 +480,69 @@ docker-compose --profile postgres up -d
 
 ## Example Prompts
 
-- *"List my in-progress Jira tickets and summarize blockers."* (uses `/jira`)
-- *"Show open PRs for org/repo and summarize review feedback."* (uses `/github`)
-- *"Log that I worked on PROJ-123 today."* (uses `/reports`)
-- *"Generate my weekly report and save it."* (uses `/reports`)
-- *"Write a management report for PROJ using this week's activity."* (uses `/reports`)
+- *"List my in-progress Jira tickets and summarize blockers."* (uses `/mcp/jira`)
+- *"Show open PRs for org/repo and summarize review feedback."* (uses `/mcp/github`)
+- *"Create a GitHub issue to track this bug."* (uses `/mcp/github`)
+- *"Log that I worked on PROJ-123 today."* (uses `/mcp/reports`)
+- *"Log activity on github.com/org/repo#456."* (uses `/mcp/reports`)
+- *"Generate my weekly report and save it."* (uses `/mcp/reports`)
+- *"Write a management report for PROJ using this week's activity."* (uses `/mcp/reports`)
 
 ## Project Structure
 
 ```
 jira-mcp/
 ├── src/jira_mcp/
-│   ├── server.py           # SSE transport, /jira, /github, /reports endpoints
-│   ├── jira_client.py      # Jira API wrapper
-│   ├── github_client.py    # GitHub API wrapper
-│   ├── config.py           # Configuration helpers
+│   ├── server.py              # MCP SSE server with /mcp/jira, /mcp/github, /mcp/reports
+│   ├── jira_client.py         # Jira API wrapper
+│   ├── github_client.py       # GitHub API wrapper (PRs and Issues)
+│   ├── config.py              # Configuration helpers
+│   ├── api/                   # REST API for web UI
+│   │   ├── main.py            # FastAPI application
+│   │   ├── deps.py            # Dependencies
+│   │   ├── middleware/
+│   │   │   └── oauth.py       # OAuth proxy middleware
+│   │   └── routes/
+│   │       ├── health.py      # Health check
+│   │       ├── users.py       # User management
+│   │       ├── teams.py       # Team management
+│   │       ├── activities.py  # Activity tracking
+│   │       └── reports.py     # Report management
 │   ├── db/
-│   │   ├── database.py     # Database connection
-│   │   └── models.py       # SQLAlchemy models
+│   │   ├── database.py        # Database connection
+│   │   └── models.py          # SQLAlchemy models
 │   └── tools/
-│       ├── tickets.py      # Ticket tools
-│       ├── comments.py     # Comment tools
-│       ├── discovery.py    # Metadata tools
-│       ├── reports.py      # Activity and report tools
-│       └── schemas.py      # Pydantic schemas
+│       ├── tickets.py         # Jira ticket tools
+│       ├── comments.py        # Jira comment tools
+│       ├── discovery.py       # Jira metadata tools
+│       ├── reports.py         # Activity and report tools
+│       └── schemas.py         # Pydantic schemas
+├── ui/                        # PatternFly React frontend
+│   ├── src/
+│   │   ├── App.tsx            # Main application with routing
+│   │   ├── api/               # API client
+│   │   ├── auth/              # Authentication context
+│   │   ├── components/        # Reusable components
+│   │   ├── pages/             # Page components
+│   │   └── types/             # TypeScript types
+│   ├── package.json
+│   └── vite.config.ts
+├── openshift/                 # Kubernetes/OpenShift manifests
+│   ├── deployment.yaml        # Pod with oauth-proxy, frontend, backend, mcp containers
+│   ├── service.yaml           # Service definition
+│   ├── route.yaml             # OpenShift route
+│   ├── configmap.yaml         # Configuration
+│   ├── secrets.yaml           # Secrets template
+│   ├── pvc.yaml               # Persistent volume claim
+│   └── kustomization.yaml     # Kustomize configuration
 ├── tests/
-├── Containerfile
-├── docker-compose.yaml
+├── Containerfile.backend      # Backend container (Python/FastAPI)
+├── Containerfile.frontend     # Frontend container (Nginx/React)
+├── nginx.conf.template        # Nginx configuration template
+├── docker-compose.yaml        # Multi-container orchestration
+├── env.example                # Environment variables template
 ├── pyproject.toml
+├── requirements.txt
 └── README.md
 ```
 
@@ -391,18 +554,34 @@ jira-mcp/
 | Auth failures | Verify PAT is valid and has required permissions |
 | Connection refused | Confirm server is running and endpoint is reachable |
 | Database errors | Check `JIRA_MCP_DATA_DIR` is writable or `DATABASE_URL` is correct |
-| Missing headers | Ensure client sends required headers for the endpoint (`X-Username` for `/reports`) |
+| Missing headers | Ensure client sends required headers for the endpoint (`X-Username` for `/mcp/reports`) |
 | Tools not loading | Restart Cursor after updating `.cursor/mcp.json` |
-| Reports not saving | Verify `X-Username` header is set on the `/reports` endpoint |
+| Reports not saving | Verify `X-Username` header is set on the `/mcp/reports` endpoint |
+| OAuth errors | Check OpenShift service account has correct redirect URI annotation |
+| Frontend not loading | Verify nginx config and `BACKEND_URL`/`MCP_URL` environment variables |
 
 ## Development
 
 ```bash
+# Install development dependencies
 pip install -e ".[dev]"
+
+# Run tests
 pytest
+
+# Format code
 black src/ tests/
 ruff check src/ tests/
+
+# Type checking
 mypy src/
+
+# Frontend development
+cd ui
+npm install
+npm run dev
+npm run lint
+npm run build
 ```
 
 ## License
