@@ -2,10 +2,9 @@
  * Main application layout with sidebar navigation
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Avatar,
   Brand,
   Dropdown,
   DropdownItem,
@@ -28,8 +27,12 @@ import {
   ToolbarGroup,
   ToolbarItem,
 } from '@patternfly/react-core';
-import { BarsIcon } from '@patternfly/react-icons';
+import { BarsIcon, UserIcon } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
+
+// PatternFly logo assets
+import pfLogoColor from '@patternfly/patternfly/assets/images/PF-HorizontalLogo-Color.svg';
+import pfLogoReverse from '@patternfly/patternfly/assets/images/PF-HorizontalLogo-Reverse.svg';
 
 interface NavItemDef {
   id: string;
@@ -56,6 +59,23 @@ export function AppLayout() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isDarkTheme, setIsDarkTheme] = useState(
+    document.documentElement.classList.contains('pf-v6-theme-dark')
+  );
+
+  // Listen for theme changes to update the logo
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class') {
+          setIsDarkTheme(document.documentElement.classList.contains('pf-v6-theme-dark'));
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, { attributes: true });
+    return () => observer.disconnect();
+  }, []);
 
   // Filter nav items based on user role
   const visibleNavItems = navItems.filter((item) => {
@@ -110,12 +130,7 @@ export function AppLayout() {
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                   isFullHeight
                   isExpanded={isUserMenuOpen}
-                  icon={
-                    <Avatar
-                      src=""
-                      alt={user?.display_name || user?.email || 'User'}
-                    />
-                  }
+                  icon={<UserIcon />}
                 >
                   {user?.display_name || user?.email || 'User'}
                 </MenuToggle>
@@ -131,20 +146,23 @@ export function AppLayout() {
 
   const masthead = (
     <Masthead>
-      <MastheadToggle>
-        <button
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          aria-label="Toggle sidebar"
-          className="pf-v6-c-button pf-m-plain"
-        >
-          <BarsIcon />
-        </button>
-      </MastheadToggle>
       <MastheadMain>
+        <MastheadToggle>
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            aria-label="Toggle sidebar"
+            className="pf-v6-c-button pf-m-plain"
+          >
+            <BarsIcon />
+          </button>
+        </MastheadToggle>
         <MastheadBrand>
-          <Brand src="" alt="Jira MCP">
-            <span style={{ fontSize: '1.25rem', fontWeight: 600 }}>Jira MCP</span>
-          </Brand>
+          <Brand
+            src={isDarkTheme ? pfLogoReverse : pfLogoColor}
+            alt="Jira MCP"
+            heights={{ default: '36px' }}
+          />
+          <span style={{ fontSize: '1.25rem', fontWeight: 600, marginLeft: '0.75rem' }}>Jira MCP</span>
         </MastheadBrand>
       </MastheadMain>
       <MastheadContent>{headerToolbar}</MastheadContent>

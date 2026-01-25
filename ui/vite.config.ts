@@ -23,5 +23,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-patternfly': ['@patternfly/react-core', '@patternfly/react-icons', '@patternfly/react-table'],
+          'vendor-query': ['@tanstack/react-query', 'axios'],
+          'vendor-utils': ['date-fns'],
+        },
+      },
+    },
   },
 });

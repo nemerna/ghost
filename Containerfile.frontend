@@ -5,7 +5,8 @@
 # =============================================================================
 # Stage 1: Build Frontend
 # =============================================================================
-FROM registry.access.redhat.com/ubi9/nodejs-20:latest AS builder
+# Node.js 22 required for Vite 7.x (needs ^20.19.0 || >=22.12.0)
+FROM registry.access.redhat.com/ubi9/nodejs-22:latest AS builder
 
 # Switch to root to create directories with proper permissions
 USER 0
