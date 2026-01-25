@@ -1,0 +1,58 @@
+# Jira MCP Backend Container
+# FastAPI application serving the REST API
+# Based on Red Hat Universal Base Image 9
+
+FROM registry.access.redhat.com/ubi9/python-311:latest
+
+# Labels for container metadata
+LABEL name="jira-mcp-backend" \
+      version="1.0.0" \
+      summary="Backend API for Jira MCP" \
+      description="FastAPI REST API for Jira integration, activity tracking, and weekly report generation" \
+      maintainer="Your Name <your.email@example.com>"
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better layer caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+
+# Create data directory for SQLite database (with proper permissions)
+USER 0
+RUN mkdir -p /app/data && chown -R 1001:0 /app/data && chmod -R g=u /app/data
+USER 1001
+
+# Set Python path to include src directory
+ENV PYTHONPATH=/app/src
+
+# Environment variables for configuration (override at runtime)
+ENV JIRA_SERVER_URL="" \
+    JIRA_PERSONAL_ACCESS_TOKEN="" \
+    JIRA_VERIFY_SSL="true" \
+    DATABASE_URL="" \
+    JIRA_MCP_DATA_DIR="/app/data" \
+    DEV_MODE="false" \
+    CORS_ORIGINS="*"
+
+# Expose the API port
+EXPOSE 8000
+
+# Volume for persistent data (SQLite database)
+VOLUME ["/app/data"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
+
+# Run as non-root user
+USER 1001
+
+# Run uvicorn
+CMD ["python", "-m", "uvicorn", "jira_mcp.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

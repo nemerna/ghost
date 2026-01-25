@@ -1,0 +1,81 @@
+# Jira MCP Frontend Container
+# Nginx serving static frontend files and proxying API requests
+# Based on Red Hat Universal Base Image 9
+
+# =============================================================================
+# Stage 1: Build Frontend
+# =============================================================================
+FROM registry.access.redhat.com/ubi9/nodejs-20:latest AS builder
+
+# Switch to root to create directories with proper permissions
+USER 0
+RUN mkdir -p /app/ui && chown -R 1001:0 /app/ui
+USER 1001
+
+WORKDIR /app/ui
+
+# Copy frontend package files
+COPY --chown=1001:0 ui/package.json ui/package-lock.json* ./
+
+# Install dependencies
+RUN npm ci --prefer-offline --no-audit
+
+# Copy frontend source
+COPY --chown=1001:0 ui/ ./
+
+# Build frontend
+RUN npm run build
+
+# =============================================================================
+# Stage 2: Nginx to serve static files
+# =============================================================================
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+# Labels for container metadata
+LABEL name="jira-mcp-frontend" \
+      version="1.0.0" \
+      summary="Frontend for Jira MCP - PatternFly React UI" \
+      description="Nginx serving static frontend files and proxying API requests to backend" \
+      maintainer="Your Name <your.email@example.com>"
+
+# Install nginx and gettext (for envsubst)
+USER 0
+RUN microdnf install -y nginx gettext && \
+    microdnf clean all && \
+    rm -rf /var/cache/yum
+
+# Create necessary directories with proper permissions for non-root
+RUN mkdir -p /app/ui/dist /tmp/nginx /var/log/nginx /var/lib/nginx /run && \
+    chown -R 1001:0 /app /tmp/nginx /var/log/nginx /var/lib/nginx /run /etc/nginx && \
+    chmod -R g=u /app /tmp/nginx /var/log/nginx /var/lib/nginx /run /etc/nginx && \
+    touch /run/nginx.pid && \
+    chown 1001:0 /run/nginx.pid && \
+    chmod g=u /run/nginx.pid
+
+# Copy built frontend from builder stage
+COPY --from=builder --chown=1001:0 /app/ui/dist /app/ui/dist
+
+# Copy nginx configuration template
+COPY --chown=1001:0 nginx.conf.template /etc/nginx/nginx.conf.template
+
+# Switch to non-root user
+USER 1001
+
+WORKDIR /app
+
+# Backend URL - defaults to localhost for OpenShift pod networking
+# Override to "http://backend:8000" for docker-compose
+ENV BACKEND_URL=http://127.0.0.1:8000
+# MCP Server URL - defaults to localhost for OpenShift pod networking
+# Override to "http://mcp:8001" for docker-compose
+ENV MCP_URL=http://127.0.0.1:8001
+
+# Expose nginx port
+EXPOSE 8080
+
+# Health check for nginx
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -q --spider http://localhost:8080/ || exit 1
+
+# Run envsubst to process template, then start nginx
+CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL} ${MCP_URL}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]

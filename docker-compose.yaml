@@ -4,52 +4,180 @@
 #   1. SQLite mode (default): Simple, file-based database
 #   2. PostgreSQL mode: Production-ready with separate database container
 #
+# Architecture:
+#   - frontend: Nginx serving static files, proxying /api/* to backend and /mcp/* to MCP server
+#   - backend: FastAPI REST API for web UI
+#   - mcp: MCP SSE server for AI tool integration (Jira, GitHub, Reports)
+#
 # Usage:
-#   SQLite mode:   docker-compose up jira-mcp
+#   SQLite mode:   docker-compose up
 #   PostgreSQL:    docker-compose --profile postgres up
+#
+# MCP Endpoints (via nginx):
+#   - /mcp/jira     - Jira tools (requires X-Jira-Server-URL, X-Jira-Token headers)
+#   - /mcp/github   - GitHub tools (requires X-GitHub-Token header)
+#   - /mcp/reports  - Reports tools (requires X-Username header)
 #
 # Configuration:
 #   Copy env.example to .env for optional DB settings
 
 services:
   # ===========================================
-  # Jira MCP Server (with SQLite - default)
+  # Frontend - Nginx (serves UI, proxies API & MCP)
   # ===========================================
-  jira-mcp:
+  frontend:
     build:
       context: .
-      dockerfile: Containerfile
-    container_name: jira-mcp
+      dockerfile: Containerfile.frontend
+    container_name: jira-mcp-frontend
     ports:
       - "8080:8080"
+    environment:
+      # Backend URL for nginx proxy (container name in docker-compose network)
+      - BACKEND_URL=http://backend:8000
+      # MCP Server URL for nginx proxy
+      - MCP_URL=http://mcp:8001
+    depends_on:
+      backend:
+        condition: service_healthy
+      mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - jira-mcp-net
+
+  # ===========================================
+  # Backend - FastAPI REST API (with SQLite - default)
+  # ===========================================
+  backend:
+    build:
+      context: .
+      dockerfile: Containerfile.backend
+    container_name: jira-mcp-backend
+    environment:
+      # Database - SQLite (default)
+      - JIRA_MCP_DATA_DIR=/app/data
+      # Leave DATABASE_URL empty for SQLite
+      - DATABASE_URL=
+      - DEV_MODE=false
+      - CORS_ORIGINS=*
+    volumes:
+      # Persistent storage for SQLite database
+      - jira-mcp-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - jira-mcp-net
+
+  # ===========================================
+  # MCP Server - SSE server for AI tools (with SQLite - default)
+  # ===========================================
+  mcp:
+    build:
+      context: .
+      dockerfile: Containerfile.backend
+    container_name: jira-mcp-mcp
+    command: ["python", "-m", "jira_mcp.server", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       # Database - SQLite (default)
       - JIRA_MCP_DATA_DIR=/app/data
       # Leave DATABASE_URL empty for SQLite
       - DATABASE_URL=
     volumes:
-      # Persistent storage for SQLite database
+      # Shared storage with backend for SQLite database
       - jira-mcp-data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - jira-mcp-net
 
   # ===========================================
-  # Jira MCP Server (with PostgreSQL)
+  # Frontend - Nginx (PostgreSQL mode)
   # ===========================================
-  jira-mcp-postgres:
+  frontend-postgres:
     build:
       context: .
-      dockerfile: Containerfile
-    container_name: jira-mcp-postgres
+      dockerfile: Containerfile.frontend
+    container_name: jira-mcp-frontend-pg
     profiles:
       - postgres
     ports:
       - "8080:8080"
+    environment:
+      # Backend URL for nginx proxy (container name in docker-compose network)
+      - BACKEND_URL=http://backend-postgres:8000
+      # MCP Server URL for nginx proxy
+      - MCP_URL=http://mcp-postgres:8001
+    depends_on:
+      backend-postgres:
+        condition: service_healthy
+      mcp-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - jira-mcp-net
+
+  # ===========================================
+  # Backend - FastAPI REST API (with PostgreSQL)
+  # ===========================================
+  backend-postgres:
+    build:
+      context: .
+      dockerfile: Containerfile.backend
+    container_name: jira-mcp-backend-pg
+    profiles:
+      - postgres
+    environment:
+      # Database - PostgreSQL
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-jira_mcp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-jira_mcp}
+      - DEV_MODE=false
+      - CORS_ORIGINS=*
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - jira-mcp-net
+
+  # ===========================================
+  # MCP Server - SSE server for AI tools (with PostgreSQL)
+  # ===========================================
+  mcp-postgres:
+    build:
+      context: .
+      dockerfile: Containerfile.backend
+    container_name: jira-mcp-mcp-pg
+    profiles:
+      - postgres
+    command: ["python", "-m", "jira_mcp.server", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       # Database - PostgreSQL
       - DATABASE_URL=postgresql://${POSTGRES_USER:-jira_mcp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-jira_mcp}
@@ -57,12 +185,14 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - jira-mcp-net
 
   # ===========================================
   # PostgreSQL Database (optional)
@@ -85,12 +215,21 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - jira-mcp-net
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  jira-mcp-net:
+    driver: bridge
 
 # ===========================================
 # Persistent Volumes
 # ===========================================
 volumes:
-  # SQLite data volume
+  # SQLite data volume (shared between backend and mcp)
   jira-mcp-data:
     driver: local
   # PostgreSQL data volume

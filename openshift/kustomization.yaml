@@ -2,7 +2,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: jira-mcp-server
+namespace: jira-mcp
 
 resources:
   - deployment.yaml
@@ -14,10 +14,15 @@ resources:
 
 commonLabels:
   app.kubernetes.io/name: jira-mcp
-  app.kubernetes.io/component: backend
   app.kubernetes.io/part-of: jira-mcp
 
+# Customize images for your registry
+# Default: uses internal OpenShift registry
+# Change newName to your registry (e.g., quay.io/youruser/jira-mcp)
 images:
-  - name: jira-mcp
-    newName: image-registry.openshift-image-registry.svc:5000/jira-mcp-server/jira-mcp
+  - name: jira-mcp-frontend
+    newName: image-registry.openshift-image-registry.svc:5000/jira-mcp/jira-mcp-frontend
+    newTag: latest
+  - name: jira-mcp-backend
+    newName: image-registry.openshift-image-registry.svc:5000/jira-mcp/jira-mcp-backend
     newTag: latest

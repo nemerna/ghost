@@ -1,4 +1,8 @@
-"""Main FastAPI application for Jira MCP UI API."""
+"""Main FastAPI application for Jira MCP UI API.
+
+Note: Static frontend files are served by nginx, not FastAPI.
+FastAPI only handles /api/* routes.
+"""
 
 import logging
 import os
@@ -6,8 +10,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
 
 from jira_mcp.api.middleware import OAuthProxyMiddleware
 from jira_mcp.db import init_db
@@ -92,23 +94,8 @@ def create_app(
     app.include_router(activities_router, prefix="/api/activities", tags=["activities"])
     app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
     
-    # Mount static files for frontend (in production)
-    static_dir = os.environ.get("STATIC_DIR", "./ui/dist")
-    if os.path.exists(static_dir):
-        app.mount("/assets", StaticFiles(directory=f"{static_dir}/assets"), name="assets")
-        
-        # Serve index.html for all non-API routes (SPA support)
-        @app.get("/{full_path:path}")
-        async def serve_spa(full_path: str):
-            """Serve the SPA for any non-API route."""
-            # Don't serve SPA for API routes
-            if full_path.startswith("api/"):
-                return {"error": "Not found"}, 404
-            
-            index_path = f"{static_dir}/index.html"
-            if os.path.exists(index_path):
-                return FileResponse(index_path)
-            return {"error": "Frontend not built"}, 404
+    # Note: Static frontend files are served by nginx, not FastAPI
+    # FastAPI only handles /api/* routes
     
     logger.info(f"Jira MCP API created (dev_mode={dev_mode})")
     return app

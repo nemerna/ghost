@@ -1652,13 +1652,13 @@ async def run_sse(host: str, port: int) -> None:
 
     logger.info(f"Starting MCP server with SSE transport on {host}:{port}")
     logger.info(
-        "Endpoints: /jira (Jira tools), /github (GitHub tools), /reports (Activity & Reports)"
+        "Endpoints: /mcp/jira (Jira tools), /mcp/github (GitHub tools), /mcp/reports (Activity & Reports)"
     )
 
-    # Separate SSE transports for each server
-    jira_sse_transport = SseServerTransport("/jira/messages/")
-    github_sse_transport = SseServerTransport("/github/messages/")
-    reports_sse_transport = SseServerTransport("/reports/messages/")
+    # Separate SSE transports for each server (using /mcp/ prefix for nginx proxy)
+    jira_sse_transport = SseServerTransport("/mcp/jira/messages/")
+    github_sse_transport = SseServerTransport("/mcp/github/messages/")
+    reports_sse_transport = SseServerTransport("/mcp/reports/messages/")
 
     async def health_check(request: Request) -> JSONResponse:
         """Health check endpoint."""
@@ -1666,9 +1666,9 @@ async def run_sse(host: str, port: int) -> None:
             {
                 "status": "healthy",
                 "endpoints": {
-                    "jira": "/jira",
-                    "github": "/github",
-                    "reports": "/reports",
+                    "jira": "/mcp/jira",
+                    "github": "/mcp/github",
+                    "reports": "/mcp/reports",
                 },
             }
         )
@@ -1742,13 +1742,18 @@ async def run_sse(host: str, port: int) -> None:
         headers = extract_headers(scope)
 
         # Extract username from headers
-        username = headers.get("x-username")
+        # Priority: X-Forwarded-Email (OAuth proxy) > X-Forwarded-User > X-Username (direct)
+        username = (
+            headers.get("x-forwarded-email") or 
+            headers.get("x-forwarded-user") or 
+            headers.get("x-username")
+        )
 
         if username:
             _username_ctx.set(username)
             logger.info(f"Reports SSE connection: user={username}")
         else:
-            logger.warning("Reports SSE connection: X-Username header not provided")
+            logger.warning("Reports SSE connection: No user header provided (X-Forwarded-Email, X-Forwarded-User, or X-Username)")
 
         async with reports_sse_transport.connect_sse(scope, receive, send) as streams:
             await reports_mcp_server.run(
@@ -1773,19 +1778,22 @@ async def run_sse(host: str, port: int) -> None:
         return Response()
 
     # Create Starlette app with separate routes for Jira, GitHub, and Reports
+    # All MCP routes use /mcp/ prefix to work with nginx proxy
     app = Starlette(
         debug=False,
         routes=[
             Route("/health", endpoint=health_check, methods=["GET"]),
+            # Also support /mcp/health for consistency
+            Route("/mcp/health", endpoint=health_check, methods=["GET"]),
             # Jira endpoints
-            Route("/jira", endpoint=handle_jira_sse, methods=["GET"]),
-            Mount("/jira/messages/", app=jira_sse_transport.handle_post_message),
+            Route("/mcp/jira", endpoint=handle_jira_sse, methods=["GET"]),
+            Mount("/mcp/jira/messages/", app=jira_sse_transport.handle_post_message),
             # GitHub endpoints
-            Route("/github", endpoint=handle_github_sse, methods=["GET"]),
-            Mount("/github/messages/", app=github_sse_transport.handle_post_message),
+            Route("/mcp/github", endpoint=handle_github_sse, methods=["GET"]),
+            Mount("/mcp/github/messages/", app=github_sse_transport.handle_post_message),
             # Reports endpoints
-            Route("/reports", endpoint=handle_reports_sse, methods=["GET"]),
-            Mount("/reports/messages/", app=reports_sse_transport.handle_post_message),
+            Route("/mcp/reports", endpoint=handle_reports_sse, methods=["GET"]),
+            Mount("/mcp/reports/messages/", app=reports_sse_transport.handle_post_message),
         ],
     )
 

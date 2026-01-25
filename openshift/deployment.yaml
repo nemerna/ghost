@@ -16,7 +16,7 @@ spec:
     spec:
       serviceAccountName: jira-mcp
       containers:
-        # OAuth Proxy sidecar
+        # OAuth Proxy sidecar - handles authentication
         - name: oauth-proxy
           image: quay.io/openshift/origin-oauth-proxy:4.14
           imagePullPolicy: IfNotPresent
@@ -34,7 +34,7 @@ spec:
             - --cookie-secret-file=/etc/proxy/secrets/session-secret
             - --openshift-service-account=jira-mcp
             - --openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-            - --skip-auth-regex=^/api/health
+            - --skip-auth-regex=^/(api/health|mcp/|mcp/jira|mcp/github|mcp/reports)
             - --pass-user-headers=true
             - --pass-access-token=true
             - --email-domain=*
@@ -53,13 +53,41 @@ spec:
               cpu: 50m
               memory: 64Mi
 
-        # Application container
-        - name: app
-          image: jira-mcp:latest
+        # Frontend container - nginx serving static files and proxying API
+        - name: frontend
+          image: jira-mcp-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: http
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+
+        # Backend container - FastAPI REST API
+        - name: backend
+          image: jira-mcp-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: api
               protocol: TCP
           env:
             - name: DEV_MODE
@@ -71,8 +99,6 @@ spec:
                   key: database-url
             - name: CORS_ORIGINS
               value: "*"
-            - name: STATIC_DIR
-              value: "/app/ui/dist"
           envFrom:
             - configMapRef:
                 name: jira-mcp-config
@@ -82,13 +108,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /api/health
-              port: 8080
+              port: 8000
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/health
-              port: 8080
+              port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
@@ -98,6 +124,47 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+
+        # MCP Server container - MCP SSE server for AI tool integration
+        - name: mcp
+          image: jira-mcp-backend:latest
+          imagePullPolicy: Always
+          command: ["python", "-m", "jira_mcp.server", "--host", "0.0.0.0", "--port", "8001"]
+          ports:
+            - containerPort: 8001
+              name: mcp
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: jira-mcp-secrets
+                  key: database-url
+          envFrom:
+            - configMapRef:
+                name: jira-mcp-config
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 300m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 192Mi
 
       volumes:
         - name: proxy-tls
