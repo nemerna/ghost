@@ -7,10 +7,15 @@ Headers expected from OAuth Proxy:
 - X-Forwarded-User: OpenShift username
 - X-Forwarded-Email: User's email address (primary identifier)
 - X-Forwarded-Access-Token: OAuth access token (optional)
-- X-Forwarded-Groups: User groups (optional, comma-separated)
+
+Role assignment is determined by:
+1. ADMIN_EMAILS environment variable (comma-separated list)
+2. MANAGER_EMAILS environment variable (comma-separated list)
+3. Default: USER role
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import Callable
 
@@ -19,6 +24,14 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from jira_mcp.db import User, UserRole, get_db
+
+
+def _get_email_list(env_var: str) -> set[str]:
+    """Get a set of emails from an environment variable (comma-separated, case-insensitive)."""
+    value = os.environ.get(env_var, "")
+    if not value:
+        return set()
+    return {email.strip().lower() for email in value.split(",") if email.strip()}
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +154,9 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
         """
         db = get_db()
         
+        # Determine role from email lists and groups (used for both new and existing users)
+        role_from_groups = self._determine_role(email, groups)
+        
         with db.session() as session:
             # Look up user by email
             user = session.query(User).filter(User.email == email).first()
@@ -153,20 +169,26 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
                 if not user.display_name and username:
                     user.display_name = username
                 
+                # Sync role on every login based on ADMIN_EMAILS, MANAGER_EMAILS, or groups
+                # This ensures role changes when configuration changes
+                if user.role != role_from_groups:
+                    logger.info(
+                        f"User {email} role changed from {user.role.value} to "
+                        f"{role_from_groups.value}"
+                    )
+                    user.role = role_from_groups
+                
                 session.flush()
                 
                 # Detach from session for use outside
                 session.expunge(user)
                 logger.debug(f"Existing user authenticated: {email}")
             else:
-                # Create new user
-                # Determine initial role based on groups or default to USER
-                initial_role = self._determine_role_from_groups(groups)
-                
+                # Create new user with role from groups
                 user = User(
                     email=email,
                     display_name=username or email.split("@")[0],
-                    role=initial_role,
+                    role=role_from_groups,
                     first_seen=datetime.utcnow(),
                     last_seen=datetime.utcnow(),
                 )
@@ -175,22 +197,38 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
                 
                 # Detach from session
                 session.expunge(user)
-                logger.info(f"New user created: {email} with role {initial_role.value}")
+                logger.info(f"New user created: {email} with role {role_from_groups.value}")
         
         return user
 
-    def _determine_role_from_groups(self, groups: list[str]) -> UserRole:
-        """Determine user role based on OAuth groups.
+    def _determine_role(self, email: str, groups: list[str]) -> UserRole:
+        """Determine user role based on email lists and OAuth groups.
         
-        This can be customized based on your OpenShift group naming conventions.
+        Priority:
+        1. ADMIN_EMAILS environment variable
+        2. MANAGER_EMAILS environment variable
+        3. OAuth groups (if passed by proxy)
+        4. Default: USER
         
         Args:
-            groups: List of group names from OAuth
+            email: User's email address
+            groups: List of group names from OAuth (may be empty)
             
         Returns:
             The appropriate UserRole
         """
-        # Example group-to-role mapping (customize as needed)
+        email_lower = email.lower()
+        
+        # Check email-based role assignment (highest priority)
+        admin_emails = _get_email_list("ADMIN_EMAILS")
+        if email_lower in admin_emails:
+            return UserRole.ADMIN
+        
+        manager_emails = _get_email_list("MANAGER_EMAILS")
+        if email_lower in manager_emails:
+            return UserRole.MANAGER
+        
+        # Fall back to group-based role assignment
         admin_groups = {"admin", "admins", "cluster-admins", "system:cluster-admins"}
         manager_groups = {"managers", "team-leads", "project-leads"}
         
@@ -200,5 +238,5 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
             return UserRole.ADMIN
         elif groups_lower & manager_groups:
             return UserRole.MANAGER
-        else:
-            return UserRole.USER
+        
+        return UserRole.USER

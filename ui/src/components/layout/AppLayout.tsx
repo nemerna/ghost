@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Brand,
+  Divider,
   Dropdown,
   DropdownItem,
   DropdownList,
@@ -101,6 +102,12 @@ export function AppLayout() {
     return match?.id || 'dashboard';
   };
 
+  const handleLogout = () => {
+    // OpenShift OAuth proxy logout endpoint
+    // This clears the OAuth session and redirects to login
+    window.location.href = '/oauth/sign_out';
+  };
+
   const userDropdownItems = (
     <DropdownList>
       <DropdownItem key="settings" onClick={() => navigate('/settings')}>
@@ -108,6 +115,10 @@ export function AppLayout() {
       </DropdownItem>
       <DropdownItem key="role" isDisabled>
         Role: {user?.role || 'user'}
+      </DropdownItem>
+      <Divider key="divider" />
+      <DropdownItem key="logout" onClick={handleLogout}>
+        Logout
       </DropdownItem>
     </DropdownList>
   );

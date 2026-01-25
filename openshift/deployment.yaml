@@ -99,6 +99,12 @@ spec:
                   key: database-url
             - name: CORS_ORIGINS
               value: "*"
+            # Comma-separated list of admin emails (synced on every login)
+            - name: ADMIN_EMAILS
+              value: ""
+            # Comma-separated list of manager emails (synced on every login)
+            - name: MANAGER_EMAILS
+              value: ""
           envFrom:
             - configMapRef:
                 name: jira-mcp-config
