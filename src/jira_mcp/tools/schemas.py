@@ -369,9 +369,28 @@ class LogActivityInput(BaseModel):
         default=None,
         description="For GitHub issues: repository in 'owner/repo' format. Required if using short '#123' format.",
     )
+    jira_components: list[str] | None = Field(
+        default=None,
+        description="Optional list of Jira component names for auto-detection of report project.",
+    )
     action_details: str | None = Field(
         default=None,
         description="Optional JSON string with additional context.",
+    )
+
+
+class RedetectProjectAssignmentsInput(BaseModel):
+    """Input schema for redetect_project_assignments tool."""
+
+    username: str | None = Field(
+        default=None,
+        description="Optional filter to only redetect for a specific user.",
+    )
+    limit: int = Field(
+        default=1000,
+        ge=1,
+        le=10000,
+        description="Maximum number of activities to process.",
     )
 
 

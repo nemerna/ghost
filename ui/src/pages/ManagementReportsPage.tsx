@@ -1,9 +1,10 @@
 /**
  * Management Reports page - create and view management reports
  * Managers can view team members' reports and generate consolidated reports
+ * Supports both author-based and field-based grouping
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -26,11 +27,12 @@ import {
   ModalHeader,
   PageSection,
   Spinner,
+  Switch,
   TextArea,
   TextInput,
   Title,
 } from '@patternfly/react-core';
-import { PlusIcon, CopyIcon, UsersIcon } from '@patternfly/react-icons';
+import { PlusIcon, CopyIcon, UsersIcon, CubesIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { marked } from 'marked';
 import {
@@ -38,6 +40,7 @@ import {
   createManagementReport,
   deleteManagementReport,
   getTeamManagementReports,
+  getConsolidatedReport,
 } from '@/api/reports';
 import { listTeams } from '@/api/teams';
 import { useAuth } from '@/auth';
@@ -59,6 +62,9 @@ export function ManagementReportsPage() {
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [showConsolidated, setShowConsolidated] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  
+  // View mode toggle: false = by author, true = by field
+  const [useFieldView, setUseFieldView] = useState(false);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -86,12 +92,12 @@ export function ManagementReportsPage() {
         : listManagementReports({ limit: 50 }),
   });
 
-  // Auto-select first team for managers
-  useEffect(() => {
-    if (canViewTeams && teamsData?.teams.length && selectedTeamId === null) {
-      // Don't auto-select, let user choose "My Reports" or a team
-    }
-  }, [canViewTeams, teamsData, selectedTeamId]);
+  // Fetch consolidated report (field-based grouping)
+  const { data: consolidatedData, isLoading: isConsolidatedLoading } = useQuery({
+    queryKey: ['consolidatedReport', selectedTeamId],
+    queryFn: () => getConsolidatedReport(selectedTeamId!, { limit: 100 }),
+    enabled: !!selectedTeamId && useFieldView,
+  });
 
   // Create report mutation
   const createMutation = useMutation({
@@ -145,6 +151,47 @@ export function ManagementReportsPage() {
 
   // Generate consolidated markdown content
   const consolidatedMarkdown = useMemo(() => {
+    // Use field-based structure if in field view and have consolidated data
+    if (useFieldView && consolidatedData) {
+      const lines: string[] = [];
+      
+      // Build field → project → entries structure
+      consolidatedData.fields.forEach((field) => {
+        lines.push(`# ${field.name}`);
+        lines.push('');
+        
+        field.projects.forEach((project) => {
+          lines.push(`## ${project.name}`);
+          lines.push('');
+          
+          project.entries.forEach((entry) => {
+            const displayName = entry.username.split('@')[0];
+            lines.push(`### ${displayName}`);
+            lines.push('');
+            lines.push(entry.content);
+            lines.push('');
+          });
+        });
+      });
+      
+      // Add uncategorized entries
+      if (consolidatedData.uncategorized.length > 0) {
+        lines.push('# Other');
+        lines.push('');
+        
+        consolidatedData.uncategorized.forEach((entry) => {
+          const displayName = entry.username.split('@')[0];
+          lines.push(`## ${displayName}`);
+          lines.push('');
+          lines.push(entry.content);
+          lines.push('');
+        });
+      }
+      
+      return lines.join('\n');
+    }
+    
+    // Fall back to author-based structure
     if (!reportsData?.reports.length) return '';
     
     const lines: string[] = [];
@@ -169,7 +216,7 @@ export function ManagementReportsPage() {
     });
     
     return lines.join('\n');
-  }, [reportsData]);
+  }, [reportsData, consolidatedData, useFieldView]);
 
   // Copy consolidated report as HTML for Gmail
   const handleCopyToClipboard = async () => {
@@ -260,7 +307,7 @@ export function ManagementReportsPage() {
       </PageSection>
 
       {/* Consolidated Report Section - only show when viewing a team */}
-      {selectedTeamId && reportsData?.reports.length ? (
+      {selectedTeamId && (reportsData?.reports.length || consolidatedData?.total_entries) ? (
         <PageSection>
           <Card>
             <CardTitle>
@@ -268,20 +315,30 @@ export function ManagementReportsPage() {
                 <FlexItem>
                   <Flex alignItems={{ default: 'alignItemsCenter' }}>
                     <FlexItem>
-                      <UsersIcon style={{ marginRight: '0.5rem' }} />
+                      {useFieldView ? <CubesIcon style={{ marginRight: '0.5rem' }} /> : <UsersIcon style={{ marginRight: '0.5rem' }} />}
                     </FlexItem>
                     <FlexItem>
                       Consolidated Team Report
                     </FlexItem>
                     <FlexItem>
                       <Label color="blue" style={{ marginLeft: '0.5rem' }}>
-                        {Object.keys(reportsByAuthor).length} members
+                        {useFieldView 
+                          ? `${consolidatedData?.fields.length || 0} fields` 
+                          : `${Object.keys(reportsByAuthor).length} members`}
                       </Label>
                     </FlexItem>
                   </Flex>
                 </FlexItem>
                 <FlexItem>
-                  <Flex>
+                  <Flex alignItems={{ default: 'alignItemsCenter' }}>
+                    <FlexItem style={{ marginRight: '1rem' }}>
+                      <Switch
+                        id="view-mode-toggle"
+                        label={useFieldView ? "By Field" : "By Author"}
+                        isChecked={useFieldView}
+                        onChange={(_event, checked) => setUseFieldView(checked)}
+                      />
+                    </FlexItem>
                     <FlexItem>
                       <Button
                         variant="secondary"
@@ -315,7 +372,13 @@ export function ManagementReportsPage() {
                     style={{ marginBottom: '1rem' }}
                   />
                 )}
-                <StyledMarkdown maxHeight="600px">{consolidatedMarkdown}</StyledMarkdown>
+                {isConsolidatedLoading && useFieldView ? (
+                  <Flex justifyContent={{ default: 'justifyContentCenter' }}>
+                    <Spinner size="lg" />
+                  </Flex>
+                ) : (
+                  <StyledMarkdown maxHeight="600px">{consolidatedMarkdown}</StyledMarkdown>
+                )}
               </CardBody>
             )}
           </Card>
@@ -323,13 +386,121 @@ export function ManagementReportsPage() {
       ) : null}
 
       <PageSection>
-        {isLoading ? (
+        {isLoading || (useFieldView && selectedTeamId && isConsolidatedLoading) ? (
           <Flex justifyContent={{ default: 'justifyContentCenter' }}>
             <Spinner size="xl" />
           </Flex>
+        ) : selectedTeamId && useFieldView && consolidatedData ? (
+          // Team view - group by field (new field-based view)
+          <>
+            {consolidatedData.fields.map((field) => (
+              <Card key={field.id} style={{ marginBottom: '1rem' }}>
+                <CardTitle>
+                  <Flex alignItems={{ default: 'alignItemsCenter' }}>
+                    <FlexItem>
+                      <CubesIcon style={{ marginRight: '0.5rem' }} />
+                      {field.name}
+                    </FlexItem>
+                    <FlexItem>
+                      <Label color="purple" style={{ marginLeft: '0.5rem' }}>
+                        {field.projects.length} project{field.projects.length !== 1 ? 's' : ''}
+                      </Label>
+                    </FlexItem>
+                  </Flex>
+                </CardTitle>
+                <CardBody>
+                  {field.description && <p style={{ marginBottom: '1rem' }}>{field.description}</p>}
+                  {field.projects.map((project) => (
+                    <ExpandableSection
+                      key={project.id}
+                      toggleText={`${project.name} (${project.entries.length} entries)`}
+                      style={{ marginBottom: '0.5rem' }}
+                    >
+                      <Card isPlain style={{ marginLeft: '1rem' }}>
+                        <CardBody>
+                          {project.description && <p style={{ marginBottom: '0.5rem', fontStyle: 'italic' }}>{project.description}</p>}
+                          {project.entries.map((entry) => (
+                            <div key={entry.report_id} style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid #eee' }}>
+                              <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginBottom: '0.5rem' }}>
+                                <FlexItem>
+                                  <strong>{entry.username.split('@')[0]}</strong>
+                                  {entry.report_period && (
+                                    <Label color="grey" style={{ marginLeft: '0.5rem' }}>
+                                      {entry.report_period}
+                                    </Label>
+                                  )}
+                                </FlexItem>
+                                <FlexItem>
+                                  <small>
+                                    {entry.created_at && format(new Date(entry.created_at), 'MMM d, yyyy')}
+                                  </small>
+                                </FlexItem>
+                              </Flex>
+                              <StyledMarkdown maxHeight="200px">{entry.content}</StyledMarkdown>
+                            </div>
+                          ))}
+                        </CardBody>
+                      </Card>
+                    </ExpandableSection>
+                  ))}
+                </CardBody>
+              </Card>
+            ))}
+            
+            {/* Uncategorized entries */}
+            {consolidatedData.uncategorized.length > 0 && (
+              <Card style={{ marginBottom: '1rem' }}>
+                <CardTitle>
+                  <Flex alignItems={{ default: 'alignItemsCenter' }}>
+                    <FlexItem>Uncategorized</FlexItem>
+                    <FlexItem>
+                      <Label color="grey" style={{ marginLeft: '0.5rem' }}>
+                        {consolidatedData.uncategorized.length} entries
+                      </Label>
+                    </FlexItem>
+                  </Flex>
+                </CardTitle>
+                <CardBody>
+                  {consolidatedData.uncategorized.map((entry) => (
+                    <ExpandableSection
+                      key={entry.report_id}
+                      toggleText={`${entry.username.split('@')[0]} - ${entry.title}`}
+                      style={{ marginBottom: '0.5rem' }}
+                    >
+                      <Card isPlain>
+                        <CardBody>
+                          <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} style={{ marginBottom: '0.5rem' }}>
+                            <FlexItem>
+                              {entry.report_period && (
+                                <Label color="grey">{entry.report_period}</Label>
+                              )}
+                            </FlexItem>
+                            <FlexItem>
+                              <small>
+                                {entry.created_at && format(new Date(entry.created_at), 'MMM d, yyyy')}
+                              </small>
+                            </FlexItem>
+                          </Flex>
+                          <StyledMarkdown maxHeight="300px">{entry.content}</StyledMarkdown>
+                        </CardBody>
+                      </Card>
+                    </ExpandableSection>
+                  ))}
+                </CardBody>
+              </Card>
+            )}
+            
+            {consolidatedData.fields.length === 0 && consolidatedData.uncategorized.length === 0 && (
+              <Card>
+                <CardBody>
+                  <p>No reports found. Configure fields and projects in the admin section to enable field-based grouping.</p>
+                </CardBody>
+              </Card>
+            )}
+          </>
         ) : reportsData?.reports.length ? (
           selectedTeamId ? (
-            // Team view - group by author
+            // Team view - group by author (original view)
             Object.entries(reportsByAuthor).map(([author, reports]) => (
               <Card key={author} style={{ marginBottom: '1rem' }}>
                 <CardTitle>

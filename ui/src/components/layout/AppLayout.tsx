@@ -51,6 +51,7 @@ const navItems: NavItemDef[] = [
   { id: 'team-reports', label: 'Team Reports', path: '/team/reports', roles: ['manager', 'admin'] },
   { id: 'admin-users', label: 'User Management', path: '/admin/users', roles: ['admin'] },
   { id: 'admin-teams', label: 'Team Management', path: '/admin/teams', roles: ['admin'] },
+  { id: 'admin-fields', label: 'Fields Config', path: '/admin/fields', roles: ['admin'] },
 ];
 
 export function AppLayout() {

@@ -199,6 +199,14 @@ class ActivityLog(Base):
     )
     github_repo = Column(String(255), nullable=True, index=True)  # For GitHub: owner/repo
 
+    # Jira components (comma-separated for auto-detection)
+    jira_components = Column(String(500), nullable=True)  # e.g., "component1,component2"
+
+    # Auto-detected project for report consolidation
+    detected_project_id = Column(
+        Integer, ForeignKey("report_projects.id"), nullable=True, index=True
+    )
+
     # Action info
     action_type = Column(Enum(ActionType), nullable=False, default=ActionType.OTHER)
     action_details = Column(Text, nullable=True)  # JSON string with additional context
@@ -206,11 +214,15 @@ class ActivityLog(Base):
     # Timestamps
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
+    # Relationships
+    detected_project = relationship("ReportProject", back_populates="activities")
+
     # Indexes for weekly report queries
     __table_args__ = (
         Index("idx_user_timestamp", "username", "timestamp"),
         Index("idx_user_project_timestamp", "username", "project_key", "timestamp"),
         Index("idx_user_source_timestamp", "username", "ticket_source", "timestamp"),
+        Index("idx_detected_project", "detected_project_id", "timestamp"),
     )
 
     def to_dict(self) -> dict:
@@ -223,6 +235,8 @@ class ActivityLog(Base):
             "project_key": self.project_key,
             "ticket_source": self.ticket_source.value if self.ticket_source else "jira",
             "github_repo": self.github_repo,
+            "jira_components": self.jira_components.split(",") if self.jira_components else [],
+            "detected_project_id": self.detected_project_id,
             "action_type": self.action_type.value if self.action_type else None,
             "action_details": self.action_details,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
@@ -322,3 +336,191 @@ class ManagementReport(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+# =============================================================================
+# Report Field & Project Configuration Models
+# =============================================================================
+
+
+class ReportField(Base):
+    """Top-level field for grouping projects in report consolidation."""
+
+    __tablename__ = "report_fields"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Field info
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+
+    # Ordering
+    display_order = Column(Integer, nullable=False, default=0)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    # Relationships
+    projects = relationship(
+        "ReportProject",
+        back_populates="field",
+        cascade="all, delete-orphan",
+        order_by="ReportProject.display_order",
+    )
+
+    __table_args__ = (Index("idx_field_order", "display_order"),)
+
+    def to_dict(self, include_projects: bool = False) -> dict:
+        """Convert to dictionary."""
+        result = {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "display_order": self.display_order,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_projects:
+            result["projects"] = [p.to_dict(include_config=True) for p in self.projects]
+        return result
+
+    def __repr__(self) -> str:
+        return f"<ReportField(id={self.id}, name={self.name})>"
+
+
+class ReportProject(Base):
+    """Project within a field for report consolidation."""
+
+    __tablename__ = "report_projects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Parent field
+    field_id = Column(Integer, ForeignKey("report_fields.id"), nullable=False, index=True)
+
+    # Project info
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Ordering within field
+    display_order = Column(Integer, nullable=False, default=0)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    # Relationships
+    field = relationship("ReportField", back_populates="projects")
+    git_repos = relationship(
+        "ProjectGitRepo",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    jira_components = relationship(
+        "ProjectJiraComponent",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    activities = relationship("ActivityLog", back_populates="detected_project")
+
+    __table_args__ = (
+        Index("idx_project_field_order", "field_id", "display_order"),
+        Index("idx_project_name", "field_id", "name", unique=True),
+    )
+
+    def to_dict(self, include_config: bool = False) -> dict:
+        """Convert to dictionary."""
+        result = {
+            "id": self.id,
+            "field_id": self.field_id,
+            "name": self.name,
+            "description": self.description,
+            "display_order": self.display_order,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_config:
+            result["git_repos"] = [r.repo_pattern for r in self.git_repos]
+            result["jira_components"] = [
+                {"jira_project_key": c.jira_project_key, "component_name": c.component_name}
+                for c in self.jira_components
+            ]
+        return result
+
+    def __repr__(self) -> str:
+        return f"<ReportProject(id={self.id}, name={self.name}, field_id={self.field_id})>"
+
+
+class ProjectGitRepo(Base):
+    """Git repository pattern mapped to a project for auto-detection."""
+
+    __tablename__ = "project_git_repos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Parent project
+    project_id = Column(Integer, ForeignKey("report_projects.id"), nullable=False, index=True)
+
+    # Repo pattern (e.g., "org/repo" or "org/*" for wildcards)
+    repo_pattern = Column(String(255), nullable=False)
+
+    # Relationships
+    project = relationship("ReportProject", back_populates="git_repos")
+
+    __table_args__ = (
+        Index("idx_git_repo_pattern", "repo_pattern"),
+        Index("idx_git_repo_project", "project_id", "repo_pattern", unique=True),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "repo_pattern": self.repo_pattern,
+        }
+
+    def __repr__(self) -> str:
+        return f"<ProjectGitRepo(id={self.id}, pattern={self.repo_pattern})>"
+
+
+class ProjectJiraComponent(Base):
+    """Jira component mapped to a project for auto-detection."""
+
+    __tablename__ = "project_jira_components"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Parent project
+    project_id = Column(Integer, ForeignKey("report_projects.id"), nullable=False, index=True)
+
+    # Jira project and component
+    jira_project_key = Column(String(50), nullable=False)  # e.g., "APPENG"
+    component_name = Column(String(255), nullable=False)  # e.g., "API"
+
+    # Relationships
+    project = relationship("ReportProject", back_populates="jira_components")
+
+    __table_args__ = (
+        Index("idx_jira_component_lookup", "jira_project_key", "component_name"),
+        Index(
+            "idx_jira_component_project",
+            "project_id",
+            "jira_project_key",
+            "component_name",
+            unique=True,
+        ),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "jira_project_key": self.jira_project_key,
+            "component_name": self.component_name,
+        }
+
+    def __repr__(self) -> str:
+        return f"<ProjectJiraComponent(id={self.id}, project={self.jira_project_key}, component={self.component_name})>"

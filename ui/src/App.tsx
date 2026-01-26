@@ -15,6 +15,7 @@ import TeamReportsPage from '@/pages/TeamReportsPage';
 import ManagementReportsPage from '@/pages/ManagementReportsPage';
 import AdminUsersPage from '@/pages/AdminUsersPage';
 import AdminTeamsPage from '@/pages/AdminTeamsPage';
+import FieldsConfigPage from '@/pages/FieldsConfigPage';
 import SettingsPage from '@/pages/SettingsPage';
 
 function App() {
@@ -63,6 +64,14 @@ function App() {
             element={
               <RequireRole roles={['admin']}>
                 <AdminTeamsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="admin/fields"
+            element={
+              <RequireRole roles={['admin']}>
+                <FieldsConfigPage />
               </RequireRole>
             }
           />

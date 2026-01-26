@@ -16,6 +16,7 @@ from jira_mcp.tools.discovery import (
 from jira_mcp.tools.reports import (
     delete_management_report,
     delete_saved_report,
+    detect_project_for_activity,
     generate_weekly_report,
     get_management_report,
     get_saved_report,
@@ -23,6 +24,7 @@ from jira_mcp.tools.reports import (
     list_management_reports,
     list_saved_reports,
     log_activity,
+    redetect_project_assignments,
     # Management Reports
     save_management_report,
     save_weekly_report,
@@ -66,4 +68,7 @@ __all__ = [
     "get_management_report",
     "update_management_report",
     "delete_management_report",
+    # Project Detection
+    "detect_project_for_activity",
+    "redetect_project_assignments",
 ]

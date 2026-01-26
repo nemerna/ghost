@@ -81,6 +81,29 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 4: Add jira_components column to activity_log for auto-detection
+    {
+        "id": "004_add_jira_components",
+        "description": "Add jira_components column to activity_log for storing Jira component info",
+        "check": lambda inspector: "activity_log" in inspector.get_table_names()
+        and "jira_components" not in [c["name"] for c in inspector.get_columns("activity_log")],
+        "sql": [
+            "ALTER TABLE activity_log ADD COLUMN jira_components VARCHAR(500)",
+        ],
+        "optional": False,
+    },
+    # Migration 5: Add detected_project_id column to activity_log for auto-detection
+    {
+        "id": "005_add_detected_project_id",
+        "description": "Add detected_project_id column to activity_log for report consolidation",
+        "check": lambda inspector: "activity_log" in inspector.get_table_names()
+        and "detected_project_id" not in [c["name"] for c in inspector.get_columns("activity_log")],
+        "sql": [
+            "ALTER TABLE activity_log ADD COLUMN detected_project_id INTEGER REFERENCES report_projects(id)",
+            "CREATE INDEX IF NOT EXISTS idx_detected_project ON activity_log (detected_project_id, timestamp)",
+        ],
+        "optional": False,
+    },
 ]
 
 

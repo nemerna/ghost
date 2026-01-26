@@ -10,4 +10,5 @@ export { default as TeamReportsPage } from './TeamReportsPage';
 export { default as ManagementReportsPage } from './ManagementReportsPage';
 export { default as AdminUsersPage } from './AdminUsersPage';
 export { default as AdminTeamsPage } from './AdminTeamsPage';
+export { default as FieldsConfigPage } from './FieldsConfigPage';
 export { default as SettingsPage } from './SettingsPage';

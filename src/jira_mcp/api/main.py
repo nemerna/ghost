@@ -82,6 +82,7 @@ def create_app(
     # Register API routes
     from jira_mcp.api.routes import (
         activities_router,
+        fields_router,
         health_router,
         reports_router,
         teams_router,
@@ -93,6 +94,7 @@ def create_app(
     app.include_router(teams_router, prefix="/api/teams", tags=["teams"])
     app.include_router(activities_router, prefix="/api/activities", tags=["activities"])
     app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
+    app.include_router(fields_router, prefix="/api/fields", tags=["fields"])
     
     # Note: Static frontend files are served by nginx, not FastAPI
     # FastAPI only handles /api/* routes

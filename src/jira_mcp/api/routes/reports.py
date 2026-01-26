@@ -7,8 +7,20 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
+from sqlalchemy.orm import joinedload
+
 from jira_mcp.api.deps import CurrentUser, require_manager_or_admin
-from jira_mcp.db import ManagementReport, Team, TeamMembership, User, UserRole, WeeklyReport, get_db
+from jira_mcp.db import (
+    ManagementReport,
+    ReportField,
+    ReportProject,
+    Team,
+    TeamMembership,
+    User,
+    UserRole,
+    WeeklyReport,
+    get_db,
+)
 from jira_mcp.tools import reports as report_tools
 
 router = APIRouter()
@@ -573,3 +585,214 @@ async def get_team_report_aggregate(
             "all_projects": list(all_projects),
             "member_summaries": member_summaries,
         }
+
+
+# =============================================================================
+# Consolidated Report Models
+# =============================================================================
+
+
+class ConsolidatedEntry(BaseModel):
+    """A single entry (report) in the consolidated view."""
+
+    username: str
+    report_id: int
+    title: str
+    content: str
+    report_period: str | None
+    created_at: str | None
+
+
+class ConsolidatedProject(BaseModel):
+    """Project with its entries in consolidated view."""
+
+    id: int
+    name: str
+    description: str | None
+    entries: list[ConsolidatedEntry]
+
+
+class ConsolidatedField(BaseModel):
+    """Field with its projects in consolidated view."""
+
+    id: int
+    name: str
+    description: str | None
+    projects: list[ConsolidatedProject]
+
+
+class ConsolidatedReportResponse(BaseModel):
+    """Response model for consolidated report."""
+
+    team_id: int
+    team_name: str
+    report_period: str | None
+    fields: list[ConsolidatedField]
+    uncategorized: list[ConsolidatedEntry]
+    total_entries: int
+
+
+# =============================================================================
+# Consolidated Report Endpoints
+# =============================================================================
+
+
+@router.get("/consolidated/{team_id}", response_model=ConsolidatedReportResponse)
+async def get_consolidated_report(
+    team_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+    report_period: str | None = Query(None, description="Filter by report period"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Get consolidated management reports grouped by Field → Project → Entries.
+    
+    This endpoint aggregates team management reports and groups them based on
+    the detected_project_id that was auto-assigned to referenced activities.
+    
+    Reports are organized as:
+    - Fields (top level)
+      - Projects (under each field)
+        - Entries (reports from team members assigned to this project)
+    - Uncategorized (reports with no detected project)
+    """
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get team member emails
+        memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
+        member_ids = [m.user_id for m in memberships]
+        if team.manager_id:
+            member_ids.append(team.manager_id)
+
+        members = session.query(User).filter(User.id.in_(member_ids)).all()
+        member_emails = [m.email for m in members]
+
+        # Get management reports from team members
+        query = session.query(ManagementReport).filter(ManagementReport.username.in_(member_emails))
+
+        if report_period:
+            query = query.filter(ManagementReport.report_period == report_period)
+
+        reports = query.order_by(ManagementReport.created_at.desc()).limit(limit).all()
+
+        # Get the latest report per user (for consolidation)
+        latest_by_user: dict[str, ManagementReport] = {}
+        for report in reports:
+            if report.username not in latest_by_user:
+                latest_by_user[report.username] = report
+            elif report.created_at and latest_by_user[report.username].created_at:
+                if report.created_at > latest_by_user[report.username].created_at:
+                    latest_by_user[report.username] = report
+
+        # Get all fields with projects
+        fields = (
+            session.query(ReportField)
+            .options(joinedload(ReportField.projects))
+            .order_by(ReportField.display_order)
+            .all()
+        )
+
+        # Build project ID to field/project mapping
+        project_to_field: dict[int, tuple[ReportField, ReportProject]] = {}
+        for field in fields:
+            for project in field.projects:
+                project_to_field[project.id] = (field, project)
+
+        # Group reports by detected project
+        # For each report, look at its referenced_tickets and find activities
+        # with detected_project_id to determine which project it belongs to
+        from jira_mcp.db import ActivityLog
+
+        entries_by_project: dict[int, list[ConsolidatedEntry]] = {}
+        uncategorized_entries: list[ConsolidatedEntry] = []
+
+        for username, report in latest_by_user.items():
+            entry = ConsolidatedEntry(
+                username=username,
+                report_id=report.id,
+                title=report.title,
+                content=report.content,
+                report_period=report.report_period,
+                created_at=report.created_at.isoformat() if report.created_at else None,
+            )
+
+            # Find the most common detected_project_id from referenced tickets
+            detected_project_id = None
+            if report.referenced_tickets:
+                ticket_keys = [t.strip() for t in report.referenced_tickets.split(",") if t.strip()]
+                if ticket_keys:
+                    # Query activities for these tickets to get detected_project_id
+                    activities = (
+                        session.query(ActivityLog.detected_project_id)
+                        .filter(
+                            ActivityLog.ticket_key.in_(ticket_keys),
+                            ActivityLog.detected_project_id.isnot(None),
+                        )
+                        .all()
+                    )
+
+                    if activities:
+                        # Get the most common project ID (mode)
+                        project_counts: dict[int, int] = {}
+                        for (proj_id,) in activities:
+                            if proj_id:
+                                project_counts[proj_id] = project_counts.get(proj_id, 0) + 1
+
+                        if project_counts:
+                            detected_project_id = max(project_counts.items(), key=lambda x: x[1])[0]
+
+            if detected_project_id and detected_project_id in project_to_field:
+                if detected_project_id not in entries_by_project:
+                    entries_by_project[detected_project_id] = []
+                entries_by_project[detected_project_id].append(entry)
+            else:
+                uncategorized_entries.append(entry)
+
+        # Build the response structure
+        consolidated_fields: list[ConsolidatedField] = []
+
+        for field in fields:
+            field_projects: list[ConsolidatedProject] = []
+
+            for project in sorted(field.projects, key=lambda p: p.display_order):
+                project_entries = entries_by_project.get(project.id, [])
+                if project_entries:  # Only include projects with entries
+                    field_projects.append(
+                        ConsolidatedProject(
+                            id=project.id,
+                            name=project.name,
+                            description=project.description,
+                            entries=project_entries,
+                        )
+                    )
+
+            if field_projects:  # Only include fields with projects that have entries
+                consolidated_fields.append(
+                    ConsolidatedField(
+                        id=field.id,
+                        name=field.name,
+                        description=field.description,
+                        projects=field_projects,
+                    )
+                )
+
+        total_entries = sum(
+            len(p.entries) for f in consolidated_fields for p in f.projects
+        ) + len(uncategorized_entries)
+
+        return ConsolidatedReportResponse(
+            team_id=team_id,
+            team_name=team.name,
+            report_period=report_period,
+            fields=consolidated_fields,
+            uncategorized=uncategorized_entries,
+            total_entries=total_entries,
+        )

@@ -4,6 +4,7 @@
 
 import apiClient from './client';
 import type {
+  ConsolidatedReportResponse,
   GeneratedReport,
   ManagementReport,
   ManagementReportCreateRequest,
@@ -108,5 +109,20 @@ export async function getTeamReportAggregate(teamId: number, weekOffset: number 
   const response = await apiClient.get<TeamReportAggregate>(`/reports/management/aggregate/${teamId}`, {
     params: { week_offset: weekOffset },
   });
+  return response.data;
+}
+
+// =============================================================================
+// Consolidated Reports
+// =============================================================================
+
+/**
+ * Get consolidated report grouped by Field → Project → Entries
+ */
+export async function getConsolidatedReport(teamId: number, params?: {
+  report_period?: string;
+  limit?: number;
+}): Promise<ConsolidatedReportResponse> {
+  const response = await apiClient.get<ConsolidatedReportResponse>(`/reports/consolidated/${teamId}`, { params });
   return response.data;
 }

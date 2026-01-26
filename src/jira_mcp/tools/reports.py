@@ -7,9 +7,22 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+import fnmatch
 
-from jira_mcp.db import ActivityLog, ManagementReport, TicketSource, WeeklyReport, get_db
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+
+from jira_mcp.db import (
+    ActivityLog,
+    ManagementReport,
+    ProjectGitRepo,
+    ProjectJiraComponent,
+    ReportField,
+    ReportProject,
+    TicketSource,
+    WeeklyReport,
+    get_db,
+)
 from jira_mcp.db.models import ActionType
 
 logger = logging.getLogger(__name__)
@@ -57,6 +70,169 @@ def _parse_ticket_key(
     return TicketSource.JIRA, ticket_key, project_key, None
 
 
+def _match_repo_pattern(repo: str, pattern: str) -> bool:
+    """
+    Match a GitHub repo against a pattern.
+    
+    Supports:
+    - Exact match: "org/repo" matches "org/repo"
+    - Wildcard: "org/*" matches "org/repo1", "org/repo2"
+    - Glob patterns: "org/repo-*" matches "org/repo-api", "org/repo-web"
+    
+    Args:
+        repo: The GitHub repo (e.g., "org/repo")
+        pattern: The pattern to match against (e.g., "org/*")
+    
+    Returns:
+        True if the repo matches the pattern
+    """
+    # Normalize both to lowercase for case-insensitive matching
+    repo_lower = repo.lower()
+    pattern_lower = pattern.lower()
+    
+    # Use fnmatch for glob-style matching
+    return fnmatch.fnmatch(repo_lower, pattern_lower)
+
+
+def detect_project_for_activity(
+    github_repo: str | None = None,
+    jira_project_key: str | None = None,
+    jira_components: list[str] | None = None,
+    session=None,
+) -> int | None:
+    """
+    Detect which report project an activity belongs to.
+    
+    Matching is done in priority order (by field display_order, then project display_order).
+    First match wins.
+    
+    Args:
+        github_repo: GitHub repo in 'owner/repo' format (for GitHub activities)
+        jira_project_key: Jira project key (e.g., "APPENG")
+        jira_components: List of Jira component names
+        session: Optional SQLAlchemy session (will create one if not provided)
+    
+    Returns:
+        project_id of the first matching ReportProject, or None if no match
+    """
+    db = get_db()
+    close_session = session is None
+    
+    if session is None:
+        session = db.get_session()
+    
+    try:
+        # Get all fields with their projects, ordered by display_order
+        fields = (
+            session.query(ReportField)
+            .options(
+                joinedload(ReportField.projects)
+                .joinedload(ReportProject.git_repos),
+                joinedload(ReportField.projects)
+                .joinedload(ReportProject.jira_components),
+            )
+            .order_by(ReportField.display_order)
+            .all()
+        )
+        
+        # Check each project in priority order
+        for field in fields:
+            # Sort projects by display_order
+            sorted_projects = sorted(field.projects, key=lambda p: p.display_order)
+            
+            for project in sorted_projects:
+                # Check GitHub repo patterns
+                if github_repo:
+                    for git_repo in project.git_repos:
+                        if _match_repo_pattern(github_repo, git_repo.repo_pattern):
+                            logger.debug(
+                                f"Activity matched project {project.name} via git repo "
+                                f"pattern {git_repo.repo_pattern}"
+                            )
+                            return project.id
+                
+                # Check Jira components
+                if jira_project_key and jira_components:
+                    for jira_comp in project.jira_components:
+                        if (
+                            jira_comp.jira_project_key.upper() == jira_project_key.upper()
+                            and jira_comp.component_name.lower() in [c.lower() for c in jira_components]
+                        ):
+                            logger.debug(
+                                f"Activity matched project {project.name} via Jira component "
+                                f"{jira_comp.jira_project_key}/{jira_comp.component_name}"
+                            )
+                            return project.id
+        
+        return None
+    
+    finally:
+        if close_session:
+            session.close()
+
+
+def redetect_project_assignments(
+    username: str | None = None,
+    limit: int = 1000,
+) -> dict[str, Any]:
+    """
+    Re-run project detection on existing activities.
+    
+    Useful after configuration changes to update detected_project_id
+    on historical activities.
+    
+    Args:
+        username: Optional filter to only redetect for a specific user
+        limit: Maximum number of activities to process
+    
+    Returns:
+        Summary of redetection results
+    """
+    db = get_db()
+    
+    updated_count = 0
+    processed_count = 0
+    
+    with db.session() as session:
+        # Query activities that need redetection
+        query = session.query(ActivityLog)
+        
+        if username:
+            query = query.filter(ActivityLog.username == username)
+        
+        activities = query.order_by(ActivityLog.timestamp.desc()).limit(limit).all()
+        
+        for activity in activities:
+            processed_count += 1
+            
+            # Parse jira_components string to list
+            components_list = None
+            if activity.jira_components:
+                components_list = [c.strip() for c in activity.jira_components.split(",") if c.strip()]
+            
+            # Detect project
+            new_project_id = detect_project_for_activity(
+                github_repo=activity.github_repo,
+                jira_project_key=activity.project_key,
+                jira_components=components_list,
+                session=session,
+            )
+            
+            # Update if changed
+            if new_project_id != activity.detected_project_id:
+                activity.detected_project_id = new_project_id
+                updated_count += 1
+    
+    logger.info(f"Redetection complete: {updated_count} activities updated out of {processed_count} processed")
+    
+    return {
+        "success": True,
+        "processed_count": processed_count,
+        "updated_count": updated_count,
+        "message": f"Redetected {updated_count} activities out of {processed_count} processed",
+    }
+
+
 def log_activity(
     username: str,
     ticket_key: str,
@@ -64,6 +240,7 @@ def log_activity(
     ticket_summary: str | None = None,
     project_key: str | None = None,
     github_repo: str | None = None,
+    jira_components: list[str] | None = None,
     action_details: dict | None = None,
 ) -> dict[str, Any]:
     """
@@ -76,10 +253,11 @@ def log_activity(
         ticket_summary: Optional ticket summary.
         project_key: Optional Jira project key (extracted from ticket_key if not provided).
         github_repo: Optional GitHub repo in 'owner/repo' format. Required for short '#123' format.
+        jira_components: Optional list of Jira component names for auto-detection.
         action_details: Optional dict with additional context.
 
     Returns:
-        Confirmation with activity ID and detected source.
+        Confirmation with activity ID, detected source, and detected project.
     """
     db = get_db()
 
@@ -98,7 +276,20 @@ def log_activity(
     except ValueError:
         action_enum = ActionType.OTHER
 
+    # Convert jira_components list to comma-separated string
+    jira_components_str = None
+    if jira_components:
+        jira_components_str = ",".join(jira_components)
+
     with db.session() as session:
+        # Auto-detect project for report consolidation
+        detected_project_id = detect_project_for_activity(
+            github_repo=final_github_repo,
+            jira_project_key=final_project_key,
+            jira_components=jira_components,
+            session=session,
+        )
+        
         activity = ActivityLog(
             username=username,
             ticket_key=normalized_key,
@@ -106,6 +297,8 @@ def log_activity(
             project_key=final_project_key,
             ticket_source=source,
             github_repo=final_github_repo,
+            jira_components=jira_components_str,
+            detected_project_id=detected_project_id,
             action_type=action_enum,
             action_details=json.dumps(action_details) if action_details else None,
             timestamp=datetime.utcnow(),
@@ -113,16 +306,26 @@ def log_activity(
         session.add(activity)
         session.flush()
         activity_id = activity.id
+        
+        # Get project name for logging
+        detected_project_name = None
+        if detected_project_id:
+            project = session.query(ReportProject).filter(ReportProject.id == detected_project_id).first()
+            if project:
+                detected_project_name = project.name
 
-    logger.info(
-        f"Logged activity {activity_id}: {username} {action_type} {normalized_key} (source: {source.value})"
-    )
+    log_msg = f"Logged activity {activity_id}: {username} {action_type} {normalized_key} (source: {source.value})"
+    if detected_project_name:
+        log_msg += f" -> detected project: {detected_project_name}"
+    logger.info(log_msg)
 
     return {
         "success": True,
         "activity_id": activity_id,
         "ticket_source": source.value,
         "ticket_key": normalized_key,
+        "detected_project_id": detected_project_id,
+        "detected_project_name": detected_project_name,
         "message": f"Activity logged: {action_type} on {normalized_key} ({source.value})",
     }
 

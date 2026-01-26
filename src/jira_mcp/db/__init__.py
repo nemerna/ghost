@@ -5,6 +5,10 @@ from jira_mcp.db.models import (
     ActionType,
     ActivityLog,
     ManagementReport,
+    ProjectGitRepo,
+    ProjectJiraComponent,
+    ReportField,
+    ReportProject,
     Team,
     TeamMembership,
     TicketSource,
@@ -30,4 +34,9 @@ __all__ = [
     "ActivityLog",
     "WeeklyReport",
     "ManagementReport",
+    # Report Field & Project Configuration Models
+    "ReportField",
+    "ReportProject",
+    "ProjectGitRepo",
+    "ProjectJiraComponent",
 ]

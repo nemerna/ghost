@@ -7,3 +7,4 @@ export * from './users';
 export * from './teams';
 export * from './activities';
 export * from './reports';
+export * from './fields';

@@ -184,6 +184,117 @@ export interface TeamReportAggregate {
 }
 
 // =============================================================================
+// Report Field & Project Types
+// =============================================================================
+
+export interface JiraComponentConfig {
+  jira_project_key: string;
+  component_name: string;
+}
+
+export interface ReportProject {
+  id: number;
+  field_id: number;
+  name: string;
+  description: string | null;
+  display_order: number;
+  git_repos: string[];
+  jira_components: JiraComponentConfig[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ReportField {
+  id: number;
+  name: string;
+  description: string | null;
+  display_order: number;
+  projects: ReportProject[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface FieldListResponse {
+  fields: ReportField[];
+  total: number;
+}
+
+export interface FieldCreateRequest {
+  name: string;
+  description?: string;
+}
+
+export interface FieldUpdateRequest {
+  name?: string;
+  description?: string;
+}
+
+export interface FieldReorderRequest {
+  field_ids: number[];
+}
+
+export interface ProjectCreateRequest {
+  name: string;
+  description?: string;
+  git_repos?: string[];
+  jira_components?: JiraComponentConfig[];
+}
+
+export interface ProjectUpdateRequest {
+  name?: string;
+  description?: string;
+  git_repos?: string[];
+  jira_components?: JiraComponentConfig[];
+}
+
+export interface ProjectReorderRequest {
+  project_ids: number[];
+}
+
+export interface RedetectResponse {
+  success: boolean;
+  processed_count: number;
+  updated_count: number;
+  message: string;
+}
+
+// =============================================================================
+// Consolidated Report Types
+// =============================================================================
+
+export interface ConsolidatedEntry {
+  username: string;
+  report_id: number;
+  title: string;
+  content: string;
+  report_period: string | null;
+  created_at: string | null;
+}
+
+export interface ConsolidatedProject {
+  id: number;
+  name: string;
+  description: string | null;
+  entries: ConsolidatedEntry[];
+}
+
+export interface ConsolidatedField {
+  id: number;
+  name: string;
+  description: string | null;
+  projects: ConsolidatedProject[];
+}
+
+export interface ConsolidatedReportResponse {
+  team_id: number;
+  team_name: string;
+  report_period: string | null;
+  fields: ConsolidatedField[];
+  uncategorized: ConsolidatedEntry[];
+  total_entries: number;
+}
+
+// =============================================================================
 // API Response Types
 // =============================================================================
 
