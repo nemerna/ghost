@@ -256,6 +256,20 @@ def _get_filtered_content_for_manager(content: str) -> str:
     return _entries_to_markdown(public_entries)
 
 
+def _get_filtered_entries_for_manager(content: str) -> list[tuple[int, str]]:
+    """Get filtered entries as list of (index, text) tuples for manager view.
+    
+    Returns list of (original_index, text) for entries that are not private.
+    The index represents the position in the original report (before filtering).
+    """
+    entries = _parse_structured_content(content)
+    result = []
+    for idx, entry in enumerate(entries):
+        if not entry.private:
+            result.append((idx, entry.text))
+    return result
+
+
 def management_report_to_response_with_entries(
     report: ManagementReport,
     filter_private: bool = False
@@ -853,13 +867,21 @@ async def update_management_report_visibility(
 # =============================================================================
 
 
+class ConsolidatedUserEntry(BaseModel):
+    """A single parsed entry from a user's report."""
+    
+    text: str
+    index: int  # Position in the original report
+
+
 class ConsolidatedEntry(BaseModel):
-    """A single entry (report) in the consolidated view."""
+    """A single user's report in the consolidated view with parsed entries."""
 
     username: str
     report_id: int
     title: str
-    content: str
+    content: str  # Combined markdown (for display/backwards compat)
+    entries: list[ConsolidatedUserEntry]  # Individual entries for editing
     report_period: str | None
     created_at: str | None
 
@@ -992,11 +1014,17 @@ async def get_consolidated_report(
         for username, report in latest_by_user.items():
             # Filter private entries from content for manager view
             filtered_content = _get_filtered_content_for_manager(report.content)
+            # Get individual entries with their original indices
+            filtered_entries = _get_filtered_entries_for_manager(report.content)
             entry = ConsolidatedEntry(
                 username=username,
                 report_id=report.id,
                 title=report.title,
                 content=filtered_content,
+                entries=[
+                    ConsolidatedUserEntry(text=text, index=idx)
+                    for idx, text in filtered_entries
+                ],
                 report_period=report.report_period,
                 created_at=report.created_at.isoformat() if report.created_at else None,
             )
@@ -1065,7 +1093,7 @@ async def get_consolidated_report(
             len(p.entries) for f in consolidated_fields for p in f.projects
         ) + len(uncategorized_entries)
 
-        return ConsolidatedReportResponse(
+        response = ConsolidatedReportResponse(
             team_id=team_id,
             team_name=team.name,
             report_period=report_period,
@@ -1073,3 +1101,706 @@ async def get_consolidated_report(
             uncategorized=uncategorized_entries,
             total_entries=total_entries,
         )
+
+        # Auto-save snapshot on first view of this period (if there are entries)
+        if total_entries > 0:
+            from jira_mcp.db import ConsolidatedReportSnapshot, SnapshotType
+            
+            # Determine the report period to use for snapshot
+            # If not specified, use the current week
+            snapshot_period = report_period
+            if not snapshot_period:
+                from datetime import datetime
+                now = datetime.utcnow()
+                week_num = now.isocalendar()[1]
+                snapshot_period = f"Week {week_num}, {now.strftime('%b %Y')}"
+            
+            # Check if an auto-snapshot already exists for this period
+            existing = session.query(ConsolidatedReportSnapshot).filter(
+                ConsolidatedReportSnapshot.team_id == team_id,
+                ConsolidatedReportSnapshot.report_period == snapshot_period,
+                ConsolidatedReportSnapshot.snapshot_type == SnapshotType.AUTO,
+            ).first()
+            
+            if not existing:
+                # Create auto-snapshot
+                snapshot = ConsolidatedReportSnapshot(
+                    team_id=team_id,
+                    created_by_id=user.id,
+                    report_period=snapshot_period,
+                    snapshot_type=SnapshotType.AUTO,
+                    label=None,
+                    content=json.dumps(response.model_dump()),
+                )
+                session.add(snapshot)
+
+        return response
+
+
+# =============================================================================
+# Consolidated Report Draft Models
+# =============================================================================
+
+
+class ConsolidatedDraftEntry(BaseModel):
+    """A single entry in a consolidated draft."""
+
+    text: str
+    original_report_id: int | None = None
+    original_username: str | None = None
+    is_manager_added: bool = False
+
+
+class ConsolidatedDraftProject(BaseModel):
+    """Project with entries in a consolidated draft."""
+
+    id: int
+    name: str
+    entries: list[ConsolidatedDraftEntry]
+
+
+class ConsolidatedDraftField(BaseModel):
+    """Field with projects in a consolidated draft."""
+
+    id: int
+    name: str
+    projects: list[ConsolidatedDraftProject]
+
+
+class ConsolidatedDraftContent(BaseModel):
+    """Content structure for a consolidated draft."""
+
+    format: str = "consolidated_v1"
+    fields: list[ConsolidatedDraftField]
+    uncategorized: list[ConsolidatedDraftEntry] = []
+
+
+class ConsolidatedDraftResponse(BaseModel):
+    """Response model for a consolidated draft."""
+
+    id: int
+    team_id: int
+    manager_id: int
+    title: str
+    report_period: str | None
+    content: ConsolidatedDraftContent
+    created_at: str | None
+    updated_at: str | None
+
+
+class ConsolidatedDraftListResponse(BaseModel):
+    """Response model for listing consolidated drafts."""
+
+    drafts: list[ConsolidatedDraftResponse]
+    total: int
+
+
+class ConsolidatedDraftCreateRequest(BaseModel):
+    """Request model for creating a consolidated draft."""
+
+    title: str
+    report_period: str | None = None
+    content: ConsolidatedDraftContent | None = None  # If None, will initialize from current consolidated data
+
+
+class ConsolidatedDraftUpdateRequest(BaseModel):
+    """Request model for updating a consolidated draft."""
+
+    title: str | None = None
+    report_period: str | None = None
+    content: ConsolidatedDraftContent | None = None
+
+
+# =============================================================================
+# Consolidated Report Draft Endpoints
+# =============================================================================
+
+
+def _draft_to_response(draft) -> ConsolidatedDraftResponse:
+    """Convert a ConsolidatedReportDraft model to response."""
+    content_data = json.loads(draft.content) if draft.content else {"format": "consolidated_v1", "fields": [], "uncategorized": []}
+    
+    return ConsolidatedDraftResponse(
+        id=draft.id,
+        team_id=draft.team_id,
+        manager_id=draft.manager_id,
+        title=draft.title,
+        report_period=draft.report_period,
+        content=ConsolidatedDraftContent(**content_data),
+        created_at=draft.created_at.isoformat() if draft.created_at else None,
+        updated_at=draft.updated_at.isoformat() if draft.updated_at else None,
+    )
+
+
+@router.get("/consolidated-drafts/{team_id}", response_model=ConsolidatedDraftListResponse)
+async def list_consolidated_drafts(
+    team_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """List consolidated drafts for a team.
+    
+    Only the manager of the team (or admin) can view drafts.
+    """
+    from jira_mcp.db import ConsolidatedReportDraft
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Query drafts for this team owned by the current user (or all for admin)
+        query = session.query(ConsolidatedReportDraft).filter(
+            ConsolidatedReportDraft.team_id == team_id
+        )
+        
+        # Non-admins only see their own drafts
+        if user.role != UserRole.ADMIN:
+            query = query.filter(ConsolidatedReportDraft.manager_id == user.id)
+
+        total = query.count()
+        
+        drafts = (
+            query.order_by(ConsolidatedReportDraft.updated_at.desc(), ConsolidatedReportDraft.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        return ConsolidatedDraftListResponse(
+            drafts=[_draft_to_response(d) for d in drafts],
+            total=total,
+        )
+
+
+@router.get("/consolidated-drafts/{team_id}/{draft_id}", response_model=ConsolidatedDraftResponse)
+async def get_consolidated_draft(
+    team_id: int,
+    draft_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Get a specific consolidated draft.
+    
+    Only the manager who created the draft (or admin) can view it.
+    """
+    from jira_mcp.db import ConsolidatedReportDraft
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        draft = session.query(ConsolidatedReportDraft).filter(
+            ConsolidatedReportDraft.id == draft_id,
+            ConsolidatedReportDraft.team_id == team_id,
+        ).first()
+        
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+
+        # Non-admins can only see their own drafts
+        if user.role != UserRole.ADMIN and draft.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        return _draft_to_response(draft)
+
+
+@router.post("/consolidated-drafts/{team_id}", response_model=ConsolidatedDraftResponse, status_code=status.HTTP_201_CREATED)
+async def create_consolidated_draft(
+    team_id: int,
+    request: ConsolidatedDraftCreateRequest,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Create a new consolidated draft.
+    
+    If content is not provided, initializes from current consolidated report data.
+    The draft captures the current state of team members' reports for editing.
+    """
+    from jira_mcp.db import ConsolidatedReportDraft
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get content - either provided or initialized from current consolidated data
+        if request.content:
+            content_json = json.dumps(request.content.model_dump())
+        else:
+            # Initialize from current consolidated report
+            # Fetch current consolidated data and convert to draft format
+            content = await _get_consolidated_as_draft_content(session, team_id, user)
+            content_json = json.dumps(content)
+
+        draft = ConsolidatedReportDraft(
+            team_id=team_id,
+            manager_id=user.id,
+            title=request.title,
+            report_period=request.report_period,
+            content=content_json,
+            created_at=datetime.utcnow(),
+        )
+        session.add(draft)
+        session.flush()
+
+        return _draft_to_response(draft)
+
+
+async def _get_consolidated_as_draft_content(session, team_id: int, user: User) -> dict:
+    """Get current consolidated report data formatted as draft content.
+    
+    This converts the live consolidated data into editable draft format.
+    """
+    from jira_mcp.db import ActivityLog
+    
+    # Get team member emails
+    memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
+    member_ids = [m.user_id for m in memberships]
+    
+    team = session.query(Team).filter(Team.id == team_id).first()
+    if team and team.manager_id:
+        member_ids.append(team.manager_id)
+
+    members = session.query(User).filter(User.id.in_(member_ids)).all()
+    member_emails = [m.email for m in members]
+    
+    # Build visibility map
+    email_to_visibility = {
+        m.email: _get_user_visibility_defaults(m)
+        for m in members
+    }
+
+    # Get management reports from team members
+    all_reports = (
+        session.query(ManagementReport)
+        .filter(ManagementReport.username.in_(member_emails))
+        .order_by(ManagementReport.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    
+    # Filter by visibility
+    reports = [
+        r for r in all_reports
+        if _is_management_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
+    ]
+
+    # Get latest report per user
+    latest_by_user: dict[str, ManagementReport] = {}
+    for report in reports:
+        if report.username not in latest_by_user:
+            latest_by_user[report.username] = report
+        elif report.created_at and latest_by_user[report.username].created_at:
+            if report.created_at > latest_by_user[report.username].created_at:
+                latest_by_user[report.username] = report
+
+    # Get all fields with projects
+    fields = (
+        session.query(ReportField)
+        .options(joinedload(ReportField.projects))
+        .order_by(ReportField.display_order)
+        .all()
+    )
+
+    # Build project ID to field/project mapping
+    project_to_field: dict[int, tuple[ReportField, ReportProject]] = {}
+    for field in fields:
+        for project in field.projects:
+            project_to_field[project.id] = (field, project)
+
+    # Group reports by detected project
+    entries_by_project: dict[int, list[dict]] = {}
+    uncategorized_entries: list[dict] = []
+
+    for username, report in latest_by_user.items():
+        # Filter private entries from content
+        filtered_content = _get_filtered_content_for_manager(report.content)
+        entry = {
+            "text": filtered_content,
+            "original_report_id": report.id,
+            "original_username": username,
+            "is_manager_added": False,
+        }
+
+        # Find detected project
+        detected_project_id = None
+        if report.referenced_tickets:
+            ticket_keys = [t.strip() for t in report.referenced_tickets.split(",") if t.strip()]
+            if ticket_keys:
+                activities = (
+                    session.query(ActivityLog.detected_project_id)
+                    .filter(
+                        ActivityLog.ticket_key.in_(ticket_keys),
+                        ActivityLog.detected_project_id.isnot(None),
+                    )
+                    .all()
+                )
+
+                if activities:
+                    project_counts: dict[int, int] = {}
+                    for (proj_id,) in activities:
+                        if proj_id:
+                            project_counts[proj_id] = project_counts.get(proj_id, 0) + 1
+
+                    if project_counts:
+                        detected_project_id = max(project_counts.items(), key=lambda x: x[1])[0]
+
+        if detected_project_id and detected_project_id in project_to_field:
+            if detected_project_id not in entries_by_project:
+                entries_by_project[detected_project_id] = []
+            entries_by_project[detected_project_id].append(entry)
+        else:
+            uncategorized_entries.append(entry)
+
+    # Build draft content structure
+    draft_fields: list[dict] = []
+    for field in fields:
+        field_projects: list[dict] = []
+        for project in sorted(field.projects, key=lambda p: p.display_order):
+            project_entries = entries_by_project.get(project.id, [])
+            if project_entries:
+                field_projects.append({
+                    "id": project.id,
+                    "name": project.name,
+                    "entries": project_entries,
+                })
+
+        if field_projects:
+            draft_fields.append({
+                "id": field.id,
+                "name": field.name,
+                "projects": field_projects,
+            })
+
+    return {
+        "format": "consolidated_v1",
+        "fields": draft_fields,
+        "uncategorized": uncategorized_entries,
+    }
+
+
+@router.put("/consolidated-drafts/{team_id}/{draft_id}", response_model=ConsolidatedDraftResponse)
+async def update_consolidated_draft(
+    team_id: int,
+    draft_id: int,
+    request: ConsolidatedDraftUpdateRequest,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Update a consolidated draft.
+    
+    Only the manager who created the draft (or admin) can update it.
+    """
+    from jira_mcp.db import ConsolidatedReportDraft
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        draft = session.query(ConsolidatedReportDraft).filter(
+            ConsolidatedReportDraft.id == draft_id,
+            ConsolidatedReportDraft.team_id == team_id,
+        ).first()
+        
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+
+        # Non-admins can only update their own drafts
+        if user.role != UserRole.ADMIN and draft.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Can only update your own drafts")
+
+        # Update fields
+        if request.title is not None:
+            draft.title = request.title
+        if request.report_period is not None:
+            draft.report_period = request.report_period
+        if request.content is not None:
+            draft.content = json.dumps(request.content.model_dump())
+
+        draft.updated_at = datetime.utcnow()
+        session.flush()
+
+        return _draft_to_response(draft)
+
+
+@router.delete("/consolidated-drafts/{team_id}/{draft_id}")
+async def delete_consolidated_draft(
+    team_id: int,
+    draft_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Delete a consolidated draft.
+    
+    Only the manager who created the draft (or admin) can delete it.
+    """
+    from jira_mcp.db import ConsolidatedReportDraft
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        draft = session.query(ConsolidatedReportDraft).filter(
+            ConsolidatedReportDraft.id == draft_id,
+            ConsolidatedReportDraft.team_id == team_id,
+        ).first()
+        
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+
+        # Non-admins can only delete their own drafts
+        if user.role != UserRole.ADMIN and draft.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Can only delete your own drafts")
+
+        session.delete(draft)
+
+    return {"message": "Draft deleted successfully"}
+
+
+# =============================================================================
+# Consolidated Report Snapshot Models
+# =============================================================================
+
+
+class SnapshotResponse(BaseModel):
+    """Response model for a consolidated report snapshot."""
+
+    id: int
+    team_id: int
+    created_by_id: int
+    report_period: str
+    snapshot_type: str  # "auto" | "manual"
+    label: str | None
+    content: ConsolidatedReportResponse
+    created_at: str
+
+
+class SnapshotListResponse(BaseModel):
+    """Response model for snapshot list."""
+
+    snapshots: list[SnapshotResponse]
+    total: int
+
+
+class SnapshotCreateRequest(BaseModel):
+    """Request model for creating a manual snapshot."""
+
+    report_period: str
+    label: str | None = None
+
+
+def _snapshot_to_response(snapshot) -> SnapshotResponse:
+    """Convert ConsolidatedReportSnapshot model to response."""
+    import json
+    
+    content_data = json.loads(snapshot.content) if snapshot.content else {}
+    
+    return SnapshotResponse(
+        id=snapshot.id,
+        team_id=snapshot.team_id,
+        created_by_id=snapshot.created_by_id,
+        report_period=snapshot.report_period,
+        snapshot_type=snapshot.snapshot_type.value if snapshot.snapshot_type else "auto",
+        label=snapshot.label,
+        content=ConsolidatedReportResponse(**content_data),
+        created_at=snapshot.created_at.isoformat() if snapshot.created_at else None,
+    )
+
+
+# =============================================================================
+# Consolidated Report Snapshot Endpoints
+# =============================================================================
+
+
+@router.get("/consolidated-snapshots/{team_id}", response_model=SnapshotListResponse)
+async def list_consolidated_snapshots(
+    team_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+    report_period: str | None = Query(None, description="Filter by report period"),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """List consolidated report snapshots for a team.
+    
+    Returns snapshots sorted by created_at descending (most recent first).
+    """
+    from jira_mcp.db import ConsolidatedReportSnapshot
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        query = session.query(ConsolidatedReportSnapshot).filter(
+            ConsolidatedReportSnapshot.team_id == team_id
+        )
+        
+        if report_period:
+            query = query.filter(ConsolidatedReportSnapshot.report_period == report_period)
+
+        total = query.count()
+        snapshots = query.order_by(ConsolidatedReportSnapshot.created_at.desc()).limit(limit).all()
+
+        return SnapshotListResponse(
+            snapshots=[_snapshot_to_response(s) for s in snapshots],
+            total=total,
+        )
+
+
+@router.get("/consolidated-snapshots/{team_id}/{snapshot_id}", response_model=SnapshotResponse)
+async def get_consolidated_snapshot(
+    team_id: int,
+    snapshot_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Get a specific consolidated report snapshot."""
+    from jira_mcp.db import ConsolidatedReportSnapshot
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        snapshot = session.query(ConsolidatedReportSnapshot).filter(
+            ConsolidatedReportSnapshot.id == snapshot_id,
+            ConsolidatedReportSnapshot.team_id == team_id,
+        ).first()
+        
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        return _snapshot_to_response(snapshot)
+
+
+@router.post("/consolidated-snapshots/{team_id}", response_model=SnapshotResponse, status_code=status.HTTP_201_CREATED)
+async def create_consolidated_snapshot(
+    team_id: int,
+    request: SnapshotCreateRequest,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Create a manual snapshot of the current consolidated report.
+    
+    This creates a labeled snapshot that the manager can reference later.
+    Use this for "Final Version", "Before Edits", etc.
+    """
+    from jira_mcp.db import ConsolidatedReportSnapshot, SnapshotType
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get current consolidated report data
+        # We need to fetch it fresh to get the latest state
+        consolidated_data = await get_consolidated_report(
+            team_id=team_id,
+            user=user,
+            report_period=request.report_period,
+            limit=100,
+        )
+
+        snapshot = ConsolidatedReportSnapshot(
+            team_id=team_id,
+            created_by_id=user.id,
+            report_period=request.report_period,
+            snapshot_type=SnapshotType.MANUAL,
+            label=request.label,
+            content=json.dumps(consolidated_data.model_dump()),
+        )
+        session.add(snapshot)
+        session.flush()
+        session.refresh(snapshot)
+
+        return _snapshot_to_response(snapshot)
+
+
+@router.delete("/consolidated-snapshots/{team_id}/{snapshot_id}")
+async def delete_consolidated_snapshot(
+    team_id: int,
+    snapshot_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+):
+    """Delete a consolidated report snapshot.
+    
+    Only admins can delete auto-saved snapshots.
+    Managers can delete their own manual snapshots.
+    """
+    from jira_mcp.db import ConsolidatedReportSnapshot, SnapshotType
+    
+    db = get_db()
+
+    with db.session() as session:
+        # Verify team and access
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        snapshot = session.query(ConsolidatedReportSnapshot).filter(
+            ConsolidatedReportSnapshot.id == snapshot_id,
+            ConsolidatedReportSnapshot.team_id == team_id,
+        ).first()
+        
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        # Non-admins can only delete their own manual snapshots
+        if user.role != UserRole.ADMIN:
+            if snapshot.snapshot_type == SnapshotType.AUTO:
+                raise HTTPException(status_code=403, detail="Cannot delete auto-saved snapshots")
+            if snapshot.created_by_id != user.id:
+                raise HTTPException(status_code=403, detail="Can only delete your own snapshots")
+
+        session.delete(snapshot)
+
+    return {"message": "Snapshot deleted successfully"}

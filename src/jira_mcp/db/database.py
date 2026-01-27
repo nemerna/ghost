@@ -118,6 +118,27 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 7: Create consolidated_report_snapshots table for report history
+    {
+        "id": "007_create_consolidated_report_snapshots",
+        "description": "Create table for consolidated report snapshots/history",
+        "check": lambda inspector: "consolidated_report_snapshots" not in inspector.get_table_names(),
+        "sql": [
+            """CREATE TABLE consolidated_report_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id INTEGER NOT NULL REFERENCES teams(id),
+                created_by_id INTEGER NOT NULL REFERENCES users(id),
+                report_period VARCHAR(100) NOT NULL,
+                snapshot_type VARCHAR(10) NOT NULL DEFAULT 'auto',
+                label VARCHAR(255),
+                content TEXT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "CREATE INDEX idx_snapshot_team_period ON consolidated_report_snapshots (team_id, report_period, created_at)",
+            "CREATE INDEX idx_snapshot_created_by ON consolidated_report_snapshots (created_by_id, created_at)",
+        ],
+        "optional": False,
+    },
 ]
 
 

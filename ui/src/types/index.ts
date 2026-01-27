@@ -298,11 +298,19 @@ export interface RedetectResponse {
 // Consolidated Report Types
 // =============================================================================
 
+/** A single parsed entry from a user's report */
+export interface ConsolidatedUserEntry {
+  text: string;
+  index: number;  // Position in the original report
+}
+
+/** A user's report in the consolidated view with parsed entries */
 export interface ConsolidatedEntry {
   username: string;
   report_id: number;
   title: string;
-  content: string;
+  content: string;  // Combined markdown (for display/backwards compat)
+  entries: ConsolidatedUserEntry[];  // Individual entries for editing
   report_period: string | null;
   created_at: string | null;
 }
@@ -328,6 +336,90 @@ export interface ConsolidatedReportResponse {
   fields: ConsolidatedField[];
   uncategorized: ConsolidatedEntry[];
   total_entries: number;
+}
+
+// =============================================================================
+// Consolidated Report Snapshot Types (History)
+// =============================================================================
+
+export type SnapshotType = 'auto' | 'manual';
+
+export interface ConsolidatedReportSnapshot {
+  id: number;
+  team_id: number;
+  created_by_id: number;
+  report_period: string;
+  snapshot_type: SnapshotType;
+  label: string | null;
+  content: ConsolidatedReportResponse;
+  created_at: string;
+}
+
+export interface SnapshotListResponse {
+  snapshots: ConsolidatedReportSnapshot[];
+  total: number;
+}
+
+export interface SnapshotCreateRequest {
+  report_period: string;
+  label?: string;
+}
+
+// =============================================================================
+// Consolidated Report Draft Types (Manager Edits)
+// =============================================================================
+
+export interface ConsolidatedDraftEntry {
+  text: string;
+  original_report_id?: number;
+  original_username?: string;
+  is_manager_added: boolean;
+}
+
+export interface ConsolidatedDraftProject {
+  id: number;
+  name: string;
+  entries: ConsolidatedDraftEntry[];
+}
+
+export interface ConsolidatedDraftField {
+  id: number;
+  name: string;
+  projects: ConsolidatedDraftProject[];
+}
+
+export interface ConsolidatedDraftContent {
+  format: string;
+  fields: ConsolidatedDraftField[];
+  uncategorized: ConsolidatedDraftEntry[];
+}
+
+export interface ConsolidatedDraft {
+  id: number;
+  team_id: number;
+  manager_id: number;
+  title: string;
+  report_period: string | null;
+  content: ConsolidatedDraftContent;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ConsolidatedDraftListResponse {
+  drafts: ConsolidatedDraft[];
+  total: number;
+}
+
+export interface ConsolidatedDraftCreateRequest {
+  title: string;
+  report_period?: string;
+  content?: ConsolidatedDraftContent;
+}
+
+export interface ConsolidatedDraftUpdateRequest {
+  title?: string;
+  report_period?: string;
+  content?: ConsolidatedDraftContent;
 }
 
 // =============================================================================

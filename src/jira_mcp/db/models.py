@@ -536,3 +536,168 @@ class ProjectJiraComponent(Base):
 
     def __repr__(self) -> str:
         return f"<ProjectJiraComponent(id={self.id}, project={self.jira_project_key}, component={self.component_name})>"
+
+
+# =============================================================================
+# Consolidated Report Draft Model (Manager Edits)
+# =============================================================================
+
+
+class ConsolidatedReportDraft(Base):
+    """Manager's draft of a consolidated team report with editable entries.
+    
+    Stores manager's modifications to consolidated reports separately from
+    original team member reports. Entries are stored as JSON with structure
+    matching the consolidated view (fields -> projects -> entries).
+    """
+
+    __tablename__ = "consolidated_report_drafts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Team this draft is for
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+
+    # Manager who created/owns this draft
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Draft metadata
+    title = Column(String(500), nullable=False)
+    report_period = Column(String(100), nullable=True)  # e.g., "Week 4, January 2026"
+
+    # Content stored as JSON with structure:
+    # {
+    #   "format": "consolidated_v1",
+    #   "fields": [
+    #     {
+    #       "id": 1, "name": "Field Name",
+    #       "projects": [
+    #         {
+    #           "id": 10, "name": "Project Name",
+    #           "entries": [
+    #             {
+    #               "text": "Entry content...",
+    #               "original_report_id": 123,
+    #               "original_username": "user@example.com",
+    #               "is_manager_added": false
+    #             }
+    #           ]
+    #         }
+    #       ]
+    #     }
+    #   ],
+    #   "uncategorized": [...]
+    # }
+    content = Column(Text, nullable=False)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    # Relationships
+    team = relationship("Team")
+    manager = relationship("User")
+
+    __table_args__ = (
+        Index("idx_consolidated_draft_team", "team_id", "created_at"),
+        Index("idx_consolidated_draft_manager", "manager_id", "created_at"),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        import json
+
+        return {
+            "id": self.id,
+            "team_id": self.team_id,
+            "manager_id": self.manager_id,
+            "title": self.title,
+            "report_period": self.report_period,
+            "content": json.loads(self.content) if self.content else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<ConsolidatedReportDraft(id={self.id}, team_id={self.team_id}, title={self.title})>"
+
+
+# =============================================================================
+# Consolidated Report Snapshot Model (History)
+# =============================================================================
+
+
+class SnapshotType(str, enum.Enum):
+    """Types of consolidated report snapshots."""
+
+    AUTO = "auto"      # Auto-saved when first viewed
+    MANUAL = "manual"  # Manually saved by manager
+
+
+class ConsolidatedReportSnapshot(Base):
+    """Snapshot of a consolidated team report for history tracking.
+    
+    Auto-saves when a manager first views a consolidated report for a period,
+    and manual saves when manager explicitly saves with a label.
+    Content is stored as JSON with the full consolidated report structure.
+    """
+
+    __tablename__ = "consolidated_report_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Team this snapshot is for
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+
+    # User who triggered the snapshot (manager or admin)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Report period this snapshot covers (e.g., "Week 4, Jan 2026")
+    report_period = Column(String(100), nullable=False)
+
+    # Snapshot type: auto (first view) or manual (explicit save)
+    snapshot_type = Column(Enum(SnapshotType), nullable=False, default=SnapshotType.AUTO)
+
+    # Optional label for manual saves (e.g., "Final Version", "Before Edits")
+    label = Column(String(255), nullable=True)
+
+    # Content stored as JSON with full consolidated report structure:
+    # {
+    #   "team_id": 1,
+    #   "team_name": "Team Name",
+    #   "report_period": "...",
+    #   "fields": [...],
+    #   "uncategorized": [...],
+    #   "total_entries": 10
+    # }
+    content = Column(Text, nullable=False)
+
+    # Timestamp
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    team = relationship("Team")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_snapshot_team_period", "team_id", "report_period", "created_at"),
+        Index("idx_snapshot_created_by", "created_by_id", "created_at"),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        import json
+
+        return {
+            "id": self.id,
+            "team_id": self.team_id,
+            "created_by_id": self.created_by_id,
+            "report_period": self.report_period,
+            "snapshot_type": self.snapshot_type.value if self.snapshot_type else None,
+            "label": self.label,
+            "content": json.loads(self.content) if self.content else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<ConsolidatedReportSnapshot(id={self.id}, team_id={self.team_id}, period={self.report_period}, type={self.snapshot_type})>"

@@ -4,11 +4,18 @@
 
 import apiClient from './client';
 import type {
+  ConsolidatedDraft,
+  ConsolidatedDraftCreateRequest,
+  ConsolidatedDraftListResponse,
+  ConsolidatedDraftUpdateRequest,
   ConsolidatedReportResponse,
+  ConsolidatedReportSnapshot,
   GeneratedReport,
   ManagementReport,
   ManagementReportCreateRequest,
   ManagementReportListResponse,
+  SnapshotCreateRequest,
+  SnapshotListResponse,
   TeamReportAggregate,
   WeeklyReport,
   WeeklyReportListResponse,
@@ -139,4 +146,127 @@ export async function getConsolidatedReport(teamId: number, params?: {
 }): Promise<ConsolidatedReportResponse> {
   const response = await apiClient.get<ConsolidatedReportResponse>(`/reports/consolidated/${teamId}`, { params });
   return response.data;
+}
+
+// =============================================================================
+// Consolidated Report Drafts (Manager Edits)
+// =============================================================================
+
+/**
+ * List consolidated drafts for a team
+ */
+export async function listConsolidatedDrafts(teamId: number, params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<ConsolidatedDraftListResponse> {
+  const response = await apiClient.get<ConsolidatedDraftListResponse>(
+    `/reports/consolidated-drafts/${teamId}`,
+    { params }
+  );
+  return response.data;
+}
+
+/**
+ * Get a specific consolidated draft
+ */
+export async function getConsolidatedDraft(teamId: number, draftId: number): Promise<ConsolidatedDraft> {
+  const response = await apiClient.get<ConsolidatedDraft>(
+    `/reports/consolidated-drafts/${teamId}/${draftId}`
+  );
+  return response.data;
+}
+
+/**
+ * Create a new consolidated draft
+ * If content is not provided, initializes from current consolidated report data
+ */
+export async function createConsolidatedDraft(
+  teamId: number,
+  data: ConsolidatedDraftCreateRequest
+): Promise<ConsolidatedDraft> {
+  const response = await apiClient.post<ConsolidatedDraft>(
+    `/reports/consolidated-drafts/${teamId}`,
+    data
+  );
+  return response.data;
+}
+
+/**
+ * Update a consolidated draft
+ */
+export async function updateConsolidatedDraft(
+  teamId: number,
+  draftId: number,
+  data: ConsolidatedDraftUpdateRequest
+): Promise<ConsolidatedDraft> {
+  const response = await apiClient.put<ConsolidatedDraft>(
+    `/reports/consolidated-drafts/${teamId}/${draftId}`,
+    data
+  );
+  return response.data;
+}
+
+/**
+ * Delete a consolidated draft
+ */
+export async function deleteConsolidatedDraft(teamId: number, draftId: number): Promise<void> {
+  await apiClient.delete(`/reports/consolidated-drafts/${teamId}/${draftId}`);
+}
+
+// =============================================================================
+// Consolidated Report Snapshots (History)
+// =============================================================================
+
+/**
+ * List consolidated report snapshots for a team
+ */
+export async function listConsolidatedSnapshots(
+  teamId: number,
+  params?: {
+    report_period?: string;
+    limit?: number;
+  }
+): Promise<SnapshotListResponse> {
+  const response = await apiClient.get<SnapshotListResponse>(
+    `/reports/consolidated-snapshots/${teamId}`,
+    { params }
+  );
+  return response.data;
+}
+
+/**
+ * Get a specific consolidated report snapshot
+ */
+export async function getConsolidatedSnapshot(
+  teamId: number,
+  snapshotId: number
+): Promise<ConsolidatedReportSnapshot> {
+  const response = await apiClient.get<ConsolidatedReportSnapshot>(
+    `/reports/consolidated-snapshots/${teamId}/${snapshotId}`
+  );
+  return response.data;
+}
+
+/**
+ * Create a manual snapshot of the current consolidated report
+ */
+export async function createConsolidatedSnapshot(
+  teamId: number,
+  data: SnapshotCreateRequest
+): Promise<ConsolidatedReportSnapshot> {
+  const response = await apiClient.post<ConsolidatedReportSnapshot>(
+    `/reports/consolidated-snapshots/${teamId}`,
+    data
+  );
+  return response.data;
+}
+
+/**
+ * Delete a consolidated report snapshot
+ */
+export async function deleteConsolidatedSnapshot(
+  teamId: number,
+  snapshotId: number
+): Promise<void> {
+  await apiClient.delete(`/reports/consolidated-snapshots/${teamId}/${snapshotId}`);
 }
