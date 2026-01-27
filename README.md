@@ -165,11 +165,14 @@ The web UI provides a dashboard for activity tracking and report management:
 - **Dashboard** — Overview of recent activity
 - **Activities** — View and search logged activities with clickable ticket links
 - **My Reports** — Personal weekly and management reports
-- **Management Reports** — View all management reports (accessible to all users)
+- **Management Reports** — Create and edit reports with per-entry visibility control
+  - Inline editing: view formatted markdown, click pencil icon to edit raw text
+  - Per-entry privacy: toggle eye/lock icon to hide specific entries from managers
+  - Managers see filtered content (private entries hidden)
 - **Team Dashboard** — Team activity overview (manager/admin only)
 - **Team Reports** — Team report management (manager/admin only)
 - **Admin** — User and team administration (admin only)
-- **Settings** — User preferences
+- **Settings** — User preferences and visibility defaults
 - **Dark Mode** — Toggle between light and dark themes
 
 **Authentication:** The UI integrates with OpenShift OAuth for single sign-on. In development mode, authentication can be bypassed.
@@ -472,11 +475,30 @@ The OpenShift deployment includes:
 | `get_saved_report` | Retrieve a report by ID |
 | `delete_saved_report` | Delete a report |
 | `get_report_instructions` | Get management report generation instructions |
-| `save_management_report` | Store AI-generated stakeholder report |
+| `save_management_report` | Store AI-generated stakeholder report with structured entries |
 | `list_management_reports` | List reports, optionally by project |
-| `get_management_report` | Retrieve full report content |
+| `get_management_report` | Retrieve full report content with entries |
 | `update_management_report` | Edit an existing report |
 | `delete_management_report` | Delete a report |
+
+#### Management Report Entries
+
+Management reports use structured entries with per-item visibility control:
+
+```json
+{
+  "title": "Week 4, January 2026",
+  "entries": [
+    { "text": "[Completed](PR-URL) the [feature](ISSUE-URL)", "ticket_key": "PROJ-123" },
+    { "text": "[Fixed](PR-URL) the [bug](ISSUE-URL)", "ticket_key": "PROJ-456", "private": true }
+  ],
+  "referenced_tickets": ["PROJ-123", "PROJ-456"]
+}
+```
+
+- **`entries`** — Array of work items with `text`, optional `ticket_key`, and optional `private` flag
+- **`ticket_key`** — When provided, visibility is auto-inherited from the activity's visibility setting
+- **`private`** — If `true`, entry is hidden from managers in team views
 
 ## Example Prompts
 
