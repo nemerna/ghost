@@ -32,7 +32,7 @@ import {
   TextInput,
   Title,
 } from '@patternfly/react-core';
-import { PlusIcon, CopyIcon, UsersIcon, CubesIcon } from '@patternfly/react-icons';
+import { PlusIcon, CopyIcon, UsersIcon, CubesIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { marked } from 'marked';
 import {
@@ -41,6 +41,7 @@ import {
   deleteManagementReport,
   getTeamManagementReports,
   getConsolidatedReport,
+  updateManagementReportVisibility,
 } from '@/api/reports';
 import { listTeams } from '@/api/teams';
 import { useAuth } from '@/auth';
@@ -122,6 +123,38 @@ export function ManagementReportsPage() {
       queryClient.invalidateQueries({ queryKey: ['managementReports'] });
     },
   });
+
+  // Update visibility mutation
+  const visibilityMutation = useMutation({
+    mutationFn: ({ id, visible }: { id: number; visible: boolean | null }) =>
+      updateManagementReportVisibility(id, visible),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['managementReports'] });
+    },
+  });
+
+  const handleToggleVisibility = (report: ManagementReport) => {
+    // Cycle through: null (inherit) -> true (visible) -> false (hidden) -> null
+    let newValue: boolean | null;
+    if (report.visible_to_manager === null) {
+      newValue = true;
+    } else if (report.visible_to_manager === true) {
+      newValue = false;
+    } else {
+      newValue = null;
+    }
+    visibilityMutation.mutate({ id: report.id, visible: newValue });
+  };
+
+  const getVisibilityInfo = (report: ManagementReport) => {
+    if (report.visible_to_manager === true) {
+      return { icon: <EyeIcon />, tooltip: 'Visible to manager (override)', color: 'green' };
+    } else if (report.visible_to_manager === false) {
+      return { icon: <LockIcon />, tooltip: 'Hidden from manager (override)', color: 'red' };
+    } else {
+      return { icon: <EyeIcon />, tooltip: 'Using default visibility', color: 'grey' };
+    }
+  };
 
   const handleCreate = () => {
     if (newReport.title && newReport.content) {
@@ -557,7 +590,9 @@ export function ManagementReportsPage() {
             ))
           ) : (
             // Personal view - flat list
-            reportsData.reports.map((report) => (
+            reportsData.reports.map((report) => {
+              const visInfo = getVisibilityInfo(report);
+              return (
               <Card key={report.id} style={{ marginBottom: '1rem' }}>
                 <CardTitle>
                   <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
@@ -579,10 +614,20 @@ export function ManagementReportsPage() {
                         {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
                       </small>
                       <Button
+                        variant="plain"
+                        aria-label={visInfo.tooltip}
+                        title={visInfo.tooltip}
+                        onClick={() => handleToggleVisibility(report)}
+                        isLoading={visibilityMutation.isPending}
+                        style={{ color: visInfo.color, marginLeft: '0.5rem' }}
+                      >
+                        {visInfo.icon}
+                      </Button>
+                      <Button
                         variant="link"
                         isDanger
                         onClick={() => handleDelete(report.id)}
-                        style={{ marginLeft: '1rem' }}
+                        style={{ marginLeft: '0.5rem' }}
                       >
                         Delete
                       </Button>
@@ -600,7 +645,8 @@ export function ManagementReportsPage() {
                   )}
                 </CardBody>
               </Card>
-            ))
+              );
+            })
           )
         ) : (
           <Card>

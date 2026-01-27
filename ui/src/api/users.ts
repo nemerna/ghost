@@ -3,7 +3,7 @@
  */
 
 import apiClient from './client';
-import type { User, UserListResponse } from '@/types';
+import type { User, UserListResponse, VisibilitySettings, VisibilitySettingsResponse } from '@/types';
 
 export async function getCurrentUser(): Promise<User> {
   const response = await apiClient.get<User>('/users/me');
@@ -12,6 +12,16 @@ export async function getCurrentUser(): Promise<User> {
 
 export async function updateMyPreferences(preferences: Record<string, unknown>): Promise<User> {
   const response = await apiClient.put<User>('/users/me/preferences', { preferences });
+  return response.data;
+}
+
+export async function getMyVisibilitySettings(): Promise<VisibilitySettingsResponse> {
+  const response = await apiClient.get<VisibilitySettingsResponse>('/users/me/visibility');
+  return response.data;
+}
+
+export async function updateMyVisibilitySettings(settings: VisibilitySettings): Promise<VisibilitySettingsResponse> {
+  const response = await apiClient.put<VisibilitySettingsResponse>('/users/me/visibility', settings);
   return response.data;
 }
 

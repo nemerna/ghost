@@ -45,6 +45,20 @@ class PreferencesUpdateRequest(BaseModel):
     preferences: dict
 
 
+class VisibilitySettings(BaseModel):
+    """Visibility settings for manager access."""
+    
+    activity_logs: str = "shared"  # "shared" or "private"
+    weekly_reports: str = "shared"
+    management_reports: str = "private"
+
+
+class VisibilitySettingsResponse(BaseModel):
+    """Response model for visibility settings."""
+    
+    visibility_defaults: VisibilitySettings
+
+
 class UserListResponse(BaseModel):
     """Response model for user list."""
     
@@ -95,6 +109,65 @@ async def update_my_preferences(
             preferences=request.preferences,
             first_seen=db_user.first_seen.isoformat() if db_user.first_seen else None,
             last_seen=db_user.last_seen.isoformat() if db_user.last_seen else None,
+        )
+
+
+@router.get("/me/visibility", response_model=VisibilitySettingsResponse)
+async def get_my_visibility_settings(user: CurrentUser):
+    """Get the current user's visibility settings for manager access."""
+    db = get_db()
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        visibility_defaults = preferences.get("visibility_defaults", {})
+        
+        return VisibilitySettingsResponse(
+            visibility_defaults=VisibilitySettings(
+                activity_logs=visibility_defaults.get("activity_logs", "shared"),
+                weekly_reports=visibility_defaults.get("weekly_reports", "shared"),
+                management_reports=visibility_defaults.get("management_reports", "private"),
+            )
+        )
+
+
+@router.put("/me/visibility", response_model=VisibilitySettingsResponse)
+async def update_my_visibility_settings(
+    user: CurrentUser,
+    settings: VisibilitySettings,
+):
+    """Update the current user's visibility settings for manager access."""
+    db = get_db()
+    
+    # Validate values
+    valid_values = {"shared", "private"}
+    if settings.activity_logs not in valid_values:
+        raise HTTPException(status_code=400, detail="activity_logs must be 'shared' or 'private'")
+    if settings.weekly_reports not in valid_values:
+        raise HTTPException(status_code=400, detail="weekly_reports must be 'shared' or 'private'")
+    if settings.management_reports not in valid_values:
+        raise HTTPException(status_code=400, detail="management_reports must be 'shared' or 'private'")
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get existing preferences and update visibility_defaults
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        preferences["visibility_defaults"] = {
+            "activity_logs": settings.activity_logs,
+            "weekly_reports": settings.weekly_reports,
+            "management_reports": settings.management_reports,
+        }
+        db_user.preferences = json.dumps(preferences)
+        session.flush()
+        
+        return VisibilitySettingsResponse(
+            visibility_defaults=settings
         )
 
 

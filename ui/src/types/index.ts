@@ -24,6 +24,26 @@ export interface UserListResponse {
 }
 
 // =============================================================================
+// Visibility Types
+// =============================================================================
+
+export type VisibilityValue = 'shared' | 'private';
+
+export interface VisibilitySettings {
+  activity_logs: VisibilityValue;
+  weekly_reports: VisibilityValue;
+  management_reports: VisibilityValue;
+}
+
+export interface VisibilitySettingsResponse {
+  visibility_defaults: VisibilitySettings;
+}
+
+export interface VisibilityUpdateRequest {
+  visible_to_manager: boolean | null;
+}
+
+// =============================================================================
 // Team Types
 // =============================================================================
 
@@ -76,6 +96,7 @@ export interface Activity {
   action_type: ActionType;
   action_details: Record<string, unknown> | null;
   timestamp: string;
+  visible_to_manager: boolean | null;
 }
 
 export interface ActivityListResponse {
@@ -118,6 +139,7 @@ export interface WeeklyReport {
   projects: string[];
   created_at: string | null;
   updated_at: string | null;
+  visible_to_manager: boolean | null;
 }
 
 export interface WeeklyReportListResponse {
@@ -151,6 +173,7 @@ export interface ManagementReport {
   referenced_tickets: string[];
   created_at: string | null;
   updated_at: string | null;
+  visible_to_manager: boolean | null;
 }
 
 export interface ManagementReportListResponse {

@@ -3,7 +3,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -214,6 +214,9 @@ class ActivityLog(Base):
     # Timestamps
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
+    # Visibility control - None=inherit from user preferences, True=shared, False=private
+    visible_to_manager = Column(Boolean, nullable=True, default=None)
+
     # Relationships
     detected_project = relationship("ReportProject", back_populates="activities")
 
@@ -240,6 +243,7 @@ class ActivityLog(Base):
             "action_type": self.action_type.value if self.action_type else None,
             "action_details": self.action_details,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "visible_to_manager": self.visible_to_manager,
         }
 
 
@@ -270,6 +274,9 @@ class WeeklyReport(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
+    # Visibility control - None=inherit from user preferences, True=shared, False=private
+    visible_to_manager = Column(Boolean, nullable=True, default=None)
+
     __table_args__ = (Index("idx_user_week", "username", "week_start"),)
 
     def to_dict(self) -> dict:
@@ -286,6 +293,7 @@ class WeeklyReport(Base):
             "projects": self.projects.split(",") if self.projects else [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "visible_to_manager": self.visible_to_manager,
         }
 
 
@@ -316,6 +324,9 @@ class ManagementReport(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
+    # Visibility control - None=inherit from user preferences, True=shared, False=private
+    visible_to_manager = Column(Boolean, nullable=True, default=None)
+
     __table_args__ = (
         Index("idx_mgmt_user_created", "username", "created_at"),
         Index("idx_mgmt_project", "project_key", "created_at"),
@@ -335,6 +346,7 @@ class ManagementReport(Base):
             ),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "visible_to_manager": self.visible_to_manager,
         }
 
 

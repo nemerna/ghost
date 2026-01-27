@@ -37,6 +37,13 @@ export async function deleteActivity(activityId: number): Promise<void> {
   await apiClient.delete(`/activities/${activityId}`);
 }
 
+export async function updateActivityVisibility(activityId: number, visibleToManager: boolean | null): Promise<Activity> {
+  const response = await apiClient.patch<Activity>(`/activities/${activityId}/visibility`, {
+    visible_to_manager: visibleToManager,
+  });
+  return response.data;
+}
+
 export async function getTeamActivities(teamId: number, params?: {
   start_date?: string;
   end_date?: string;

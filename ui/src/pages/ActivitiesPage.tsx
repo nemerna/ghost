@@ -30,9 +30,9 @@ import {
   ToolbarItem,
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
-import { PlusIcon, TrashIcon, ExternalLinkAltIcon } from '@patternfly/react-icons';
+import { PlusIcon, TrashIcon, ExternalLinkAltIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
-import { getMyActivities, createActivity, deleteActivity } from '@/api/activities';
+import { getMyActivities, createActivity, deleteActivity, updateActivityVisibility } from '@/api/activities';
 import type { Activity, ActivityCreateRequest, ActionType, TicketSource } from '@/types';
 
 const actionTypes: ActionType[] = ['view', 'create', 'update', 'comment', 'transition', 'link', 'other'];
@@ -119,6 +119,38 @@ export function ActivitiesPage() {
     },
   });
 
+  // Update visibility mutation
+  const visibilityMutation = useMutation({
+    mutationFn: ({ id, visible }: { id: number; visible: boolean | null }) =>
+      updateActivityVisibility(id, visible),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myActivities'] });
+    },
+  });
+
+  const handleToggleVisibility = (activity: Activity) => {
+    // Cycle through: null (inherit) -> true (visible) -> false (hidden) -> null
+    let newValue: boolean | null;
+    if (activity.visible_to_manager === null) {
+      newValue = true; // Explicitly visible
+    } else if (activity.visible_to_manager === true) {
+      newValue = false; // Explicitly hidden
+    } else {
+      newValue = null; // Back to inherit
+    }
+    visibilityMutation.mutate({ id: activity.id, visible: newValue });
+  };
+
+  const getVisibilityIcon = (activity: Activity) => {
+    if (activity.visible_to_manager === true) {
+      return { icon: <EyeIcon />, tooltip: 'Visible to manager (override)', color: 'green' };
+    } else if (activity.visible_to_manager === false) {
+      return { icon: <LockIcon />, tooltip: 'Hidden from manager (override)', color: 'red' };
+    } else {
+      return { icon: <EyeIcon />, tooltip: 'Using default visibility', color: 'grey' };
+    }
+  };
+
   const handleCreateActivity = () => {
     if (newActivity.ticket_key) {
       createMutation.mutate(newActivity);
@@ -131,7 +163,7 @@ export function ActivitiesPage() {
     }
   };
 
-  const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Action', 'Timestamp', 'Actions'];
+  const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Action', 'Timestamp', 'Visibility', 'Actions'];
 
   return (
     <>
@@ -239,6 +271,23 @@ export function ActivitiesPage() {
                       </Td>
                       <Td dataLabel="Timestamp">
                         {format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
+                      </Td>
+                      <Td dataLabel="Visibility">
+                        {(() => {
+                          const vis = getVisibilityIcon(activity);
+                          return (
+                            <Button
+                              variant="plain"
+                              aria-label={vis.tooltip}
+                              title={vis.tooltip}
+                              onClick={() => handleToggleVisibility(activity)}
+                              isLoading={visibilityMutation.isPending}
+                              style={{ color: vis.color }}
+                            >
+                              {vis.icon}
+                            </Button>
+                          );
+                        })()}
                       </Td>
                       <Td dataLabel="Actions">
                         <Button

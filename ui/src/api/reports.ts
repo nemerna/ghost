@@ -51,6 +51,13 @@ export async function deleteWeeklyReport(reportId: number): Promise<void> {
   await apiClient.delete(`/reports/weekly/${reportId}`);
 }
 
+export async function updateWeeklyReportVisibility(reportId: number, visibleToManager: boolean | null): Promise<WeeklyReport> {
+  const response = await apiClient.patch<WeeklyReport>(`/reports/weekly/${reportId}/visibility`, {
+    visible_to_manager: visibleToManager,
+  });
+  return response.data;
+}
+
 export async function getTeamWeeklyReports(teamId: number, params?: {
   week_start?: string;
   limit?: number;
@@ -94,6 +101,13 @@ export async function updateManagementReport(
 
 export async function deleteManagementReport(reportId: number): Promise<void> {
   await apiClient.delete(`/reports/management/${reportId}`);
+}
+
+export async function updateManagementReportVisibility(reportId: number, visibleToManager: boolean | null): Promise<ManagementReport> {
+  const response = await apiClient.patch<ManagementReport>(`/reports/management/${reportId}/visibility`, {
+    visible_to_manager: visibleToManager,
+  });
+  return response.data;
 }
 
 export async function getTeamManagementReports(teamId: number, params?: {

@@ -45,6 +45,7 @@ class WeeklyReportResponse(BaseModel):
     projects: list[str]
     created_at: str | None
     updated_at: str | None
+    visible_to_manager: bool | None = None
 
 
 class WeeklyReportCreateRequest(BaseModel):
@@ -74,6 +75,13 @@ class ManagementReportResponse(BaseModel):
     referenced_tickets: list[str]
     created_at: str | None
     updated_at: str | None
+    visible_to_manager: bool | None = None
+
+
+class VisibilityUpdateRequest(BaseModel):
+    """Request model for updating visibility."""
+    
+    visible_to_manager: bool | None  # None = inherit from user preferences
 
 
 class ManagementReportCreateRequest(BaseModel):
@@ -134,6 +142,7 @@ def weekly_report_to_response(report: WeeklyReport) -> WeeklyReportResponse:
         projects=report.projects.split(",") if report.projects else [],
         created_at=report.created_at.isoformat() if report.created_at else None,
         updated_at=report.updated_at.isoformat() if report.updated_at else None,
+        visible_to_manager=report.visible_to_manager,
     )
 
 
@@ -149,7 +158,32 @@ def management_report_to_response(report: ManagementReport) -> ManagementReportR
         referenced_tickets=report.referenced_tickets.split(",") if report.referenced_tickets else [],
         created_at=report.created_at.isoformat() if report.created_at else None,
         updated_at=report.updated_at.isoformat() if report.updated_at else None,
+        visible_to_manager=report.visible_to_manager,
     )
+
+
+def _get_user_visibility_defaults(user: User) -> dict:
+    """Get visibility defaults from user preferences."""
+    preferences = json.loads(user.preferences) if user.preferences else {}
+    return preferences.get("visibility_defaults", {
+        "activity_logs": "shared",
+        "weekly_reports": "shared",
+        "management_reports": "private",
+    })
+
+
+def _is_weekly_report_visible_to_manager(report: WeeklyReport, user_visibility_defaults: dict) -> bool:
+    """Check if a weekly report is visible to manager based on item override or user defaults."""
+    if report.visible_to_manager is not None:
+        return report.visible_to_manager
+    return user_visibility_defaults.get("weekly_reports", "shared") == "shared"
+
+
+def _is_management_report_visible_to_manager(report: ManagementReport, user_visibility_defaults: dict) -> bool:
+    """Check if a management report is visible to manager based on item override or user defaults."""
+    if report.visible_to_manager is not None:
+        return report.visible_to_manager
+    return user_visibility_defaults.get("management_reports", "private") == "shared"
 
 
 # =============================================================================
@@ -268,6 +302,34 @@ async def delete_weekly_report(
     return {"message": "Report deleted successfully"}
 
 
+@router.patch("/weekly/{report_id}/visibility", response_model=WeeklyReportResponse)
+async def update_weekly_report_visibility(
+    report_id: int,
+    request: VisibilityUpdateRequest,
+    user: CurrentUser,
+):
+    """Update visibility of a weekly report to manager (own reports only).
+    
+    - visible_to_manager=true: Always visible to manager
+    - visible_to_manager=false: Always hidden from manager
+    - visible_to_manager=null: Inherit from user's visibility preferences
+    """
+    db = get_db()
+    
+    with db.session() as session:
+        report = session.query(WeeklyReport).filter(WeeklyReport.id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        if report.username != user.email and user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Can only update visibility of your own reports")
+        
+        report.visible_to_manager = request.visible_to_manager
+        session.flush()
+        
+        return weekly_report_to_response(report)
+
+
 @router.get("/weekly/team/{team_id}", response_model=WeeklyReportListResponse)
 async def get_team_weekly_reports(
     team_id: int,
@@ -276,7 +338,10 @@ async def get_team_weekly_reports(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """Get weekly reports for all team members (manager or admin only)."""
+    """Get weekly reports for all team members (manager or admin only).
+    
+    Only returns reports that users have made visible to their manager.
+    """
     db = get_db()
     
     with db.session() as session:
@@ -297,23 +362,32 @@ async def get_team_weekly_reports(
         members = session.query(User).filter(User.id.in_(member_ids)).all()
         member_emails = [m.email for m in members]
         
+        # Build a map of email -> visibility defaults
+        email_to_visibility = {
+            m.email: _get_user_visibility_defaults(m)
+            for m in members
+        }
+        
         # Query reports
         query = session.query(WeeklyReport).filter(WeeklyReport.username.in_(member_emails))
         
         if week_start:
             query = query.filter(WeeklyReport.week_start == week_start)
         
-        total = query.count()
+        all_reports = query.order_by(WeeklyReport.week_start.desc(), WeeklyReport.username).all()
         
-        reports = (
-            query.order_by(WeeklyReport.week_start.desc(), WeeklyReport.username)
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        # Filter by visibility
+        visible_reports = [
+            r for r in all_reports
+            if _is_weekly_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
+        ]
+        
+        # Apply pagination manually after visibility filtering
+        total = len(visible_reports)
+        paginated_reports = visible_reports[offset:offset + limit]
         
         return WeeklyReportListResponse(
-            reports=[weekly_report_to_response(r) for r in reports],
+            reports=[weekly_report_to_response(r) for r in paginated_reports],
             total=total,
         )
 
@@ -460,6 +534,34 @@ async def delete_management_report(
     return {"message": "Report deleted successfully"}
 
 
+@router.patch("/management/{report_id}/visibility", response_model=ManagementReportResponse)
+async def update_management_report_visibility(
+    report_id: int,
+    request: VisibilityUpdateRequest,
+    user: CurrentUser,
+):
+    """Update visibility of a management report to manager (own reports only).
+    
+    - visible_to_manager=true: Always visible to manager
+    - visible_to_manager=false: Always hidden from manager
+    - visible_to_manager=null: Inherit from user's visibility preferences
+    """
+    db = get_db()
+    
+    with db.session() as session:
+        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        if report.username != user.email and user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Can only update visibility of your own reports")
+        
+        report.visible_to_manager = request.visible_to_manager
+        session.flush()
+        
+        return management_report_to_response(report)
+
+
 @router.get("/management/team/{team_id}", response_model=ManagementReportListResponse)
 async def get_team_management_reports(
     team_id: int,
@@ -468,7 +570,10 @@ async def get_team_management_reports(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """Get management reports from all team members (manager or admin only)."""
+    """Get management reports from all team members (manager or admin only).
+    
+    Only returns reports that users have made visible to their manager.
+    """
     db = get_db()
     
     with db.session() as session:
@@ -489,23 +594,32 @@ async def get_team_management_reports(
         members = session.query(User).filter(User.id.in_(member_ids)).all()
         member_emails = [m.email for m in members]
         
+        # Build a map of email -> visibility defaults
+        email_to_visibility = {
+            m.email: _get_user_visibility_defaults(m)
+            for m in members
+        }
+        
         # Query management reports from team members
         query = session.query(ManagementReport).filter(ManagementReport.username.in_(member_emails))
         
         if report_period:
             query = query.filter(ManagementReport.report_period == report_period)
         
-        total = query.count()
+        all_reports = query.order_by(ManagementReport.created_at.desc()).all()
         
-        reports = (
-            query.order_by(ManagementReport.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        # Filter by visibility
+        visible_reports = [
+            r for r in all_reports
+            if _is_management_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
+        ]
+        
+        # Apply pagination manually after visibility filtering
+        total = len(visible_reports)
+        paginated_reports = visible_reports[offset:offset + limit]
         
         return ManagementReportListResponse(
-            reports=[management_report_to_response(r) for r in reports],
+            reports=[management_report_to_response(r) for r in paginated_reports],
             total=total,
         )
 
@@ -516,7 +630,10 @@ async def get_team_report_aggregate(
     user: Annotated[User, Depends(require_manager_or_admin)],
     week_offset: int = Query(0, ge=-52, le=0, description="Week offset"),
 ):
-    """Get aggregated data from team members' weekly reports for management report creation."""
+    """Get aggregated data from team members' weekly reports for management report creation.
+    
+    Only includes reports that users have made visible to their manager.
+    """
     db = get_db()
     
     # Calculate week boundaries
@@ -546,8 +663,14 @@ async def get_team_report_aggregate(
         members = session.query(User).filter(User.id.in_(member_ids)).all()
         member_emails = [m.email for m in members]
         
+        # Build a map of email -> visibility defaults
+        email_to_visibility = {
+            m.email: _get_user_visibility_defaults(m)
+            for m in members
+        }
+        
         # Get weekly reports for this period
-        reports = (
+        all_reports = (
             session.query(WeeklyReport)
             .filter(
                 WeeklyReport.username.in_(member_emails),
@@ -556,6 +679,12 @@ async def get_team_report_aggregate(
             )
             .all()
         )
+        
+        # Filter by visibility
+        reports = [
+            r for r in all_reports
+            if _is_weekly_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
+        ]
         
         # Aggregate data
         total_tickets = 0
@@ -654,6 +783,8 @@ async def get_consolidated_report(
       - Projects (under each field)
         - Entries (reports from team members assigned to this project)
     - Uncategorized (reports with no detected project)
+    
+    Only includes reports that users have made visible to their manager.
     """
     db = get_db()
 
@@ -674,6 +805,12 @@ async def get_consolidated_report(
 
         members = session.query(User).filter(User.id.in_(member_ids)).all()
         member_emails = [m.email for m in members]
+        
+        # Build a map of email -> visibility defaults
+        email_to_visibility = {
+            m.email: _get_user_visibility_defaults(m)
+            for m in members
+        }
 
         # Get management reports from team members
         query = session.query(ManagementReport).filter(ManagementReport.username.in_(member_emails))
@@ -681,7 +818,13 @@ async def get_consolidated_report(
         if report_period:
             query = query.filter(ManagementReport.report_period == report_period)
 
-        reports = query.order_by(ManagementReport.created_at.desc()).limit(limit).all()
+        all_reports = query.order_by(ManagementReport.created_at.desc()).limit(limit).all()
+        
+        # Filter by visibility
+        reports = [
+            r for r in all_reports
+            if _is_management_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
+        ]
 
         # Get the latest report per user (for consolidation)
         latest_by_user: dict[str, ManagementReport] = {}

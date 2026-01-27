@@ -104,6 +104,20 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 6: Add visible_to_manager column to activity_log, weekly_reports, and management_reports
+    # This allows users to control visibility of their data to managers
+    {
+        "id": "006_add_visible_to_manager",
+        "description": "Add visible_to_manager column for manager visibility controls",
+        "check": lambda inspector: "activity_log" in inspector.get_table_names()
+        and "visible_to_manager" not in [c["name"] for c in inspector.get_columns("activity_log")],
+        "sql": [
+            "ALTER TABLE activity_log ADD COLUMN visible_to_manager BOOLEAN DEFAULT NULL",
+            "ALTER TABLE weekly_reports ADD COLUMN visible_to_manager BOOLEAN DEFAULT NULL",
+            "ALTER TABLE management_reports ADD COLUMN visible_to_manager BOOLEAN DEFAULT NULL",
+        ],
+        "optional": False,
+    },
 ]
 
 

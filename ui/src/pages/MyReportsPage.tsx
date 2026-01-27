@@ -27,14 +27,16 @@ import {
   TextInput,
   Title,
 } from '@patternfly/react-core';
+import { LockIcon, EyeIcon } from '@patternfly/react-icons';
 import {
   generateWeeklyReport,
   getMyWeeklyReports,
   saveWeeklyReport,
   deleteWeeklyReport,
+  updateWeeklyReportVisibility,
 } from '@/api/reports';
 import { StyledMarkdown, InlineMarkdown } from '@/components/StyledMarkdown';
-import type { GeneratedReport } from '@/types';
+import type { GeneratedReport, WeeklyReport } from '@/types';
 
 export function MyReportsPage() {
   const queryClient = useQueryClient();
@@ -87,6 +89,38 @@ export function MyReportsPage() {
     },
   });
 
+  // Update visibility mutation
+  const visibilityMutation = useMutation({
+    mutationFn: ({ id, visible }: { id: number; visible: boolean | null }) =>
+      updateWeeklyReportVisibility(id, visible),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myWeeklyReports'] });
+    },
+  });
+
+  const handleToggleVisibility = (report: WeeklyReport) => {
+    // Cycle through: null (inherit) -> true (visible) -> false (hidden) -> null
+    let newValue: boolean | null;
+    if (report.visible_to_manager === null) {
+      newValue = true;
+    } else if (report.visible_to_manager === true) {
+      newValue = false;
+    } else {
+      newValue = null;
+    }
+    visibilityMutation.mutate({ id: report.id, visible: newValue });
+  };
+
+  const getVisibilityInfo = (report: WeeklyReport) => {
+    if (report.visible_to_manager === true) {
+      return { icon: <EyeIcon />, tooltip: 'Visible to manager (override)', color: 'green' };
+    } else if (report.visible_to_manager === false) {
+      return { icon: <LockIcon />, tooltip: 'Hidden from manager (override)', color: 'red' };
+    } else {
+      return { icon: <EyeIcon />, tooltip: 'Using default visibility', color: 'grey' };
+    }
+  };
+
   const handleOpenGenerateModal = () => {
     setIsGenerateModalOpen(true);
     setWeekOffset(0);
@@ -131,7 +165,9 @@ export function MyReportsPage() {
           </Flex>
         ) : savedReports?.reports.length ? (
           <>
-            {savedReports.reports.map((report) => (
+            {savedReports.reports.map((report) => {
+              const visInfo = getVisibilityInfo(report);
+              return (
               <Card key={report.id} style={{ marginBottom: '1rem' }}>
                 <CardTitle>
                   <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
@@ -142,6 +178,16 @@ export function MyReportsPage() {
                       </Label>
                     </FlexItem>
                     <FlexItem>
+                      <Button
+                        variant="plain"
+                        aria-label={visInfo.tooltip}
+                        title={visInfo.tooltip}
+                        onClick={() => handleToggleVisibility(report)}
+                        isLoading={visibilityMutation.isPending}
+                        style={{ color: visInfo.color }}
+                      >
+                        {visInfo.icon}
+                      </Button>
                       <Button
                         variant="link"
                         isDanger
@@ -162,7 +208,8 @@ export function MyReportsPage() {
                   </ExpandableSection>
                 </CardBody>
               </Card>
-            ))}
+            );
+            })}
           </>
         ) : (
           <Card>
