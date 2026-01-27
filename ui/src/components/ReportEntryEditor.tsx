@@ -1,9 +1,9 @@
 /**
  * Report Entry Editor - Structured editor for management report entries
- * with per-entry visibility toggles.
+ * with per-entry visibility toggles and inline editing.
  */
 
-import { useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Button,
   Flex,
@@ -12,11 +12,15 @@ import {
   Tooltip,
 } from '@patternfly/react-core';
 import {
+  CheckIcon,
   EyeIcon,
   LockIcon,
+  PencilAltIcon,
   PlusIcon,
+  TimesIcon,
   TrashIcon,
 } from '@patternfly/react-icons';
+import { InlineMarkdown } from '@/components/StyledMarkdown';
 import type { ReportEntry, ReportEntryInput } from '@/types';
 
 export interface ReportEntryEditorProps {
@@ -44,20 +48,61 @@ export function ReportEntryEditor({
   placeholder = 'Work item description with links...',
   disabled = false,
 }: ReportEntryEditorProps) {
-  // Add a new empty entry
-  const handleAddEntry = useCallback(() => {
-    onChange([...entries, { text: '', private: false }]);
-  }, [entries, onChange]);
+  // Track which entry index is being edited (-1 = none)
+  const [editingIndex, setEditingIndex] = useState<number>(-1);
+  // Temporary text while editing (before save)
+  const [editText, setEditText] = useState<string>('');
+  // Ref to focus input when editing starts
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Update an entry's text
-  const handleTextChange = useCallback(
-    (index: number, text: string) => {
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingIndex >= 0 && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [editingIndex]);
+
+  // Start editing an entry
+  const handleStartEdit = useCallback((index: number) => {
+    setEditingIndex(index);
+    setEditText(entries[index].text);
+  }, [entries]);
+
+  // Save the current edit
+  const handleSaveEdit = useCallback(() => {
+    if (editingIndex >= 0) {
       const newEntries = [...entries];
-      newEntries[index] = { ...newEntries[index], text };
+      newEntries[editingIndex] = { ...newEntries[editingIndex], text: editText };
       onChange(newEntries);
-    },
-    [entries, onChange]
-  );
+      setEditingIndex(-1);
+      setEditText('');
+    }
+  }, [editingIndex, editText, entries, onChange]);
+
+  // Cancel the current edit
+  const handleCancelEdit = useCallback(() => {
+    setEditingIndex(-1);
+    setEditText('');
+  }, []);
+
+  // Handle keyboard events in edit mode
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
+  }, [handleSaveEdit, handleCancelEdit]);
+
+  // Add a new empty entry (and start editing it)
+  const handleAddEntry = useCallback(() => {
+    const newEntries = [...entries, { text: '', private: false }];
+    onChange(newEntries);
+    // Start editing the new entry
+    setEditingIndex(newEntries.length - 1);
+    setEditText('');
+  }, [entries, onChange]);
 
   // Toggle an entry's visibility
   const handleToggleVisibility = useCallback(
@@ -75,10 +120,18 @@ export function ReportEntryEditor({
   // Delete an entry
   const handleDeleteEntry = useCallback(
     (index: number) => {
+      // If we're editing this entry, cancel the edit
+      if (editingIndex === index) {
+        setEditingIndex(-1);
+        setEditText('');
+      } else if (editingIndex > index) {
+        // Adjust editing index if we deleted an entry before it
+        setEditingIndex(editingIndex - 1);
+      }
       const newEntries = entries.filter((_, i) => i !== index);
       onChange(newEntries);
     },
-    [entries, onChange]
+    [entries, onChange, editingIndex]
   );
 
   return (
@@ -87,49 +140,121 @@ export function ReportEntryEditor({
         <FlexItem key={index}>
           <Flex alignItems={{ default: 'alignItemsCenter' }}>
             <FlexItem grow={{ default: 'grow' }}>
-              <TextInput
-                value={entry.text}
-                onChange={(_event, value) => handleTextChange(index, value)}
-                placeholder={placeholder}
-                isDisabled={disabled}
-                aria-label={`Entry ${index + 1}`}
-                style={{
-                  backgroundColor: entry.private ? 'rgba(255, 0, 0, 0.05)' : undefined,
-                }}
-              />
-            </FlexItem>
-            <FlexItem>
-              <Tooltip
-                content={
-                  entry.private
-                    ? 'Private - hidden from manager (click to share)'
-                    : 'Shared - visible to manager (click to hide)'
-                }
-              >
-                <Button
-                  variant="plain"
-                  onClick={() => handleToggleVisibility(index)}
+              {editingIndex === index ? (
+                // Edit mode - show text input
+                <TextInput
+                  ref={inputRef}
+                  value={editText}
+                  onChange={(_event, value) => setEditText(value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={placeholder}
                   isDisabled={disabled}
-                  aria-label={entry.private ? 'Make visible' : 'Make private'}
-                  style={{ color: entry.private ? '#c9190b' : '#3e8635' }}
+                  aria-label={`Edit entry ${index + 1}`}
+                  style={{
+                    backgroundColor: entry.private ? 'rgba(255, 0, 0, 0.05)' : undefined,
+                  }}
+                />
+              ) : (
+                // View mode - show formatted markdown
+                <div
+                  style={{
+                    padding: '0.375rem 0.5rem',
+                    minHeight: '36px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    backgroundColor: entry.private ? 'rgba(255, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                    borderRadius: '3px',
+                    color: entry.private ? '#6a6e73' : 'inherit',
+                  }}
                 >
-                  {entry.private ? <LockIcon /> : <EyeIcon />}
-                </Button>
-              </Tooltip>
+                  {entry.text ? (
+                    <InlineMarkdown>{entry.text}</InlineMarkdown>
+                  ) : (
+                    <span style={{ color: '#6a6e73', fontStyle: 'italic' }}>{placeholder}</span>
+                  )}
+                </div>
+              )}
             </FlexItem>
-            <FlexItem>
-              <Tooltip content="Delete entry">
-                <Button
-                  variant="plain"
-                  isDanger
-                  onClick={() => handleDeleteEntry(index)}
-                  isDisabled={disabled || entries.length <= 1}
-                  aria-label="Delete entry"
-                >
-                  <TrashIcon />
-                </Button>
-              </Tooltip>
-            </FlexItem>
+            
+            {/* Action buttons */}
+            {editingIndex === index ? (
+              // Edit mode buttons: Save and Cancel
+              <>
+                <FlexItem>
+                  <Tooltip content="Save">
+                    <Button
+                      variant="plain"
+                      onClick={handleSaveEdit}
+                      aria-label="Save edit"
+                      style={{ color: '#3e8635' }}
+                    >
+                      <CheckIcon />
+                    </Button>
+                  </Tooltip>
+                </FlexItem>
+                <FlexItem>
+                  <Tooltip content="Cancel">
+                    <Button
+                      variant="plain"
+                      onClick={handleCancelEdit}
+                      aria-label="Cancel edit"
+                      style={{ color: '#6a6e73' }}
+                    >
+                      <TimesIcon />
+                    </Button>
+                  </Tooltip>
+                </FlexItem>
+              </>
+            ) : (
+              // View mode buttons: Edit, Visibility, Delete
+              <>
+                <FlexItem>
+                  <Tooltip content="Edit entry">
+                    <Button
+                      variant="plain"
+                      onClick={() => handleStartEdit(index)}
+                      isDisabled={disabled}
+                      aria-label="Edit entry"
+                      style={{ color: '#0066cc' }}
+                    >
+                      <PencilAltIcon />
+                    </Button>
+                  </Tooltip>
+                </FlexItem>
+                <FlexItem>
+                  <Tooltip
+                    content={
+                      entry.private
+                        ? 'Private - hidden from manager (click to share)'
+                        : 'Shared - visible to manager (click to hide)'
+                    }
+                  >
+                    <Button
+                      variant="plain"
+                      onClick={() => handleToggleVisibility(index)}
+                      isDisabled={disabled}
+                      aria-label={entry.private ? 'Make visible' : 'Make private'}
+                      style={{ color: entry.private ? '#c9190b' : '#3e8635' }}
+                    >
+                      {entry.private ? <LockIcon /> : <EyeIcon />}
+                    </Button>
+                  </Tooltip>
+                </FlexItem>
+                <FlexItem>
+                  <Tooltip content="Delete entry">
+                    <Button
+                      variant="plain"
+                      isDanger
+                      onClick={() => handleDeleteEntry(index)}
+                      isDisabled={disabled || entries.length <= 1}
+                      aria-label="Delete entry"
+                    >
+                      <TrashIcon />
+                    </Button>
+                  </Tooltip>
+                </FlexItem>
+              </>
+            )}
           </Flex>
         </FlexItem>
       ))}
@@ -138,7 +263,7 @@ export function ReportEntryEditor({
           variant="link"
           icon={<PlusIcon />}
           onClick={handleAddEntry}
-          isDisabled={disabled}
+          isDisabled={disabled || editingIndex >= 0}
         >
           Add Entry
         </Button>
