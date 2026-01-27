@@ -198,31 +198,31 @@ def _is_management_report_visible_to_manager(report: ManagementReport, user_visi
 # =============================================================================
 
 
-def _parse_structured_content(content: str) -> list[ReportEntry] | None:
+def _parse_structured_content(content: str) -> list[ReportEntry]:
     """Parse structured content from JSON format.
     
-    Returns list of ReportEntry if content is structured format,
-    or None if it's legacy plain text.
+    Returns list of ReportEntry. If content is not valid structured JSON,
+    returns an empty list.
     """
     if not content:
-        return None
+        return []
     
     # Check if content is structured JSON format
     content_stripped = content.strip()
     if not content_stripped.startswith('{"format":'):
-        return None
+        return []
     
     try:
         data = json.loads(content)
         if data.get("format") != "structured" or "entries" not in data:
-            return None
+            return []
         
         return [
             ReportEntry(text=e.get("text", ""), private=e.get("private", False))
             for e in data.get("entries", [])
         ]
     except (json.JSONDecodeError, TypeError):
-        return None
+        return []
 
 
 def _serialize_structured_content(entries: list[ReportEntry]) -> str:
@@ -248,14 +248,9 @@ def _filter_private_entries(entries: list[ReportEntry]) -> list[ReportEntry]:
 def _get_filtered_content_for_manager(content: str) -> str:
     """Get content with private entries filtered out for manager view.
     
-    Returns original content if it's legacy format (no private entries).
-    Returns filtered markdown content if it's structured format.
+    Returns filtered markdown content from structured entries.
     """
     entries = _parse_structured_content(content)
-    if entries is None:
-        # Legacy format - return as-is
-        return content
-    
     # Filter out private entries and convert to markdown
     public_entries = _filter_private_entries(entries)
     return _entries_to_markdown(public_entries)
@@ -273,7 +268,7 @@ def management_report_to_response_with_entries(
     """
     entries = _parse_structured_content(report.content)
     
-    if filter_private and entries is not None:
+    if filter_private:
         entries = _filter_private_entries(entries)
         # Also update content to filtered markdown
         content = _entries_to_markdown(entries)

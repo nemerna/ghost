@@ -31,34 +31,6 @@ export interface ReportEntryEditorProps {
 }
 
 /**
- * Convert a plain text markdown content to entries.
- * Splits by newlines and removes bullet prefixes.
- */
-export function contentToEntries(content: string): ReportEntryInput[] {
-  if (!content) return [];
-  
-  return content
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      // Remove bullet prefix (-, *, •)
-      const text = line.replace(/^[-*•]\s*/, '');
-      return { text, private: false };
-    });
-}
-
-/**
- * Convert entries to plain markdown content (bullet list).
- */
-export function entriesToContent(entries: ReportEntryInput[]): string {
-  return entries
-    .filter((e) => e.text.trim().length > 0)
-    .map((e) => `- ${e.text}`)
-    .join('\n');
-}
-
-/**
  * Convert backend ReportEntry to editable ReportEntryInput.
  */
 export function reportEntriesToInputs(entries: ReportEntry[] | null | undefined): ReportEntryInput[] {
