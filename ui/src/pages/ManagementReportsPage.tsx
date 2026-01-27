@@ -37,6 +37,7 @@ import { marked } from 'marked';
 import {
   listManagementReports,
   createManagementReport,
+  updateManagementReport,
   deleteManagementReport,
   getTeamManagementReports,
   getConsolidatedReport,
@@ -45,7 +46,7 @@ import {
 import { listTeams } from '@/api/teams';
 import { useAuth } from '@/auth';
 import { StyledMarkdown } from '@/components/StyledMarkdown';
-import { ReportEntryEditor } from '@/components/ReportEntryEditor';
+import { ReportEntryEditor, contentToEntries, reportEntriesToInputs } from '@/components/ReportEntryEditor';
 import type { ManagementReportCreateRequest, ManagementReport, ReportEntryInput } from '@/types';
 
 // Configure marked for safe HTML output
@@ -69,8 +70,9 @@ export function ManagementReportsPage() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newReportEntries, setNewReportEntries] = useState<ReportEntryInput[]>([{ text: '', private: false }]);
-  const [newReport, setNewReport] = useState<Omit<ManagementReportCreateRequest, 'content' | 'entries'>>({
+  const [editingReportId, setEditingReportId] = useState<number | null>(null);
+  const [reportEntries, setReportEntries] = useState<ReportEntryInput[]>([{ text: '', private: false }]);
+  const [reportFormData, setReportFormData] = useState<Omit<ManagementReportCreateRequest, 'content' | 'entries'>>({
     title: '',
     project_key: '',
     report_period: '',
@@ -100,19 +102,37 @@ export function ManagementReportsPage() {
     enabled: !!selectedTeamId && useFieldView,
   });
 
+  // Reset form to initial state
+  const resetForm = () => {
+    setReportFormData({
+      title: '',
+      project_key: '',
+      report_period: '',
+      referenced_tickets: [],
+    });
+    setReportEntries([{ text: '', private: false }]);
+    setEditingReportId(null);
+  };
+
   // Create report mutation
   const createMutation = useMutation({
     mutationFn: createManagementReport,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['managementReports'] });
       setIsModalOpen(false);
-      setNewReport({
-        title: '',
-        project_key: '',
-        report_period: '',
-        referenced_tickets: [],
-      });
-      setNewReportEntries([{ text: '', private: false }]);
+      resetForm();
+    },
+  });
+
+  // Update report mutation
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<ManagementReportCreateRequest> }) =>
+      updateManagementReport(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['managementReports'] });
+      queryClient.invalidateQueries({ queryKey: ['consolidatedReport'] });
+      setIsModalOpen(false);
+      resetForm();
     },
   });
 
@@ -158,12 +178,52 @@ export function ManagementReportsPage() {
     }
   };
 
-  const handleCreate = () => {
-    const hasEntries = newReportEntries.some((e) => e.text.trim().length > 0);
-    if (newReport.title && hasEntries) {
+  const handleOpenCreateModal = () => {
+    resetForm();
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (report: ManagementReport) => {
+    setEditingReportId(report.id);
+    setReportFormData({
+      title: report.title,
+      project_key: report.project_key || '',
+      report_period: report.report_period || '',
+      referenced_tickets: report.referenced_tickets || [],
+    });
+    // Convert existing content to entries
+    if (report.entries && report.entries.length > 0) {
+      // Use structured entries if available
+      setReportEntries(reportEntriesToInputs(report.entries));
+    } else if (report.content) {
+      // Convert legacy markdown content to entries
+      setReportEntries(contentToEntries(report.content));
+    } else {
+      setReportEntries([{ text: '', private: false }]);
+    }
+    setIsModalOpen(true);
+  };
+
+  const handleSave = () => {
+    const hasEntries = reportEntries.some((e) => e.text.trim().length > 0);
+    if (!reportFormData.title || !hasEntries) return;
+
+    const entries = reportEntries.filter((e) => e.text.trim().length > 0);
+
+    if (editingReportId) {
+      // Update existing report
+      updateMutation.mutate({
+        id: editingReportId,
+        data: {
+          ...reportFormData,
+          entries,
+        },
+      });
+    } else {
+      // Create new report
       createMutation.mutate({
-        ...newReport,
-        entries: newReportEntries.filter((e) => e.text.trim().length > 0),
+        ...reportFormData,
+        entries,
       });
     }
   };
@@ -335,7 +395,7 @@ export function ManagementReportsPage() {
                 <Button
                   variant="primary"
                   icon={<PlusIcon />}
-                  onClick={() => setIsModalOpen(true)}
+                  onClick={handleOpenCreateModal}
                 >
                   Create Report
                 </Button>
@@ -631,6 +691,13 @@ export function ManagementReportsPage() {
                       </Button>
                       <Button
                         variant="link"
+                        onClick={() => handleOpenEditModal(report)}
+                        style={{ marginLeft: '0.5rem' }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="link"
                         isDanger
                         onClick={() => handleDelete(report.id)}
                         style={{ marginLeft: '0.5rem' }}
@@ -702,15 +769,18 @@ export function ManagementReportsPage() {
         aria-labelledby="create-report-modal"
         variant="large"
       >
-        <ModalHeader title="Create Management Report" labelId="create-report-modal" />
+        <ModalHeader 
+          title={editingReportId ? "Edit Management Report" : "Create Management Report"} 
+          labelId="create-report-modal" 
+        />
         <ModalBody>
           <Form>
             <FormGroup label="Title" isRequired fieldId="title">
               <TextInput
                 isRequired
                 id="title"
-                value={newReport.title}
-                onChange={(_event, value) => setNewReport({ ...newReport, title: value })}
+                value={reportFormData.title}
+                onChange={(_event, value) => setReportFormData({ ...reportFormData, title: value })}
                 placeholder="e.g., Week 4, January 2026"
               />
             </FormGroup>
@@ -718,8 +788,8 @@ export function ManagementReportsPage() {
             <FormGroup label="Project Key" fieldId="project-key">
               <TextInput
                 id="project-key"
-                value={newReport.project_key || ''}
-                onChange={(_event, value) => setNewReport({ ...newReport, project_key: value })}
+                value={reportFormData.project_key || ''}
+                onChange={(_event, value) => setReportFormData({ ...reportFormData, project_key: value })}
                 placeholder="e.g., APPENG"
               />
             </FormGroup>
@@ -727,8 +797,8 @@ export function ManagementReportsPage() {
             <FormGroup label="Report Period" fieldId="report-period">
               <TextInput
                 id="report-period"
-                value={newReport.report_period || ''}
-                onChange={(_event, value) => setNewReport({ ...newReport, report_period: value })}
+                value={reportFormData.report_period || ''}
+                onChange={(_event, value) => setReportFormData({ ...reportFormData, report_period: value })}
                 placeholder="e.g., Week 3, Jan 2026"
               />
             </FormGroup>
@@ -742,8 +812,8 @@ export function ManagementReportsPage() {
                 Add work items as separate entries. Click the eye/lock icon to toggle visibility to your manager.
               </p>
               <ReportEntryEditor
-                entries={newReportEntries}
-                onChange={setNewReportEntries}
+                entries={reportEntries}
+                onChange={setReportEntries}
                 placeholder="Work item description with links..."
               />
             </FormGroup>
@@ -751,10 +821,10 @@ export function ManagementReportsPage() {
             <FormGroup label="Referenced Tickets (comma-separated)" fieldId="tickets">
               <TextInput
                 id="tickets"
-                value={newReport.referenced_tickets?.join(', ') || ''}
+                value={reportFormData.referenced_tickets?.join(', ') || ''}
                 onChange={(_event, value) =>
-                  setNewReport({
-                    ...newReport,
+                  setReportFormData({
+                    ...reportFormData,
                     referenced_tickets: value.split(',').map((t) => t.trim()).filter(Boolean),
                   })
                 }
@@ -766,11 +836,11 @@ export function ManagementReportsPage() {
         <ModalFooter>
           <Button
             variant="primary"
-            onClick={handleCreate}
-            isLoading={createMutation.isPending}
-            isDisabled={!newReport.title || !newReportEntries.some((e) => e.text.trim().length > 0)}
+            onClick={handleSave}
+            isLoading={createMutation.isPending || updateMutation.isPending}
+            isDisabled={!reportFormData.title || !reportEntries.some((e) => e.text.trim().length > 0)}
           >
-            Create Report
+            {editingReportId ? 'Save Changes' : 'Create Report'}
           </Button>
           <Button variant="link" onClick={() => setIsModalOpen(false)}>
             Cancel
