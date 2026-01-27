@@ -8,10 +8,13 @@ Headers expected from OAuth Proxy:
 - X-Forwarded-Email: User's email address (primary identifier)
 - X-Forwarded-Access-Token: OAuth access token (optional)
 
-Role assignment is determined by:
+Role assignment for NEW users is determined by:
 1. ADMIN_EMAILS environment variable (comma-separated list)
 2. MANAGER_EMAILS environment variable (comma-separated list)
 3. Default: USER role
+
+Note: Existing user roles are NOT overwritten by this middleware. Admins can
+change user roles via the API (PUT /users/{id}), and those changes will persist.
 """
 
 import logging
@@ -154,9 +157,6 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
         """
         db = get_db()
         
-        # Determine role from email lists and groups (used for both new and existing users)
-        role_from_groups = self._determine_role(email, groups)
-        
         with db.session() as session:
             # Look up user by email
             user = session.query(User).filter(User.email == email).first()
@@ -169,14 +169,10 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
                 if not user.display_name and username:
                     user.display_name = username
                 
-                # Sync role on every login based on ADMIN_EMAILS, MANAGER_EMAILS, or groups
-                # This ensures role changes when configuration changes
-                if user.role != role_from_groups:
-                    logger.info(
-                        f"User {email} role changed from {user.role.value} to "
-                        f"{role_from_groups.value}"
-                    )
-                    user.role = role_from_groups
+                # NOTE: We do NOT override the role here. The role is managed via:
+                # 1. Admin API (PUT /users/{id}) - allows admins to change roles
+                # 2. Initial user creation - uses env vars / OAuth groups
+                # This allows admins to promote/demote users without env var changes.
                 
                 session.flush()
                 
@@ -184,11 +180,14 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
                 session.expunge(user)
                 logger.debug(f"Existing user authenticated: {email}")
             else:
-                # Create new user with role from groups
+                # Determine initial role for new user from email lists and groups
+                initial_role = self._determine_role(email, groups)
+                
+                # Create new user with role from groups/env vars
                 user = User(
                     email=email,
                     display_name=username or email.split("@")[0],
-                    role=role_from_groups,
+                    role=initial_role,
                     first_seen=datetime.utcnow(),
                     last_seen=datetime.utcnow(),
                 )
@@ -197,7 +196,7 @@ class OAuthProxyMiddleware(BaseHTTPMiddleware):
                 
                 # Detach from session
                 session.expunge(user)
-                logger.info(f"New user created: {email} with role {role_from_groups.value}")
+                logger.info(f"New user created: {email} with role {initial_role.value}")
         
         return user
 
