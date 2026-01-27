@@ -94,7 +94,9 @@ export function AppLayout() {
 
   const getActiveItemId = () => {
     // Find the matching nav item for the current path
-    const match = visibleNavItems.find((item) => {
+    // Sort by path length (longest first) to match more specific paths first
+    const sortedItems = [...visibleNavItems].sort((a, b) => b.path.length - a.path.length);
+    const match = sortedItems.find((item) => {
       if (item.path === '/') {
         return location.pathname === '/';
       }
