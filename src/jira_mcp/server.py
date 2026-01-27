@@ -1343,7 +1343,12 @@ REPORTS_TOOLS: list[Tool] = [
         name="save_management_report",
         description="""Save a management report. Read instructions at 'reports://instructions/management-report' first.
 
-The report is a simple bullet list of work items with embedded links. No summaries, no future plans.""",
+Supports two formats:
+1. Legacy: Plain text content (bullet list)
+2. Structured entries: Array of entries with per-item visibility control
+
+When using structured entries, include ticket_key to auto-inherit visibility from activities.
+Items from activities marked as private will be automatically hidden from managers.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1353,7 +1358,29 @@ The report is a simple bullet list of work items with embedded links. No summari
                 },
                 "content": {
                     "type": "string",
-                    "description": "Bullet list of work items with embedded links. No summaries or future plans.",
+                    "description": "(Legacy) Bullet list of work items with embedded links. Use 'entries' instead for per-item visibility.",
+                },
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "The entry text (work item description with links).",
+                            },
+                            "private": {
+                                "type": "boolean",
+                                "description": "If true, this entry is hidden from managers. Default: false.",
+                            },
+                            "ticket_key": {
+                                "type": "string",
+                                "description": "Optional ticket key to auto-detect visibility from activity settings.",
+                            },
+                        },
+                        "required": ["text"],
+                    },
+                    "description": "Structured entries with per-item visibility. If ticket_key is provided, visibility is auto-inherited from activity.",
                 },
                 "project_key": {
                     "type": "string",
@@ -1369,7 +1396,7 @@ The report is a simple bullet list of work items with embedded links. No summari
                     "description": "Ticket keys mentioned in report (for indexing).",
                 },
             },
-            "required": ["title", "content"],
+            "required": ["title"],
         },
     ),
     Tool(
@@ -1408,7 +1435,7 @@ The report is a simple bullet list of work items with embedded links. No summari
     ),
     Tool(
         name="update_management_report",
-        description="Update an existing management report with new content.",
+        description="Update an existing management report. Supports both legacy content and structured entries with per-item visibility.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1422,7 +1449,29 @@ The report is a simple bullet list of work items with embedded links. No summari
                 },
                 "content": {
                     "type": "string",
-                    "description": "Optional new content (bullet list of work items).",
+                    "description": "(Legacy) Optional new content (bullet list of work items). Use 'entries' for per-item visibility.",
+                },
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "The entry text (work item description with links).",
+                            },
+                            "private": {
+                                "type": "boolean",
+                                "description": "If true, this entry is hidden from managers. Default: false.",
+                            },
+                            "ticket_key": {
+                                "type": "string",
+                                "description": "Optional ticket key to auto-detect visibility from activity settings.",
+                            },
+                        },
+                        "required": ["text"],
+                    },
+                    "description": "Structured entries with per-item visibility control.",
                 },
                 "report_period": {
                     "type": "string",
@@ -2013,10 +2062,18 @@ async def _execute_reports_tool(
 
     elif name == "save_management_report":
         input_data = SaveManagementReportInput(**arguments)
+        # Convert Pydantic entries to dicts for the tool function
+        entries = None
+        if input_data.entries is not None:
+            entries = [
+                {"text": e.text, "private": e.private, "ticket_key": e.ticket_key}
+                for e in input_data.entries
+            ]
         return report_tools.save_management_report(
             username=username,
             title=input_data.title,
             content=input_data.content,
+            entries=entries,
             project_key=input_data.project_key,
             report_period=input_data.report_period,
             referenced_tickets=input_data.referenced_tickets,
@@ -2038,10 +2095,18 @@ async def _execute_reports_tool(
 
     elif name == "update_management_report":
         input_data = UpdateManagementReportInput(**arguments)
+        # Convert Pydantic entries to dicts for the tool function
+        entries = None
+        if input_data.entries is not None:
+            entries = [
+                {"text": e.text, "private": e.private, "ticket_key": e.ticket_key}
+                for e in input_data.entries
+            ]
         return report_tools.update_management_report(
             report_id=input_data.report_id,
             title=input_data.title,
             content=input_data.content,
+            entries=entries,
             report_period=input_data.report_period,
             referenced_tickets=input_data.referenced_tickets,
         )

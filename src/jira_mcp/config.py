@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_MANAGEMENT_REPORT_INSTRUCTIONS = """
 # Management Report Generation Instructions
 
-Generate a simple bullet list of work items with embedded links.
+Generate a management report using **structured entries** for per-item visibility control.
 
 ## Link Formatting Rules
 
@@ -24,24 +24,59 @@ WRONG: "Fixed the login bug. (JIRA: PROJ-123, PR: #456)"
 RIGHT: "[Fixed](PR-URL) the [login bug](ISSUE-URL)"
 
 ### Format
-Each item follows this pattern:
-- [Action Verb](PR-URL) [brief description](ISSUE-URL) plus any additional context.
+Each entry follows this pattern:
+[Action Verb](PR-URL) [brief description](ISSUE-URL) plus any additional context.
 
 Action verbs: Completed, Implemented, Fixed, Added, Updated, Started, etc.
 
 ## Report Content
 
-The report is ONLY a bullet list. No sections, no headers, no summaries, no future plans.
+The report is ONLY a list of work items. No sections, no headers, no summaries, no future plans.
 
-### Example Output
-- [Completed](https://github.com/org/repo/pull/160) the [security mitigation](https://jira.example.com/browse/PROJ-1012) to minimize RBAC permissions
-- [Implemented](https://github.com/org/repo/pull/1) the [workflow API](https://jira.example.com/browse/PROJ-896) and addressed review comments
-- [Started](https://github.com/org/repo/pull/6) [work](https://jira.example.com/browse/PROJ-789) on promoting the workflow to production
+## CRITICAL: Use Structured Entries Format
+
+You MUST use the `entries` parameter (NOT `content`) when calling save_management_report.
+
+Each entry is an object with:
+- **text**: The work item description with embedded links
+- **ticket_key**: The Jira ticket key (e.g., "PROJ-123") - REQUIRED for visibility inheritance
+- **private**: Optional boolean (default: false) - set to true only if you want to explicitly hide
+
+### Why ticket_key Matters
+When you include `ticket_key`, the system automatically checks if the user has marked that activity as private. If so, the entry is auto-hidden from managers. This ensures the user's visibility preferences are respected.
+
+### Example Tool Call
+
+```json
+{
+  "title": "Week 4, January 2026",
+  "entries": [
+    {
+      "text": "[Completed](https://github.com/org/repo/pull/160) the [security mitigation](https://jira.example.com/browse/PROJ-1012) to minimize RBAC permissions",
+      "ticket_key": "PROJ-1012"
+    },
+    {
+      "text": "[Implemented](https://github.com/org/repo/pull/1) the [workflow API](https://jira.example.com/browse/PROJ-896) and addressed review comments",
+      "ticket_key": "PROJ-896"
+    },
+    {
+      "text": "[Started](https://github.com/org/repo/pull/6) [work](https://jira.example.com/browse/PROJ-789) on promoting the workflow to production",
+      "ticket_key": "PROJ-789"
+    }
+  ],
+  "referenced_tickets": ["PROJ-1012", "PROJ-896", "PROJ-789"]
+}
+```
 
 ## Field Mapping for save_management_report
 - **title**: Report title (e.g., "Week 4, January 2026")
-- **content**: The bullet list of work items with embedded links
+- **entries**: Array of entry objects (REQUIRED - use this instead of content)
+  - **text**: Work item description with embedded links
+  - **ticket_key**: Jira ticket key for auto-visibility (ALWAYS include this)
+  - **private**: Optional, explicitly hide from manager
 - **referenced_tickets**: Array of all ticket keys mentioned (for indexing)
+- **project_key**: Optional project key
+- **report_period**: Optional period description
 """.strip()
 
 

@@ -28,7 +28,6 @@ import {
   PageSection,
   Spinner,
   Switch,
-  TextArea,
   TextInput,
   Title,
 } from '@patternfly/react-core';
@@ -46,7 +45,8 @@ import {
 import { listTeams } from '@/api/teams';
 import { useAuth } from '@/auth';
 import { StyledMarkdown } from '@/components/StyledMarkdown';
-import type { ManagementReportCreateRequest, ManagementReport } from '@/types';
+import { ReportEntryEditor } from '@/components/ReportEntryEditor';
+import type { ManagementReportCreateRequest, ManagementReport, ReportEntryInput } from '@/types';
 
 // Configure marked for safe HTML output
 marked.setOptions({
@@ -69,9 +69,9 @@ export function ManagementReportsPage() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newReport, setNewReport] = useState<ManagementReportCreateRequest>({
+  const [newReportEntries, setNewReportEntries] = useState<ReportEntryInput[]>([{ text: '', private: false }]);
+  const [newReport, setNewReport] = useState<Omit<ManagementReportCreateRequest, 'content' | 'entries'>>({
     title: '',
-    content: '',
     project_key: '',
     report_period: '',
     referenced_tickets: [],
@@ -108,11 +108,11 @@ export function ManagementReportsPage() {
       setIsModalOpen(false);
       setNewReport({
         title: '',
-        content: '',
         project_key: '',
         report_period: '',
         referenced_tickets: [],
       });
+      setNewReportEntries([{ text: '', private: false }]);
     },
   });
 
@@ -129,7 +129,9 @@ export function ManagementReportsPage() {
     mutationFn: ({ id, visible }: { id: number; visible: boolean | null }) =>
       updateManagementReportVisibility(id, visible),
     onSuccess: () => {
+      // Invalidate all related caches - management reports and consolidated report
       queryClient.invalidateQueries({ queryKey: ['managementReports'] });
+      queryClient.invalidateQueries({ queryKey: ['consolidatedReport'] });
     },
   });
 
@@ -157,8 +159,12 @@ export function ManagementReportsPage() {
   };
 
   const handleCreate = () => {
-    if (newReport.title && newReport.content) {
-      createMutation.mutate(newReport);
+    const hasEntries = newReportEntries.some((e) => e.text.trim().length > 0);
+    if (newReport.title && hasEntries) {
+      createMutation.mutate({
+        ...newReport,
+        entries: newReportEntries.filter((e) => e.text.trim().length > 0),
+      });
     }
   };
 
@@ -635,7 +641,35 @@ export function ManagementReportsPage() {
                   </Flex>
                 </CardTitle>
                 <CardBody>
-                  <StyledMarkdown maxHeight="400px">{report.content}</StyledMarkdown>
+                  {/* Show entries with visibility indicators if available */}
+                  {report.entries && report.entries.length > 0 ? (
+                    <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+                      {report.entries.map((entry, idx) => (
+                        <li 
+                          key={idx} 
+                          style={{ 
+                            marginBottom: '0.5rem',
+                            color: entry.private ? '#6a6e73' : 'inherit',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '0.5rem',
+                          }}
+                        >
+                          {entry.private && (
+                            <LockIcon 
+                              style={{ color: '#c9190b', flexShrink: 0, marginTop: '0.2rem' }} 
+                              title="Private - hidden from manager"
+                            />
+                          )}
+                          <span style={{ textDecoration: entry.private ? 'none' : 'none' }}>
+                            {entry.text}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <StyledMarkdown maxHeight="400px">{report.content}</StyledMarkdown>
+                  )}
                   
                   {report.referenced_tickets.length > 0 && (
                     <p style={{ marginTop: '1rem' }}>
@@ -699,14 +733,18 @@ export function ManagementReportsPage() {
               />
             </FormGroup>
 
-            <FormGroup label="Report Content (Markdown)" isRequired fieldId="content">
-              <TextArea
-                isRequired
-                id="content"
-                value={newReport.content}
-                onChange={(_event, value) => setNewReport({ ...newReport, content: value })}
-                placeholder="Bullet list of work items with embedded links"
-                rows={12}
+            <FormGroup 
+              label="Report Entries" 
+              isRequired 
+              fieldId="entries"
+            >
+              <p style={{ fontSize: '0.875rem', color: '#6a6e73', marginBottom: '0.5rem' }}>
+                Add work items as separate entries. Click the eye/lock icon to toggle visibility to your manager.
+              </p>
+              <ReportEntryEditor
+                entries={newReportEntries}
+                onChange={setNewReportEntries}
+                placeholder="Work item description with links..."
               />
             </FormGroup>
 
@@ -730,7 +768,7 @@ export function ManagementReportsPage() {
             variant="primary"
             onClick={handleCreate}
             isLoading={createMutation.isPending}
-            isDisabled={!newReport.title || !newReport.content}
+            isDisabled={!newReport.title || !newReportEntries.some((e) => e.text.trim().length > 0)}
           >
             Create Report
           </Button>

@@ -63,6 +63,13 @@ class WeeklyReportListResponse(BaseModel):
     total: int
 
 
+class ReportEntry(BaseModel):
+    """A single entry in a management report with visibility control."""
+    
+    text: str
+    private: bool = False
+
+
 class ManagementReportResponse(BaseModel):
     """Management report response model."""
     
@@ -71,7 +78,8 @@ class ManagementReportResponse(BaseModel):
     title: str
     project_key: str | None
     report_period: str | None
-    content: str
+    content: str  # Raw content (for backwards compat)
+    entries: list[ReportEntry] | None = None  # Parsed structured entries
     referenced_tickets: list[str]
     created_at: str | None
     updated_at: str | None
@@ -84,11 +92,20 @@ class VisibilityUpdateRequest(BaseModel):
     visible_to_manager: bool | None  # None = inherit from user preferences
 
 
+class ReportEntryInput(BaseModel):
+    """Input for a single report entry."""
+    
+    text: str
+    private: bool = False
+    ticket_key: str | None = None  # Optional ticket key for auto-detecting visibility
+
+
 class ManagementReportCreateRequest(BaseModel):
     """Request model for creating a management report."""
     
     title: str
-    content: str
+    content: str | None = None  # Legacy plain text content
+    entries: list[ReportEntryInput] | None = None  # New structured entries
     project_key: str | None = None
     report_period: str | None = None
     referenced_tickets: list[str] | None = None
@@ -98,7 +115,8 @@ class ManagementReportUpdateRequest(BaseModel):
     """Request model for updating a management report."""
     
     title: str | None = None
-    content: str | None = None
+    content: str | None = None  # Legacy plain text content
+    entries: list[ReportEntryInput] | None = None  # New structured entries
     report_period: str | None = None
     referenced_tickets: list[str] | None = None
 
@@ -147,19 +165,8 @@ def weekly_report_to_response(report: WeeklyReport) -> WeeklyReportResponse:
 
 
 def management_report_to_response(report: ManagementReport) -> ManagementReportResponse:
-    """Convert ManagementReport model to response."""
-    return ManagementReportResponse(
-        id=report.id,
-        username=report.username,
-        title=report.title,
-        project_key=report.project_key,
-        report_period=report.report_period,
-        content=report.content,
-        referenced_tickets=report.referenced_tickets.split(",") if report.referenced_tickets else [],
-        created_at=report.created_at.isoformat() if report.created_at else None,
-        updated_at=report.updated_at.isoformat() if report.updated_at else None,
-        visible_to_manager=report.visible_to_manager,
-    )
+    """Convert ManagementReport model to response with parsed entries."""
+    return management_report_to_response_with_entries(report, filter_private=False)
 
 
 def _get_user_visibility_defaults(user: User) -> dict:
@@ -184,6 +191,108 @@ def _is_management_report_visible_to_manager(report: ManagementReport, user_visi
     if report.visible_to_manager is not None:
         return report.visible_to_manager
     return user_visibility_defaults.get("management_reports", "private") == "shared"
+
+
+# =============================================================================
+# Structured Entries Helper Functions
+# =============================================================================
+
+
+def _parse_structured_content(content: str) -> list[ReportEntry] | None:
+    """Parse structured content from JSON format.
+    
+    Returns list of ReportEntry if content is structured format,
+    or None if it's legacy plain text.
+    """
+    if not content:
+        return None
+    
+    # Check if content is structured JSON format
+    content_stripped = content.strip()
+    if not content_stripped.startswith('{"format":'):
+        return None
+    
+    try:
+        data = json.loads(content)
+        if data.get("format") != "structured" or "entries" not in data:
+            return None
+        
+        return [
+            ReportEntry(text=e.get("text", ""), private=e.get("private", False))
+            for e in data.get("entries", [])
+        ]
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _serialize_structured_content(entries: list[ReportEntry]) -> str:
+    """Serialize structured entries to JSON format for storage."""
+    return json.dumps({
+        "format": "structured",
+        "entries": [{"text": e.text, "private": e.private} for e in entries]
+    })
+
+
+def _entries_to_markdown(entries: list[ReportEntry]) -> str:
+    """Convert structured entries to markdown bullet list for display."""
+    if not entries:
+        return ""
+    return "\n".join(f"- {e.text}" for e in entries)
+
+
+def _filter_private_entries(entries: list[ReportEntry]) -> list[ReportEntry]:
+    """Filter out private entries for manager view."""
+    return [e for e in entries if not e.private]
+
+
+def _get_filtered_content_for_manager(content: str) -> str:
+    """Get content with private entries filtered out for manager view.
+    
+    Returns original content if it's legacy format (no private entries).
+    Returns filtered markdown content if it's structured format.
+    """
+    entries = _parse_structured_content(content)
+    if entries is None:
+        # Legacy format - return as-is
+        return content
+    
+    # Filter out private entries and convert to markdown
+    public_entries = _filter_private_entries(entries)
+    return _entries_to_markdown(public_entries)
+
+
+def management_report_to_response_with_entries(
+    report: ManagementReport,
+    filter_private: bool = False
+) -> ManagementReportResponse:
+    """Convert ManagementReport model to response with parsed entries.
+    
+    Args:
+        report: The ManagementReport database model
+        filter_private: If True, filter out private entries (for manager view)
+    """
+    entries = _parse_structured_content(report.content)
+    
+    if filter_private and entries is not None:
+        entries = _filter_private_entries(entries)
+        # Also update content to filtered markdown
+        content = _entries_to_markdown(entries)
+    else:
+        content = report.content
+    
+    return ManagementReportResponse(
+        id=report.id,
+        username=report.username,
+        title=report.title,
+        project_key=report.project_key,
+        report_period=report.report_period,
+        content=content,
+        entries=entries,
+        referenced_tickets=report.referenced_tickets.split(",") if report.referenced_tickets else [],
+        created_at=report.created_at.isoformat() if report.created_at else None,
+        updated_at=report.updated_at.isoformat() if report.updated_at else None,
+        visible_to_manager=report.visible_to_manager,
+    )
 
 
 # =============================================================================
@@ -440,14 +549,28 @@ async def create_management_report(
     request: ManagementReportCreateRequest,
     user: CurrentUser,
 ):
-    """Create a new management report."""
+    """Create a new management report.
+    
+    Supports both legacy plain text content and structured entries format.
+    If entries are provided, they are serialized to JSON for storage.
+    """
     db = get_db()
+    
+    # Determine content to store
+    if request.entries is not None:
+        # Convert structured entries to JSON content
+        entries = [ReportEntry(text=e.text, private=e.private) for e in request.entries]
+        content = _serialize_structured_content(entries)
+    elif request.content is not None:
+        content = request.content
+    else:
+        content = ""
     
     with db.session() as session:
         report = ManagementReport(
             username=user.email,
             title=request.title,
-            content=request.content,
+            content=content,
             project_key=request.project_key,
             report_period=request.report_period,
             referenced_tickets=",".join(request.referenced_tickets) if request.referenced_tickets else None,
@@ -459,109 +582,8 @@ async def create_management_report(
         return management_report_to_response(report)
 
 
-@router.get("/management/{report_id}", response_model=ManagementReportResponse)
-async def get_management_report(
-    report_id: int,
-    user: CurrentUser,
-):
-    """Get a specific management report."""
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        # Access check - own report, manager, or admin
-        if report.username != user.email:
-            if user.role not in [UserRole.MANAGER, UserRole.ADMIN]:
-                raise HTTPException(status_code=403, detail="Access denied")
-        
-        return management_report_to_response(report)
-
-
-@router.put("/management/{report_id}", response_model=ManagementReportResponse)
-async def update_management_report(
-    report_id: int,
-    request: ManagementReportUpdateRequest,
-    user: CurrentUser,
-):
-    """Update a management report."""
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        # Only author or admin can update
-        if report.username != user.email and user.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Can only update your own reports")
-        
-        if request.title is not None:
-            report.title = request.title
-        if request.content is not None:
-            report.content = request.content
-        if request.report_period is not None:
-            report.report_period = request.report_period
-        if request.referenced_tickets is not None:
-            report.referenced_tickets = ",".join(request.referenced_tickets)
-        
-        report.updated_at = datetime.utcnow()
-        session.flush()
-        
-        return management_report_to_response(report)
-
-
-@router.delete("/management/{report_id}")
-async def delete_management_report(
-    report_id: int,
-    user: CurrentUser,
-):
-    """Delete a management report."""
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        if report.username != user.email and user.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Can only delete your own reports")
-        
-        session.delete(report)
-    
-    return {"message": "Report deleted successfully"}
-
-
-@router.patch("/management/{report_id}/visibility", response_model=ManagementReportResponse)
-async def update_management_report_visibility(
-    report_id: int,
-    request: VisibilityUpdateRequest,
-    user: CurrentUser,
-):
-    """Update visibility of a management report to manager (own reports only).
-    
-    - visible_to_manager=true: Always visible to manager
-    - visible_to_manager=false: Always hidden from manager
-    - visible_to_manager=null: Inherit from user's visibility preferences
-    """
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        if report.username != user.email and user.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Can only update visibility of your own reports")
-        
-        report.visible_to_manager = request.visible_to_manager
-        session.flush()
-        
-        return management_report_to_response(report)
-
-
+# NOTE: Team routes must be defined BEFORE individual report routes
+# to avoid FastAPI matching "/management/team/1" as "/management/{report_id}"
 @router.get("/management/team/{team_id}", response_model=ManagementReportListResponse)
 async def get_team_management_reports(
     team_id: int,
@@ -618,8 +640,9 @@ async def get_team_management_reports(
         total = len(visible_reports)
         paginated_reports = visible_reports[offset:offset + limit]
         
+        # Filter private entries from each report for manager view
         return ManagementReportListResponse(
-            reports=[management_report_to_response(r) for r in paginated_reports],
+            reports=[management_report_to_response_with_entries(r, filter_private=True) for r in paginated_reports],
             total=total,
         )
 
@@ -714,6 +737,120 @@ async def get_team_report_aggregate(
             "all_projects": list(all_projects),
             "member_summaries": member_summaries,
         }
+
+
+# Individual management report routes (must be after team routes)
+@router.get("/management/{report_id}", response_model=ManagementReportResponse)
+async def get_management_report(
+    report_id: int,
+    user: CurrentUser,
+):
+    """Get a specific management report."""
+    db = get_db()
+    
+    with db.session() as session:
+        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Access check - own report, manager, or admin
+        if report.username != user.email:
+            if user.role not in [UserRole.MANAGER, UserRole.ADMIN]:
+                raise HTTPException(status_code=403, detail="Access denied")
+        
+        return management_report_to_response(report)
+
+
+@router.put("/management/{report_id}", response_model=ManagementReportResponse)
+async def update_management_report(
+    report_id: int,
+    request: ManagementReportUpdateRequest,
+    user: CurrentUser,
+):
+    """Update a management report.
+    
+    Supports both legacy plain text content and structured entries format.
+    If entries are provided, they are serialized to JSON for storage.
+    """
+    db = get_db()
+    
+    with db.session() as session:
+        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Only author or admin can update
+        if report.username != user.email and user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Can only update your own reports")
+        
+        if request.title is not None:
+            report.title = request.title
+        
+        # Handle content update - prefer entries over plain content
+        if request.entries is not None:
+            entries = [ReportEntry(text=e.text, private=e.private) for e in request.entries]
+            report.content = _serialize_structured_content(entries)
+        elif request.content is not None:
+            report.content = request.content
+        
+        if request.report_period is not None:
+            report.report_period = request.report_period
+        if request.referenced_tickets is not None:
+            report.referenced_tickets = ",".join(request.referenced_tickets)
+        
+        report.updated_at = datetime.utcnow()
+        session.flush()
+        
+        return management_report_to_response(report)
+
+
+@router.delete("/management/{report_id}")
+async def delete_management_report(
+    report_id: int,
+    user: CurrentUser,
+):
+    """Delete a management report."""
+    db = get_db()
+    
+    with db.session() as session:
+        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        if report.username != user.email and user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Can only delete your own reports")
+        
+        session.delete(report)
+    
+    return {"message": "Report deleted successfully"}
+
+
+@router.patch("/management/{report_id}/visibility", response_model=ManagementReportResponse)
+async def update_management_report_visibility(
+    report_id: int,
+    request: VisibilityUpdateRequest,
+    user: CurrentUser,
+):
+    """Update visibility of a management report to manager (own reports only).
+    
+    - visible_to_manager=true: Always visible to manager
+    - visible_to_manager=false: Always hidden from manager
+    - visible_to_manager=null: Inherit from user's visibility preferences
+    """
+    db = get_db()
+    
+    with db.session() as session:
+        report = session.query(ManagementReport).filter(ManagementReport.id == report_id).first()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        if report.username != user.email and user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Can only update visibility of your own reports")
+        
+        report.visible_to_manager = request.visible_to_manager
+        session.flush()
+        
+        return management_report_to_response(report)
 
 
 # =============================================================================
@@ -858,11 +995,13 @@ async def get_consolidated_report(
         uncategorized_entries: list[ConsolidatedEntry] = []
 
         for username, report in latest_by_user.items():
+            # Filter private entries from content for manager view
+            filtered_content = _get_filtered_content_for_manager(report.content)
             entry = ConsolidatedEntry(
                 username=username,
                 report_id=report.id,
                 title=report.title,
-                content=report.content,
+                content=filtered_content,
                 report_period=report.report_period,
                 created_at=report.created_at.isoformat() if report.created_at else None,
             )

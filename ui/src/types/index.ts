@@ -163,6 +163,17 @@ export interface GeneratedReport {
   };
 }
 
+export interface ReportEntry {
+  text: string;
+  private: boolean;
+}
+
+export interface ReportEntryInput {
+  text: string;
+  private?: boolean;
+  ticket_key?: string;  // For auto-detecting visibility from activity
+}
+
 export interface ManagementReport {
   id: number;
   username: string;
@@ -170,6 +181,7 @@ export interface ManagementReport {
   project_key: string | null;
   report_period: string | null;
   content: string;
+  entries?: ReportEntry[] | null;  // Parsed structured entries
   referenced_tickets: string[];
   created_at: string | null;
   updated_at: string | null;
@@ -183,7 +195,8 @@ export interface ManagementReportListResponse {
 
 export interface ManagementReportCreateRequest {
   title: string;
-  content: string;
+  content?: string;  // Legacy plain text content
+  entries?: ReportEntryInput[];  // New structured entries
   project_key?: string;
   report_period?: string;
   referenced_tickets?: string[];

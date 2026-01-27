@@ -872,10 +872,38 @@ def delete_saved_report(
 # =============================================================================
 
 
+def _get_activity_visibility(ticket_key: str, username: str, session) -> bool | None:
+    """
+    Get the visibility setting for an activity by ticket key.
+    
+    Returns the visible_to_manager value of the most recent matching activity,
+    or None if no activity found.
+    """
+    activity = (
+        session.query(ActivityLog)
+        .filter(
+            ActivityLog.username == username,
+            ActivityLog.ticket_key == ticket_key,
+        )
+        .order_by(ActivityLog.timestamp.desc())
+        .first()
+    )
+    return activity.visible_to_manager if activity else None
+
+
+def _serialize_entries_to_content(entries: list[dict[str, Any]]) -> str:
+    """Serialize structured entries to JSON content for storage."""
+    return json.dumps({
+        "format": "structured",
+        "entries": [{"text": e.get("text", ""), "private": e.get("private", False)} for e in entries]
+    })
+
+
 def save_management_report(
     username: str,
     title: str,
-    content: str,
+    content: str | None = None,
+    entries: list[dict[str, Any]] | None = None,
     project_key: str | None = None,
     report_period: str | None = None,
     referenced_tickets: list[str] | None = None,
@@ -883,13 +911,19 @@ def save_management_report(
     """
     Save a management report to the database.
 
-    The report content should be a simple bullet list of work items with embedded links.
-    No summaries, no future plans - just the list of completed/in-progress items.
+    The report content can be either:
+    - Plain text (legacy): A simple bullet list of work items with embedded links.
+    - Structured entries: A list of entry objects with text and visibility control.
+
+    When using structured entries, each entry can include a ticket_key to auto-detect
+    visibility from the corresponding activity's visible_to_manager setting.
 
     Args:
         username: The author/engineer username.
         title: Report title (e.g., "Week 4, January 2026").
-        content: Bullet list of work items with embedded links.
+        content: (Legacy) Bullet list of work items with embedded links.
+        entries: (New) List of entry dicts with keys: text, private (bool), ticket_key (optional).
+                 If ticket_key is provided, visibility is auto-detected from activity settings.
         project_key: Optional project key this report focuses on.
         report_period: Optional period (e.g., "Week 3, Jan 2026").
         referenced_tickets: Optional list of ticket keys for indexing.
@@ -900,10 +934,33 @@ def save_management_report(
     db = get_db()
 
     with db.session() as session:
+        # Process entries if provided
+        if entries is not None:
+            processed_entries = []
+            for entry in entries:
+                text = entry.get("text", "")
+                private = entry.get("private", False)
+                ticket_key = entry.get("ticket_key")
+                
+                # Auto-detect visibility from activity if ticket_key is provided
+                if ticket_key and not private:
+                    activity_visibility = _get_activity_visibility(ticket_key, username, session)
+                    if activity_visibility is False:
+                        # Activity is explicitly hidden, so mark entry as private
+                        private = True
+                
+                processed_entries.append({"text": text, "private": private})
+            
+            final_content = _serialize_entries_to_content(processed_entries)
+        elif content is not None:
+            final_content = content
+        else:
+            final_content = ""
+        
         report = ManagementReport(
             username=username,
             title=title,
-            content=content,
+            content=final_content,
             project_key=project_key,
             report_period=report_period,
             referenced_tickets=",".join(referenced_tickets) if referenced_tickets else None,
@@ -1003,6 +1060,7 @@ def update_management_report(
     report_id: int,
     title: str | None = None,
     content: str | None = None,
+    entries: list[dict[str, Any]] | None = None,
     report_period: str | None = None,
     referenced_tickets: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -1012,7 +1070,8 @@ def update_management_report(
     Args:
         report_id: The report ID to update.
         title: Optional new title.
-        content: Optional new content (bullet list of work items).
+        content: (Legacy) Optional new content (bullet list of work items).
+        entries: (New) Optional list of entry dicts with keys: text, private (bool).
         report_period: Optional new period description.
         referenced_tickets: Optional new list of referenced tickets.
 
@@ -1038,8 +1097,27 @@ def update_management_report(
 
         if title is not None:
             report.title = title
-        if content is not None:
+        
+        # Handle content update - prefer entries over plain content
+        if entries is not None:
+            processed_entries = []
+            for entry in entries:
+                text = entry.get("text", "")
+                private = entry.get("private", False)
+                ticket_key = entry.get("ticket_key")
+                
+                # Auto-detect visibility from activity if ticket_key is provided
+                if ticket_key and not private:
+                    activity_visibility = _get_activity_visibility(ticket_key, report.username, session)
+                    if activity_visibility is False:
+                        private = True
+                
+                processed_entries.append({"text": text, "private": private})
+            
+            report.content = _serialize_entries_to_content(processed_entries)
+        elif content is not None:
             report.content = content
+        
         if report_period is not None:
             report.report_period = report_period
         if referenced_tickets is not None:

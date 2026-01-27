@@ -476,6 +476,23 @@ class DeleteSavedReportInput(BaseModel):
 # --- Management Reports Input Schemas ---
 
 
+class ReportEntryInput(BaseModel):
+    """Input for a single report entry with visibility control."""
+
+    text: str = Field(
+        ...,
+        description="The entry text (work item description with links).",
+    )
+    private: bool = Field(
+        default=False,
+        description="If true, this entry is hidden from managers.",
+    )
+    ticket_key: str | None = Field(
+        default=None,
+        description="Optional ticket key to auto-detect visibility from activity settings.",
+    )
+
+
 class SaveManagementReportInput(BaseModel):
     """Input schema for save_management_report tool."""
 
@@ -484,9 +501,13 @@ class SaveManagementReportInput(BaseModel):
         max_length=500,
         description="Report title (e.g., 'Week 4, January 2026').",
     )
-    content: str = Field(
-        ...,
-        description="Bullet list of work items with embedded links. No summaries or future plans.",
+    content: str | None = Field(
+        default=None,
+        description="(Legacy) Bullet list of work items with embedded links. Use 'entries' for per-item visibility.",
+    )
+    entries: list[ReportEntryInput] | None = Field(
+        default=None,
+        description="Structured entries with per-item visibility. If ticket_key is provided, visibility is auto-inherited from activity.",
     )
     project_key: str | None = Field(
         default=None,
@@ -540,7 +561,11 @@ class UpdateManagementReportInput(BaseModel):
     )
     content: str | None = Field(
         default=None,
-        description="Optional new content (bullet list of work items).",
+        description="(Legacy) Optional new content (bullet list of work items). Use 'entries' for per-item visibility.",
+    )
+    entries: list[ReportEntryInput] | None = Field(
+        default=None,
+        description="Structured entries with per-item visibility control.",
     )
     report_period: str | None = Field(
         default=None,
