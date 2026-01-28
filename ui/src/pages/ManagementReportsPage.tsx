@@ -17,6 +17,10 @@ import {
   CardBody,
   CardTitle,
   Content,
+  Divider,
+  Dropdown,
+  DropdownItem,
+  DropdownList,
   EmptyState,
   EmptyStateBody,
   Flex,
@@ -26,6 +30,7 @@ import {
   FormSelect,
   FormSelectOption,
   Label,
+  MenuToggle,
   Modal,
   ModalBody,
   ModalFooter,
@@ -55,6 +60,8 @@ import {
   EyeIcon,
   FolderOpenIcon,
   OutlinedFileAltIcon,
+  EnvelopeIcon,
+  CogIcon,
 } from '@patternfly/react-icons';
 import { format, formatDistanceToNow } from 'date-fns';
 import { marked } from 'marked';
@@ -74,10 +81,12 @@ import {
   deleteConsolidatedSnapshot,
 } from '@/api/reports';
 import { listTeams } from '@/api/teams';
+import { listEmailTemplates } from '@/api/users';
 import { useAuth } from '@/auth';
 import { StyledMarkdown } from '@/components/StyledMarkdown';
 import { ReportEntryEditor, reportEntriesToInputs } from '@/components/ReportEntryEditor';
 import { ProjectEntryEditor, type ProjectEntry } from '@/components/ProjectEntryEditor';
+import { EmailTemplatesModal } from '@/components/EmailTemplatesModal';
 import type {
   ManagementReportCreateRequest,
   ManagementReport,
@@ -86,6 +95,7 @@ import type {
   ConsolidatedDraft,
   ConsolidatedReportSnapshot,
   ConsolidatedReportResponse,
+  EmailDistributionTemplate,
 } from '@/types';
 
 // Configure marked for safe HTML output
@@ -135,6 +145,10 @@ export function ManagementReportsPage() {
   
   // Copy success state
   const [copySuccess, setCopySuccess] = useState(false);
+
+  // Gmail dropdown state
+  const [gmailDropdownOpen, setGmailDropdownOpen] = useState(false);
+  const [emailTemplatesModalOpen, setEmailTemplatesModalOpen] = useState(false);
 
   // Modal state (for creating new reports only - personal reports)
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -202,6 +216,13 @@ export function ManagementReportsPage() {
     queryKey: ['consolidatedSnapshots', selectedTeamId],
     queryFn: () => listConsolidatedSnapshots(selectedTeamId!, { limit: 50 }),
     enabled: !!selectedTeamId && canViewTeams,
+  });
+
+  // Fetch email templates
+  const { data: emailTemplatesData } = useQuery({
+    queryKey: ['emailTemplates'],
+    queryFn: listEmailTemplates,
+    enabled: canViewTeams,
   });
 
   // ==========================================================================
@@ -679,6 +700,142 @@ export function ManagementReportsPage() {
   };
 
   // ==========================================================================
+  // Gmail Send Functionality
+  // ==========================================================================
+
+  /**
+   * Generate filtered markdown for a template (only include specified fields/projects)
+   */
+  const generateFilteredMarkdown = useCallback((template: EmailDistributionTemplate | null): string => {
+    if (!editedDraftContent) return '';
+
+    const lines: string[] = [];
+    const hasFieldFilter = template && template.included_field_ids.length > 0;
+    const hasProjectFilter = template && template.included_project_ids.length > 0;
+
+    editedDraftContent.fields.forEach((field) => {
+      // Skip field if not in filter
+      if (hasFieldFilter && !template.included_field_ids.includes(field.id)) {
+        return;
+      }
+
+      const filteredProjects = field.projects.filter((project) => {
+        // Skip project if not in filter
+        if (hasProjectFilter && !template.included_project_ids.includes(project.id)) {
+          return false;
+        }
+        return true;
+      });
+
+      // Skip field if no projects after filtering
+      if (filteredProjects.length === 0) return;
+
+      lines.push(`# ${field.name}`);
+      lines.push('');
+
+      filteredProjects.forEach((project) => {
+        lines.push(`## ${project.name}`);
+        lines.push('');
+
+        project.entries.forEach((entry) => {
+          lines.push(`- ${entry.text}`);
+        });
+        lines.push('');
+      });
+    });
+
+    // Include uncategorized only if no filters applied
+    if (!hasFieldFilter && !hasProjectFilter && editedDraftContent.uncategorized.length > 0) {
+      lines.push('# Other');
+      lines.push('');
+
+      editedDraftContent.uncategorized.forEach((entry) => {
+        lines.push(`- ${entry.text}`);
+      });
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }, [editedDraftContent]);
+
+  /**
+   * Process subject template with placeholders
+   */
+  const processSubjectTemplate = useCallback((subjectTemplate: string): string => {
+    const teamName = teamsData?.teams.find(t => t.id === selectedTeamId)?.name || 'Team';
+    const period = draftReportPeriod || 'Report';
+    const date = format(new Date(), 'MMM d, yyyy');
+
+    return subjectTemplate
+      .replace(/\{\{team_name\}\}/g, teamName)
+      .replace(/\{\{period\}\}/g, period)
+      .replace(/\{\{date\}\}/g, date);
+  }, [teamsData, selectedTeamId, draftReportPeriod]);
+
+  /**
+   * Open Gmail compose window with pre-filled content
+   */
+  const openGmailCompose = useCallback((
+    recipients: string[],
+    subject: string,
+    body: string
+  ) => {
+    // Gmail compose URL format
+    const MAX_URL_LENGTH = 8000; // Approximate Gmail limit
+
+    const baseUrl = 'https://mail.google.com/mail/?view=cm&fs=1';
+    const toParam = `&to=${encodeURIComponent(recipients.join(','))}`;
+    const subjectParam = `&su=${encodeURIComponent(subject)}`;
+    
+    // Calculate remaining space for body
+    const urlWithoutBody = baseUrl + toParam + subjectParam;
+    const maxBodyLength = MAX_URL_LENGTH - urlWithoutBody.length - 10; // Buffer
+
+    let truncatedBody = body;
+    if (body.length > maxBodyLength) {
+      truncatedBody = body.substring(0, maxBodyLength - 100) + 
+        '\n\n...(Report truncated due to length - view full report in system)';
+    }
+
+    const bodyParam = `&body=${encodeURIComponent(truncatedBody)}`;
+    const gmailUrl = baseUrl + toParam + subjectParam + bodyParam;
+
+    // Open Gmail in new tab
+    window.open(gmailUrl, '_blank');
+  }, []);
+
+  /**
+   * Handle sending report via Gmail
+   */
+  const handleSendViaGmail = useCallback((template: EmailDistributionTemplate | null) => {
+    setGmailDropdownOpen(false);
+
+    if (template) {
+      // Use template settings
+      const body = generateFilteredMarkdown(template);
+      const subject = processSubjectTemplate(template.subject_template);
+      openGmailCompose(template.recipients, subject, body);
+    } else {
+      // Full report - prompt for recipients
+      const recipientsInput = prompt('Enter recipient email addresses (comma-separated):');
+      if (!recipientsInput) return;
+
+      const recipients = recipientsInput.split(',').map(e => e.trim()).filter(e => e.includes('@'));
+      if (recipients.length === 0) {
+        alert('No valid email addresses provided');
+        return;
+      }
+
+      const teamName = teamsData?.teams.find(t => t.id === selectedTeamId)?.name || 'Team';
+      const period = draftReportPeriod || 'Report';
+      const subject = `${teamName} - Weekly Report - ${period}`;
+      const body = draftToMarkdown();
+
+      openGmailCompose(recipients, subject, body);
+    }
+  }, [generateFilteredMarkdown, processSubjectTemplate, openGmailCompose, draftToMarkdown, teamsData, selectedTeamId, draftReportPeriod]);
+
+  // ==========================================================================
   // Personal Reports Handlers
   // ==========================================================================
 
@@ -997,8 +1154,60 @@ export function ManagementReportsPage() {
                       icon={<CopyIcon />}
                       onClick={handleCopyToClipboard}
                     >
-                      {copySuccess ? 'Copied!' : 'Copy for Gmail'}
+                      {copySuccess ? 'Copied!' : 'Copy'}
                     </Button>
+                  </FlexItem>
+                  <FlexItem>
+                    <Dropdown
+                      isOpen={gmailDropdownOpen}
+                      onOpenChange={(isOpen) => setGmailDropdownOpen(isOpen)}
+                      toggle={(toggleRef) => (
+                        <MenuToggle
+                          ref={toggleRef}
+                          onClick={() => setGmailDropdownOpen(!gmailDropdownOpen)}
+                          isExpanded={gmailDropdownOpen}
+                          variant="primary"
+                        >
+                          <EnvelopeIcon style={{ marginRight: '0.5rem' }} />
+                          Send via Gmail
+                        </MenuToggle>
+                      )}
+                    >
+                      <DropdownList>
+                        <DropdownItem
+                          key="full-report"
+                          onClick={() => handleSendViaGmail(null)}
+                          description="Enter recipients manually"
+                        >
+                          Send Full Report
+                        </DropdownItem>
+                        {emailTemplatesData?.templates && emailTemplatesData.templates.length > 0 && (
+                          <>
+                            <Divider key="divider-templates" />
+                            {emailTemplatesData.templates.map((template) => (
+                              <DropdownItem
+                                key={template.id}
+                                onClick={() => handleSendViaGmail(template)}
+                                description={`${template.recipients.length} recipient(s)`}
+                              >
+                                {template.name}
+                              </DropdownItem>
+                            ))}
+                          </>
+                        )}
+                        <Divider key="divider-manage" />
+                        <DropdownItem
+                          key="manage-templates"
+                          onClick={() => {
+                            setGmailDropdownOpen(false);
+                            setEmailTemplatesModalOpen(true);
+                          }}
+                          icon={<CogIcon />}
+                        >
+                          Manage Templates...
+                        </DropdownItem>
+                      </DropdownList>
+                    </Dropdown>
                   </FlexItem>
                 </Flex>
               </FlexItem>
@@ -1358,6 +1567,12 @@ export function ManagementReportsPage() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      {/* Email Templates Modal */}
+      <EmailTemplatesModal
+        isOpen={emailTemplatesModalOpen}
+        onClose={() => setEmailTemplatesModalOpen(false)}
+      />
     </>
   );
 }

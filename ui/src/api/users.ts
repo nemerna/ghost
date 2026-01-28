@@ -3,7 +3,16 @@
  */
 
 import apiClient from './client';
-import type { User, UserListResponse, VisibilitySettings, VisibilitySettingsResponse } from '@/types';
+import type {
+  User,
+  UserListResponse,
+  VisibilitySettings,
+  VisibilitySettingsResponse,
+  EmailDistributionTemplate,
+  EmailTemplateCreateRequest,
+  EmailTemplateUpdateRequest,
+  EmailTemplateListResponse,
+} from '@/types';
 
 export async function getCurrentUser(): Promise<User> {
   const response = await apiClient.get<User>('/users/me');
@@ -50,4 +59,35 @@ export async function updateUser(userId: number, data: {
 
 export async function deleteUser(userId: number): Promise<void> {
   await apiClient.delete(`/users/${userId}`);
+}
+
+// =============================================================================
+// Email Distribution Template Functions
+// =============================================================================
+
+export async function listEmailTemplates(): Promise<EmailTemplateListResponse> {
+  const response = await apiClient.get<EmailTemplateListResponse>('/users/me/email-templates');
+  return response.data;
+}
+
+export async function getEmailTemplate(templateId: string): Promise<EmailDistributionTemplate> {
+  const response = await apiClient.get<EmailDistributionTemplate>(`/users/me/email-templates/${templateId}`);
+  return response.data;
+}
+
+export async function createEmailTemplate(data: EmailTemplateCreateRequest): Promise<EmailDistributionTemplate> {
+  const response = await apiClient.post<EmailDistributionTemplate>('/users/me/email-templates', data);
+  return response.data;
+}
+
+export async function updateEmailTemplate(
+  templateId: string,
+  data: EmailTemplateUpdateRequest
+): Promise<EmailDistributionTemplate> {
+  const response = await apiClient.put<EmailDistributionTemplate>(`/users/me/email-templates/${templateId}`, data);
+  return response.data;
+}
+
+export async function deleteEmailTemplate(templateId: string): Promise<void> {
+  await apiClient.delete(`/users/me/email-templates/${templateId}`);
 }

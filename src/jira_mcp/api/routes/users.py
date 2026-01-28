@@ -1,6 +1,8 @@
 """User management API endpoints."""
 
 import json
+import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -63,6 +65,51 @@ class UserListResponse(BaseModel):
     """Response model for user list."""
     
     users: list[UserResponse]
+    total: int
+
+
+# =============================================================================
+# Email Distribution Template Models
+# =============================================================================
+
+
+class EmailDistributionTemplate(BaseModel):
+    """Email distribution template for sending reports via Gmail."""
+    
+    id: str  # Unique template ID (UUID)
+    name: str  # Template name (e.g., "Platform Team Weekly")
+    recipients: list[str]  # Array of email addresses
+    subject_template: str  # Subject line with placeholders (e.g., "{{team_name}} - {{period}}")
+    included_field_ids: list[int] = []  # Field IDs to include (empty = all)
+    included_project_ids: list[int] = []  # Project IDs to include (empty = all in selected fields)
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class EmailTemplateCreateRequest(BaseModel):
+    """Request model for creating an email template."""
+    
+    name: str
+    recipients: list[str]
+    subject_template: str
+    included_field_ids: list[int] = []
+    included_project_ids: list[int] = []
+
+
+class EmailTemplateUpdateRequest(BaseModel):
+    """Request model for updating an email template."""
+    
+    name: str | None = None
+    recipients: list[str] | None = None
+    subject_template: str | None = None
+    included_field_ids: list[int] | None = None
+    included_project_ids: list[int] | None = None
+
+
+class EmailTemplateListResponse(BaseModel):
+    """Response model for email template list."""
+    
+    templates: list[EmailDistributionTemplate]
     total: int
 
 
@@ -312,3 +359,185 @@ async def delete_user(
         session.delete(db_user)
     
     return {"message": f"User {user_id} deleted successfully"}
+
+
+# =============================================================================
+# Email Distribution Template Endpoints
+# =============================================================================
+
+
+def _get_email_templates(preferences: dict) -> list[dict]:
+    """Extract email templates from user preferences."""
+    return preferences.get("email_templates", [])
+
+
+def _set_email_templates(preferences: dict, templates: list[dict]) -> dict:
+    """Update email templates in user preferences."""
+    preferences["email_templates"] = templates
+    return preferences
+
+
+@router.get("/me/email-templates", response_model=EmailTemplateListResponse)
+async def list_email_templates(user: CurrentUser):
+    """List the current user's email distribution templates."""
+    db = get_db()
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        templates = _get_email_templates(preferences)
+        
+        return EmailTemplateListResponse(
+            templates=[EmailDistributionTemplate(**t) for t in templates],
+            total=len(templates),
+        )
+
+
+@router.post("/me/email-templates", response_model=EmailDistributionTemplate, status_code=status.HTTP_201_CREATED)
+async def create_email_template(
+    request: EmailTemplateCreateRequest,
+    user: CurrentUser,
+):
+    """Create a new email distribution template."""
+    db = get_db()
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        templates = _get_email_templates(preferences)
+        
+        # Check for duplicate name
+        if any(t["name"] == request.name for t in templates):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Template with name '{request.name}' already exists",
+            )
+        
+        # Create new template
+        now = datetime.utcnow().isoformat()
+        new_template = {
+            "id": str(uuid.uuid4()),
+            "name": request.name,
+            "recipients": request.recipients,
+            "subject_template": request.subject_template,
+            "included_field_ids": request.included_field_ids,
+            "included_project_ids": request.included_project_ids,
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        templates.append(new_template)
+        db_user.preferences = json.dumps(_set_email_templates(preferences, templates))
+        session.flush()
+        
+        return EmailDistributionTemplate(**new_template)
+
+
+@router.get("/me/email-templates/{template_id}", response_model=EmailDistributionTemplate)
+async def get_email_template(
+    template_id: str,
+    user: CurrentUser,
+):
+    """Get a specific email distribution template."""
+    db = get_db()
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        templates = _get_email_templates(preferences)
+        
+        template = next((t for t in templates if t["id"] == template_id), None)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        
+        return EmailDistributionTemplate(**template)
+
+
+@router.put("/me/email-templates/{template_id}", response_model=EmailDistributionTemplate)
+async def update_email_template(
+    template_id: str,
+    request: EmailTemplateUpdateRequest,
+    user: CurrentUser,
+):
+    """Update an existing email distribution template."""
+    db = get_db()
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        templates = _get_email_templates(preferences)
+        
+        # Find template
+        template_idx = next((i for i, t in enumerate(templates) if t["id"] == template_id), None)
+        if template_idx is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+        
+        template = templates[template_idx]
+        
+        # Check for duplicate name (if name is being changed)
+        if request.name is not None and request.name != template["name"]:
+            if any(t["name"] == request.name for t in templates):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Template with name '{request.name}' already exists",
+                )
+        
+        # Update fields
+        if request.name is not None:
+            template["name"] = request.name
+        if request.recipients is not None:
+            template["recipients"] = request.recipients
+        if request.subject_template is not None:
+            template["subject_template"] = request.subject_template
+        if request.included_field_ids is not None:
+            template["included_field_ids"] = request.included_field_ids
+        if request.included_project_ids is not None:
+            template["included_project_ids"] = request.included_project_ids
+        
+        template["updated_at"] = datetime.utcnow().isoformat()
+        
+        templates[template_idx] = template
+        db_user.preferences = json.dumps(_set_email_templates(preferences, templates))
+        session.flush()
+        
+        return EmailDistributionTemplate(**template)
+
+
+@router.delete("/me/email-templates/{template_id}")
+async def delete_email_template(
+    template_id: str,
+    user: CurrentUser,
+):
+    """Delete an email distribution template."""
+    db = get_db()
+    
+    with db.session() as session:
+        db_user = session.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = json.loads(db_user.preferences) if db_user.preferences else {}
+        templates = _get_email_templates(preferences)
+        
+        # Find and remove template
+        template_idx = next((i for i, t in enumerate(templates) if t["id"] == template_id), None)
+        if template_idx is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+        
+        templates.pop(template_idx)
+        db_user.preferences = json.dumps(_set_email_templates(preferences, templates))
+        session.flush()
+    
+    return {"message": "Template deleted successfully"}

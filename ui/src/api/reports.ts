@@ -148,6 +148,36 @@ export async function getConsolidatedReport(teamId: number, params?: {
   return response.data;
 }
 
+/**
+ * Get filtered consolidated report with only specified fields/projects
+ * Useful for creating sub-reports for different stakeholders
+ */
+export async function getFilteredConsolidatedReport(teamId: number, params?: {
+  field_ids?: number[];
+  project_ids?: number[];
+  report_period?: string;
+  limit?: number;
+}): Promise<ConsolidatedReportResponse> {
+  // Convert arrays to comma-separated strings for query params
+  const queryParams: Record<string, string | number | undefined> = {
+    report_period: params?.report_period,
+    limit: params?.limit,
+  };
+  
+  if (params?.field_ids && params.field_ids.length > 0) {
+    queryParams.field_ids = params.field_ids.join(',');
+  }
+  if (params?.project_ids && params.project_ids.length > 0) {
+    queryParams.project_ids = params.project_ids.join(',');
+  }
+  
+  const response = await apiClient.get<ConsolidatedReportResponse>(
+    `/reports/consolidated/${teamId}/filtered`,
+    { params: queryParams }
+  );
+  return response.data;
+}
+
 // =============================================================================
 // Consolidated Report Drafts (Manager Edits)
 // =============================================================================

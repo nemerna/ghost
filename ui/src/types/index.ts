@@ -423,6 +423,42 @@ export interface ConsolidatedDraftUpdateRequest {
 }
 
 // =============================================================================
+// Email Distribution Template Types
+// =============================================================================
+
+export interface EmailDistributionTemplate {
+  id: string;
+  name: string;
+  recipients: string[];
+  subject_template: string;
+  included_field_ids: number[];
+  included_project_ids: number[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface EmailTemplateCreateRequest {
+  name: string;
+  recipients: string[];
+  subject_template: string;
+  included_field_ids?: number[];
+  included_project_ids?: number[];
+}
+
+export interface EmailTemplateUpdateRequest {
+  name?: string;
+  recipients?: string[];
+  subject_template?: string;
+  included_field_ids?: number[];
+  included_project_ids?: number[];
+}
+
+export interface EmailTemplateListResponse {
+  templates: EmailDistributionTemplate[];
+  total: number;
+}
+
+// =============================================================================
 // API Response Types
 // =============================================================================
 

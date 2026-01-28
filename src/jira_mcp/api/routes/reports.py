@@ -1137,6 +1137,100 @@ async def get_consolidated_report(
         return response
 
 
+@router.get("/consolidated/{team_id}/filtered", response_model=ConsolidatedReportResponse)
+async def get_filtered_consolidated_report(
+    team_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+    field_ids: str | None = Query(None, description="Comma-separated field IDs to include"),
+    project_ids: str | None = Query(None, description="Comma-separated project IDs to include"),
+    report_period: str | None = Query(None, description="Filter by report period"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Get a filtered consolidated report with only specified fields/projects.
+    
+    This endpoint returns a subset of the consolidated report based on the
+    specified field IDs and/or project IDs. Useful for creating sub-reports
+    for different stakeholders.
+    
+    - If field_ids is specified, only include those fields
+    - If project_ids is specified, only include those projects (within selected fields)
+    - If both are empty, returns the full report (same as main endpoint)
+    """
+    # Parse filter parameters
+    filter_field_ids: set[int] = set()
+    filter_project_ids: set[int] = set()
+    
+    if field_ids:
+        try:
+            filter_field_ids = {int(x.strip()) for x in field_ids.split(",") if x.strip()}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid field_ids format")
+    
+    if project_ids:
+        try:
+            filter_project_ids = {int(x.strip()) for x in project_ids.split(",") if x.strip()}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid project_ids format")
+    
+    # Get the full consolidated report
+    full_report = await get_consolidated_report(
+        team_id=team_id,
+        user=user,
+        report_period=report_period,
+        limit=limit,
+    )
+    
+    # If no filters, return full report
+    if not filter_field_ids and not filter_project_ids:
+        return full_report
+    
+    # Apply filters
+    filtered_fields: list[ConsolidatedField] = []
+    
+    for field in full_report.fields:
+        # Check if field should be included
+        if filter_field_ids and field.id not in filter_field_ids:
+            continue
+        
+        # Filter projects within this field
+        filtered_projects: list[ConsolidatedProject] = []
+        
+        for project in field.projects:
+            # Include project if:
+            # - No project filter specified (include all in selected fields)
+            # - Project is in the filter list
+            if not filter_project_ids or project.id in filter_project_ids:
+                filtered_projects.append(project)
+        
+        # Only include field if it has projects after filtering
+        if filtered_projects:
+            filtered_fields.append(
+                ConsolidatedField(
+                    id=field.id,
+                    name=field.name,
+                    description=field.description,
+                    projects=filtered_projects,
+                )
+            )
+    
+    # Recalculate total entries
+    total_entries = sum(
+        len(p.entries) for f in filtered_fields for p in f.projects
+    )
+    
+    # Note: uncategorized entries are excluded from filtered reports
+    # since they don't belong to any specific field/project
+    
+    return ConsolidatedReportResponse(
+        team_id=full_report.team_id,
+        team_name=full_report.team_name,
+        report_period=full_report.report_period,
+        fields=filtered_fields,
+        uncategorized=[],  # Exclude uncategorized from filtered reports
+        total_entries=total_entries,
+    )
+
+
 # =============================================================================
 # Consolidated Report Draft Models
 # =============================================================================
