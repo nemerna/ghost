@@ -84,6 +84,7 @@ reports_mcp_server = Server("reports-mcp")
 _jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("jira_client", default=None)
 _github_client_ctx: ContextVar[GitHubClient | None] = ContextVar("github_client", default=None)
 _username_ctx: ContextVar[str | None] = ContextVar("username", default=None)
+_reports_jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("reports_jira_client", default=None)
 
 
 def create_jira_client(
@@ -142,6 +143,11 @@ def get_username() -> str:
     if username is None:
         raise ValueError("Username not configured. Ensure X-Username header is set.")
     return username
+
+
+def get_reports_jira_client() -> JiraClient | None:
+    """Get optional Jira client from reports context for auto-fetching ticket details."""
+    return _reports_jira_client_ctx.get()
 
 
 # =============================================================================
@@ -1199,7 +1205,7 @@ REPORTS_TOOLS: list[Tool] = [
     # --- Activity Tracking & Weekly Reports ---
     Tool(
         name="log_activity",
-        description="Log a work activity for weekly report tracking. Supports both Jira tickets (PROJ-123) and GitHub issues (owner/repo#123). Call this when working on tickets to track your work.",
+        description="Log a work activity for weekly report tracking. Supports both Jira tickets (PROJ-123) and GitHub issues (owner/repo#123). Call this when working on tickets to track your work. For Jira tickets, provide jira_components for project detection.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1220,6 +1226,11 @@ REPORTS_TOOLS: list[Tool] = [
                 "github_repo": {
                     "type": "string",
                     "description": "For GitHub issues: repository in 'owner/repo' format. Required if using short '#123' format.",
+                },
+                "jira_components": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For Jira tickets: list of component names for project detection (e.g., ['FSI-Lab']).",
                 },
                 "action_details": {
                     "type": "string",
@@ -1500,6 +1511,45 @@ Items from activities marked as private will be automatically hidden from manage
             "required": ["report_id"],
         },
     ),
+    # --- Project Detection ---
+    Tool(
+        name="redetect_project_assignments",
+        description="Re-run project detection on existing activities. Useful after configuring project mappings (Jira components or GitHub repos) to update historical activities. Auto-fetches Jira components if missing.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of activities to process. Default: 100.",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 1000,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="list_report_fields",
+        description="List all report fields and their projects with configured Jira components and GitHub repos. Use this to see the current project detection configuration.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    Tool(
+        name="get_activity_details",
+        description="Get detailed information about a specific activity by ticket key. Useful for debugging project detection.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "ticket_key": {
+                    "type": "string",
+                    "description": "The ticket key to look up (e.g., 'APPENG-4347').",
+                },
+            },
+            "required": ["ticket_key"],
+        },
+    ),
 ]
 
 
@@ -1587,7 +1637,8 @@ async def call_reports_tool(name: str, arguments: dict[str, Any]) -> list[TextCo
     """Handle Reports tool calls from MCP clients."""
     try:
         username = get_username()
-        result = await _execute_reports_tool(name, arguments, username)
+        jira_client = get_reports_jira_client()  # Get Jira client from context (works here)
+        result = await _execute_reports_tool(name, arguments, username, jira_client)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except Exception as e:
         logger.exception(f"Error executing Reports tool {name}")
@@ -1980,7 +2031,7 @@ async def _execute_github_tool(
 
 
 async def _execute_reports_tool(
-    name: str, arguments: dict[str, Any], username: str
+    name: str, arguments: dict[str, Any], username: str, jira_client: JiraClient | None = None
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Execute a Reports tool and return the result."""
 
@@ -2012,6 +2063,7 @@ async def _execute_reports_tool(
             ticket_summary=input_data.ticket_summary,
             github_repo=input_data.github_repo,
             action_details=action_details,
+            jira_client=jira_client,
         )
 
     elif name == "get_weekly_activity":
@@ -2116,6 +2168,21 @@ async def _execute_reports_tool(
         return report_tools.delete_management_report(
             report_id=input_data.report_id,
         )
+
+    elif name == "redetect_project_assignments":
+        limit = arguments.get("limit", 100)
+        return report_tools.redetect_project_assignments(
+            username=username,
+            limit=limit,
+            jira_client=jira_client,
+        )
+
+    elif name == "list_report_fields":
+        return report_tools.list_report_fields()
+
+    elif name == "get_activity_details":
+        ticket_key = arguments.get("ticket_key")
+        return report_tools.get_activity_details(username=username, ticket_key=ticket_key)
 
     else:
         raise ValueError(f"Unknown Reports tool: {name}")
@@ -2240,6 +2307,24 @@ async def run_sse(host: str, port: int) -> None:
             logger.info(f"Reports SSE connection: user={username}")
         else:
             logger.warning("Reports SSE connection: No user header provided (X-Forwarded-Email, X-Forwarded-User, or X-Username)")
+
+        # Extract optional Jira configuration from headers for auto-fetching ticket details
+        jira_server_url = headers.get("x-jira-server-url")
+        jira_token = headers.get("x-jira-token")
+        jira_verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
+        jira_verify_ssl = jira_verify_ssl_str.lower() in ("true", "1", "yes")
+
+        if jira_server_url and jira_token:
+            try:
+                jira_client = JiraClient(
+                    server_url=jira_server_url,
+                    token=jira_token,
+                    verify_ssl=jira_verify_ssl,
+                )
+                _reports_jira_client_ctx.set(jira_client)
+                logger.info(f"Reports SSE connection: Jira client configured for {jira_server_url}")
+            except Exception as e:
+                logger.warning(f"Reports SSE connection: Failed to create Jira client: {e}")
 
         async with reports_sse_transport.connect_sse(scope, receive, send) as streams:
             await reports_mcp_server.run(

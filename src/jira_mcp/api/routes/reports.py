@@ -68,6 +68,7 @@ class ReportEntry(BaseModel):
     
     text: str
     private: bool = False
+    ticket_key: str | None = None  # Associated ticket key for project/component tracking
 
 
 class ManagementReportResponse(BaseModel):
@@ -218,7 +219,11 @@ def _parse_structured_content(content: str) -> list[ReportEntry]:
             return []
         
         return [
-            ReportEntry(text=e.get("text", ""), private=e.get("private", False))
+            ReportEntry(
+                text=e.get("text", ""),
+                private=e.get("private", False),
+                ticket_key=e.get("ticket_key"),
+            )
             for e in data.get("entries", [])
         ]
     except (json.JSONDecodeError, TypeError):
@@ -227,9 +232,15 @@ def _parse_structured_content(content: str) -> list[ReportEntry]:
 
 def _serialize_structured_content(entries: list[ReportEntry]) -> str:
     """Serialize structured entries to JSON format for storage."""
+    serialized_entries = []
+    for e in entries:
+        entry_dict = {"text": e.text, "private": e.private}
+        if e.ticket_key:
+            entry_dict["ticket_key"] = e.ticket_key
+        serialized_entries.append(entry_dict)
     return json.dumps({
         "format": "structured",
-        "entries": [{"text": e.text, "private": e.private} for e in entries]
+        "entries": serialized_entries
     })
 
 
@@ -567,8 +578,13 @@ async def create_management_report(
     
     # Determine content to store
     if request.entries is not None:
-        # Convert structured entries to JSON content
-        entries = [ReportEntry(text=e.text, private=e.private) for e in request.entries]
+        # Convert structured entries to JSON content, auto-detecting ticket_key if not provided
+        entries = []
+        for e in request.entries:
+            ticket_key = e.ticket_key
+            if not ticket_key and e.text:
+                ticket_key = report_tools._extract_ticket_key_from_text(e.text)
+            entries.append(ReportEntry(text=e.text, private=e.private, ticket_key=ticket_key))
         content = _serialize_structured_content(entries)
     elif request.content is not None:
         content = request.content
@@ -797,7 +813,13 @@ async def update_management_report(
         
         # Handle content update - prefer entries over plain content
         if request.entries is not None:
-            entries = [ReportEntry(text=e.text, private=e.private) for e in request.entries]
+            # Auto-detect ticket_key if not provided
+            entries = []
+            for e in request.entries:
+                ticket_key = e.ticket_key
+                if not ticket_key and e.text:
+                    ticket_key = report_tools._extract_ticket_key_from_text(e.text)
+                entries.append(ReportEntry(text=e.text, private=e.private, ticket_key=ticket_key))
             report.content = _serialize_structured_content(entries)
         elif request.content is not None:
             report.content = request.content
@@ -1003,63 +1025,76 @@ async def get_consolidated_report(
             for project in field.projects:
                 project_to_field[project.id] = (field, project)
 
-        # Group reports by detected project
-        # For each report, look at its referenced_tickets and find activities
-        # with detected_project_id to determine which project it belongs to
+        # Group individual report entries by detected project
+        # Each entry is assigned to its ticket's detected_project_id
         from jira_mcp.db import ActivityLog
 
         entries_by_project: dict[int, list[ConsolidatedEntry]] = {}
         uncategorized_entries: list[ConsolidatedEntry] = []
 
         for username, report in latest_by_user.items():
-            # Filter private entries from content for manager view
-            filtered_content = _get_filtered_content_for_manager(report.content)
-            # Get individual entries with their original indices
-            filtered_entries = _get_filtered_entries_for_manager(report.content)
-            entry = ConsolidatedEntry(
-                username=username,
-                report_id=report.id,
-                title=report.title,
-                content=filtered_content,
-                entries=[
-                    ConsolidatedUserEntry(text=text, index=idx)
-                    for idx, text in filtered_entries
-                ],
-                report_period=report.report_period,
-                created_at=report.created_at.isoformat() if report.created_at else None,
-            )
-
-            # Find the most common detected_project_id from referenced tickets
-            detected_project_id = None
-            if report.referenced_tickets:
-                ticket_keys = [t.strip() for t in report.referenced_tickets.split(",") if t.strip()]
-                if ticket_keys:
-                    # Query activities for these tickets to get detected_project_id
-                    activities = (
-                        session.query(ActivityLog.detected_project_id)
-                        .filter(
-                            ActivityLog.ticket_key.in_(ticket_keys),
-                            ActivityLog.detected_project_id.isnot(None),
-                        )
-                        .all()
+            # Parse structured content to get entries with ticket_keys
+            parsed_entries = _parse_structured_content(report.content)
+            
+            # Build a map of ticket_key -> detected_project_id
+            ticket_to_project: dict[str, int | None] = {}
+            all_ticket_keys = set()
+            
+            for entry in parsed_entries:
+                if entry.ticket_key:
+                    all_ticket_keys.add(entry.ticket_key)
+            
+            if all_ticket_keys:
+                # Query activities to get detected_project_id for each ticket
+                activities = (
+                    session.query(ActivityLog.ticket_key, ActivityLog.detected_project_id)
+                    .filter(
+                        ActivityLog.ticket_key.in_(all_ticket_keys),
                     )
-
-                    if activities:
-                        # Get the most common project ID (mode)
-                        project_counts: dict[int, int] = {}
-                        for (proj_id,) in activities:
-                            if proj_id:
-                                project_counts[proj_id] = project_counts.get(proj_id, 0) + 1
-
-                        if project_counts:
-                            detected_project_id = max(project_counts.items(), key=lambda x: x[1])[0]
-
-            if detected_project_id and detected_project_id in project_to_field:
-                if detected_project_id not in entries_by_project:
-                    entries_by_project[detected_project_id] = []
-                entries_by_project[detected_project_id].append(entry)
-            else:
-                uncategorized_entries.append(entry)
+                    .order_by(ActivityLog.timestamp.desc())
+                    .all()
+                )
+                
+                # Use the most recent activity for each ticket
+                for ticket_key, proj_id in activities:
+                    if ticket_key not in ticket_to_project:
+                        ticket_to_project[ticket_key] = proj_id
+            
+            # Group entries by project
+            entries_grouped_by_project: dict[int | None, list[tuple[int, str]]] = {}
+            
+            for idx, entry in enumerate(parsed_entries):
+                # Skip private entries for manager view
+                if entry.private:
+                    continue
+                    
+                proj_id = ticket_to_project.get(entry.ticket_key) if entry.ticket_key else None
+                
+                if proj_id not in entries_grouped_by_project:
+                    entries_grouped_by_project[proj_id] = []
+                entries_grouped_by_project[proj_id].append((idx, entry.text))
+            
+            # Create ConsolidatedEntry for each project group
+            for proj_id, proj_entries in entries_grouped_by_project.items():
+                consolidated_entry = ConsolidatedEntry(
+                    username=username,
+                    report_id=report.id,
+                    title=report.title,
+                    content="\n".join(f"- {text}" for _, text in proj_entries),
+                    entries=[
+                        ConsolidatedUserEntry(text=text, index=idx)
+                        for idx, text in proj_entries
+                    ],
+                    report_period=report.report_period,
+                    created_at=report.created_at.isoformat() if report.created_at else None,
+                )
+                
+                if proj_id and proj_id in project_to_field:
+                    if proj_id not in entries_by_project:
+                        entries_by_project[proj_id] = []
+                    entries_by_project[proj_id].append(consolidated_entry)
+                else:
+                    uncategorized_entries.append(consolidated_entry)
 
         # Build the response structure
         consolidated_fields: list[ConsolidatedField] = []
@@ -1521,49 +1556,67 @@ async def _get_consolidated_as_draft_content(session, team_id: int, user: User) 
         for project in field.projects:
             project_to_field[project.id] = (field, project)
 
-    # Group reports by detected project
+    # Group individual report entries by detected project
     entries_by_project: dict[int, list[dict]] = {}
     uncategorized_entries: list[dict] = []
 
     for username, report in latest_by_user.items():
-        # Filter private entries from content
-        filtered_content = _get_filtered_content_for_manager(report.content)
-        entry = {
-            "text": filtered_content,
-            "original_report_id": report.id,
-            "original_username": username,
-            "is_manager_added": False,
-        }
-
-        # Find detected project
-        detected_project_id = None
-        if report.referenced_tickets:
-            ticket_keys = [t.strip() for t in report.referenced_tickets.split(",") if t.strip()]
-            if ticket_keys:
-                activities = (
-                    session.query(ActivityLog.detected_project_id)
-                    .filter(
-                        ActivityLog.ticket_key.in_(ticket_keys),
-                        ActivityLog.detected_project_id.isnot(None),
-                    )
-                    .all()
+        # Parse structured content to get entries with ticket_keys
+        parsed_entries = _parse_structured_content(report.content)
+        
+        # Build a map of ticket_key -> detected_project_id
+        ticket_to_project: dict[str, int | None] = {}
+        all_ticket_keys = set()
+        
+        for entry in parsed_entries:
+            if entry.ticket_key:
+                all_ticket_keys.add(entry.ticket_key)
+        
+        if all_ticket_keys:
+            # Query activities to get detected_project_id for each ticket
+            activities = (
+                session.query(ActivityLog.ticket_key, ActivityLog.detected_project_id)
+                .filter(
+                    ActivityLog.ticket_key.in_(all_ticket_keys),
                 )
-
-                if activities:
-                    project_counts: dict[int, int] = {}
-                    for (proj_id,) in activities:
-                        if proj_id:
-                            project_counts[proj_id] = project_counts.get(proj_id, 0) + 1
-
-                    if project_counts:
-                        detected_project_id = max(project_counts.items(), key=lambda x: x[1])[0]
-
-        if detected_project_id and detected_project_id in project_to_field:
-            if detected_project_id not in entries_by_project:
-                entries_by_project[detected_project_id] = []
-            entries_by_project[detected_project_id].append(entry)
-        else:
-            uncategorized_entries.append(entry)
+                .order_by(ActivityLog.timestamp.desc())
+                .all()
+            )
+            
+            # Use the most recent activity for each ticket
+            for ticket_key, proj_id in activities:
+                if ticket_key not in ticket_to_project:
+                    ticket_to_project[ticket_key] = proj_id
+        
+        # Group entries by project
+        entries_grouped_by_project: dict[int | None, list[str]] = {}
+        
+        for entry in parsed_entries:
+            # Skip private entries for manager view
+            if entry.private:
+                continue
+                
+            proj_id = ticket_to_project.get(entry.ticket_key) if entry.ticket_key else None
+            
+            if proj_id not in entries_grouped_by_project:
+                entries_grouped_by_project[proj_id] = []
+            entries_grouped_by_project[proj_id].append(entry.text)
+        
+        # Create draft entry for each project group
+        for proj_id, proj_entry_texts in entries_grouped_by_project.items():
+            draft_entry = {
+                "text": "\n".join(f"- {text}" for text in proj_entry_texts),
+                "original_report_id": report.id,
+                "original_username": username,
+                "is_manager_added": False,
+            }
+            
+            if proj_id and proj_id in project_to_field:
+                if proj_id not in entries_by_project:
+                    entries_by_project[proj_id] = []
+                entries_by_project[proj_id].append(draft_entry)
+            else:
+                uncategorized_entries.append(draft_entry)
 
     # Build draft content structure
     draft_fields: list[dict] = []

@@ -28,6 +28,29 @@ from jira_mcp.db.models import ActionType
 logger = logging.getLogger(__name__)
 
 
+def _get_jira_ticket_details(ticket_key: str, jira_client=None) -> dict | None:
+    """
+    Get Jira ticket details using the provided Jira client.
+    
+    Args:
+        ticket_key: The Jira ticket key (e.g., 'PROJ-123')
+        jira_client: Optional JiraClient instance for fetching ticket details
+    
+    Returns ticket details dict or None if not available.
+    """
+    if not jira_client:
+        logger.debug(f"No Jira client available for auto-fetching {ticket_key}")
+        return None
+    
+    try:
+        result = jira_client.get_issue(ticket_key)
+        logger.debug(f"Auto-fetched Jira ticket {ticket_key}, components: {result.get('components')}")
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to fetch Jira ticket {ticket_key}: {e}")
+        return None
+
+
 def _parse_ticket_key(
     ticket_key: str, github_repo: str | None = None
 ) -> tuple[TicketSource, str, str | None, str | None]:
@@ -92,6 +115,110 @@ def _match_repo_pattern(repo: str, pattern: str) -> bool:
     
     # Use fnmatch for glob-style matching
     return fnmatch.fnmatch(repo_lower, pattern_lower)
+
+
+def get_activity_details(username: str, ticket_key: str) -> dict[str, Any]:
+    """
+    Get detailed information about a specific activity by ticket key.
+    
+    Args:
+        username: The username to filter by
+        ticket_key: The ticket key to look up
+    
+    Returns:
+        Activity details including jira_components and detected_project_id
+    """
+    db = get_db()
+    
+    with db.session() as session:
+        activity = (
+            session.query(ActivityLog)
+            .filter(
+                ActivityLog.username == username,
+                ActivityLog.ticket_key == ticket_key,
+            )
+            .order_by(ActivityLog.timestamp.desc())
+            .first()
+        )
+        
+        if not activity:
+            return {"error": True, "message": f"No activity found for {ticket_key}"}
+        
+        # Get detected project name if set
+        detected_project_name = None
+        if activity.detected_project_id:
+            project = session.query(ReportProject).filter(ReportProject.id == activity.detected_project_id).first()
+            if project:
+                detected_project_name = project.name
+        
+        return {
+            "activity_id": activity.id,
+            "ticket_key": activity.ticket_key,
+            "ticket_summary": activity.ticket_summary,
+            "project_key": activity.project_key,
+            "ticket_source": activity.ticket_source.value if activity.ticket_source else None,
+            "jira_components": activity.jira_components,
+            "detected_project_id": activity.detected_project_id,
+            "detected_project_name": detected_project_name,
+            "github_repo": activity.github_repo,
+            "action_type": activity.action_type.value if activity.action_type else None,
+            "timestamp": activity.timestamp.isoformat() if activity.timestamp else None,
+        }
+
+
+def list_report_fields() -> dict[str, Any]:
+    """
+    List all report fields and their projects with configured mappings.
+    
+    Returns:
+        Dictionary with fields, their projects, and configured Jira components/GitHub repos.
+    """
+    db = get_db()
+    
+    with db.session() as session:
+        fields = (
+            session.query(ReportField)
+            .options(
+                joinedload(ReportField.projects)
+                .joinedload(ReportProject.git_repos),
+                joinedload(ReportField.projects)
+                .joinedload(ReportProject.jira_components),
+            )
+            .order_by(ReportField.display_order)
+            .all()
+        )
+        
+        result = []
+        for field in fields:
+            field_data = {
+                "id": field.id,
+                "name": field.name,
+                "description": field.description,
+                "display_order": field.display_order,
+                "projects": [],
+            }
+            
+            for project in sorted(field.projects, key=lambda p: p.display_order):
+                project_data = {
+                    "id": project.id,
+                    "name": project.name,
+                    "description": project.description,
+                    "display_order": project.display_order,
+                    "jira_components": [
+                        {"jira_project_key": jc.jira_project_key, "component_name": jc.component_name}
+                        for jc in project.jira_components
+                    ],
+                    "git_repos": [gr.repo_pattern for gr in project.git_repos],
+                }
+                field_data["projects"].append(project_data)
+            
+            result.append(field_data)
+        
+        return {
+            "fields": result,
+            "total_fields": len(result),
+            "total_projects": sum(len(f["projects"]) for f in result),
+        }
 
 
 def detect_project_for_activity(
@@ -174,6 +301,7 @@ def detect_project_for_activity(
 def redetect_project_assignments(
     username: str | None = None,
     limit: int = 1000,
+    jira_client=None,
 ) -> dict[str, Any]:
     """
     Re-run project detection on existing activities.
@@ -184,6 +312,7 @@ def redetect_project_assignments(
     Args:
         username: Optional filter to only redetect for a specific user
         limit: Maximum number of activities to process
+        jira_client: Optional JiraClient for auto-fetching ticket components
     
     Returns:
         Summary of redetection results
@@ -209,6 +338,15 @@ def redetect_project_assignments(
             components_list = None
             if activity.jira_components:
                 components_list = [c.strip() for c in activity.jira_components.split(",") if c.strip()]
+            
+            # Auto-fetch Jira components if missing for Jira tickets
+            if activity.ticket_source == TicketSource.JIRA and not components_list:
+                ticket_details = _get_jira_ticket_details(activity.ticket_key, jira_client)
+                if ticket_details and ticket_details.get("components"):
+                    components_list = ticket_details["components"]
+                    # Also update the stored components
+                    activity.jira_components = ",".join(components_list)
+                    logger.info(f"Auto-fetched and stored Jira components for {activity.ticket_key}: {components_list}")
             
             # Detect project
             new_project_id = detect_project_for_activity(
@@ -242,6 +380,7 @@ def log_activity(
     github_repo: str | None = None,
     jira_components: list[str] | None = None,
     action_details: dict | None = None,
+    jira_client=None,
 ) -> dict[str, Any]:
     """
     Log a Jira or GitHub activity for tracking.
@@ -255,6 +394,7 @@ def log_activity(
         github_repo: Optional GitHub repo in 'owner/repo' format. Required for short '#123' format.
         jira_components: Optional list of Jira component names for auto-detection.
         action_details: Optional dict with additional context.
+        jira_client: Optional JiraClient for auto-fetching ticket components.
 
     Returns:
         Confirmation with activity ID, detected source, and detected project.
@@ -275,6 +415,13 @@ def log_activity(
         action_enum = ActionType(action_type.lower())
     except ValueError:
         action_enum = ActionType.OTHER
+
+    # Auto-fetch Jira components if this is a Jira ticket and components not provided
+    if source == TicketSource.JIRA and not jira_components:
+        ticket_details = _get_jira_ticket_details(normalized_key, jira_client)
+        if ticket_details and ticket_details.get("components"):
+            jira_components = ticket_details["components"]
+            logger.info(f"Auto-fetched Jira components for {normalized_key}: {jira_components}")
 
     # Convert jira_components list to comma-separated string
     jira_components_str = None
@@ -891,11 +1038,49 @@ def _get_activity_visibility(ticket_key: str, username: str, session) -> bool | 
     return activity.visible_to_manager if activity else None
 
 
+def _extract_ticket_key_from_text(text: str) -> str | None:
+    """
+    Extract a ticket key from text containing Jira or GitHub URLs.
+    
+    Supports:
+    - Jira URLs: https://issues.redhat.com/browse/PROJ-123 -> PROJ-123
+    - GitHub issue URLs: https://github.com/owner/repo/issues/123 -> owner/repo#123
+    - GitHub PR URLs: https://github.com/owner/repo/pull/123 -> owner/repo#123
+    
+    Returns the first ticket key found, or None if no ticket key is detected.
+    """
+    # Try Jira URL pattern first (e.g., https://issues.redhat.com/browse/APPENG-4347)
+    jira_pattern = r'https?://[^/]+/browse/([A-Z][A-Z0-9]+-\d+)'
+    jira_match = re.search(jira_pattern, text)
+    if jira_match:
+        return jira_match.group(1)
+    
+    # Try GitHub issue/PR URL pattern (e.g., https://github.com/owner/repo/issues/123)
+    github_pattern = r'https?://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)'
+    github_match = re.search(github_pattern, text)
+    if github_match:
+        return f"{github_match.group(1)}#{github_match.group(2)}"
+    
+    # Try plain Jira ticket key pattern (e.g., PROJ-123 in text)
+    plain_jira_pattern = r'\b([A-Z][A-Z0-9]+-\d+)\b'
+    plain_match = re.search(plain_jira_pattern, text)
+    if plain_match:
+        return plain_match.group(1)
+    
+    return None
+
+
 def _serialize_entries_to_content(entries: list[dict[str, Any]]) -> str:
     """Serialize structured entries to JSON content for storage."""
+    serialized_entries = []
+    for e in entries:
+        entry_dict = {"text": e.get("text", ""), "private": e.get("private", False)}
+        if e.get("ticket_key"):
+            entry_dict["ticket_key"] = e.get("ticket_key")
+        serialized_entries.append(entry_dict)
     return json.dumps({
         "format": "structured",
-        "entries": [{"text": e.get("text", ""), "private": e.get("private", False)} for e in entries]
+        "entries": serialized_entries
     })
 
 
@@ -942,14 +1127,18 @@ def save_management_report(
                 private = entry.get("private", False)
                 ticket_key = entry.get("ticket_key")
                 
-                # Auto-detect visibility from activity if ticket_key is provided
+                # Auto-detect ticket_key from text if not provided
+                if not ticket_key and text:
+                    ticket_key = _extract_ticket_key_from_text(text)
+                
+                # Auto-detect visibility from activity if ticket_key is available
                 if ticket_key and not private:
                     activity_visibility = _get_activity_visibility(ticket_key, username, session)
                     if activity_visibility is False:
                         # Activity is explicitly hidden, so mark entry as private
                         private = True
                 
-                processed_entries.append({"text": text, "private": private})
+                processed_entries.append({"text": text, "private": private, "ticket_key": ticket_key})
             
             final_content = _serialize_entries_to_content(processed_entries)
         elif content is not None:
@@ -1106,13 +1295,17 @@ def update_management_report(
                 private = entry.get("private", False)
                 ticket_key = entry.get("ticket_key")
                 
-                # Auto-detect visibility from activity if ticket_key is provided
+                # Auto-detect ticket_key from text if not provided
+                if not ticket_key and text:
+                    ticket_key = _extract_ticket_key_from_text(text)
+                
+                # Auto-detect visibility from activity if ticket_key is available
                 if ticket_key and not private:
                     activity_visibility = _get_activity_visibility(ticket_key, report.username, session)
                     if activity_visibility is False:
                         private = True
                 
-                processed_entries.append({"text": text, "private": private})
+                processed_entries.append({"text": text, "private": private, "ticket_key": ticket_key})
             
             report.content = _serialize_entries_to_content(processed_entries)
         elif content is not None:
