@@ -35,7 +35,9 @@ docker-compose up -d
     "reports": {
       "url": "http://localhost:8080/mcp/reports",
       "headers": {
-        "X-Username": "your-username"
+        "X-Username": "your-username",
+        "X-Jira-Server-URL": "https://jira.example.com",
+        "X-Jira-Token": "your-jira-pat"
       }
     }
   }
@@ -263,6 +265,9 @@ Credentials are passed from the MCP client via headers. Each endpoint requires i
 | Header | Required | Description |
 |--------|----------|-------------|
 | `X-Username` | Yes | Username for activity tracking |
+| `X-Jira-Server-URL` | No | Jira base URL (enables auto-fetching ticket components for project detection) |
+| `X-Jira-Token` | No | Jira PAT (required if `X-Jira-Server-URL` is set) |
+| `X-Jira-Verify-SSL` | No | `true` (default) or `false` |
 
 ### Environment Variables
 
@@ -300,7 +305,9 @@ Configure three MCP servers in `.cursor/mcp.json`:
     "reports": {
       "url": "http://localhost:8080/mcp/reports",
       "headers": {
-        "X-Username": "your-username"
+        "X-Username": "your-username",
+        "X-Jira-Server-URL": "https://jira.example.com",
+        "X-Jira-Token": "your-jira-pat"
       }
     }
   }
@@ -480,6 +487,9 @@ The OpenShift deployment includes:
 | `get_management_report` | Retrieve full report content with entries |
 | `update_management_report` | Edit an existing report |
 | `delete_management_report` | Delete a report |
+| `redetect_project_assignments` | Re-run project detection on existing activities (auto-fetches Jira components) |
+| `list_report_fields` | List configured report fields and projects with Jira/GitHub mappings |
+| `get_activity_details` | Get detailed info about a specific activity (useful for debugging detection) |
 
 #### Management Report Entries
 
