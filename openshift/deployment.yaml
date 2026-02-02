@@ -95,7 +95,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: ghost-secrets
+                  name: ghost-postgres-secret
                   key: database-url
             - name: CORS_ORIGINS
               value: "*"
@@ -108,20 +108,17 @@ spec:
           envFrom:
             - configMapRef:
                 name: ghost-config
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
           livenessProbe:
             httpGet:
               path: /api/health
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: 8000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
           resources:
             limits:
@@ -144,25 +141,22 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: ghost-secrets
+                  name: ghost-postgres-secret
                   key: database-url
           envFrom:
             - configMapRef:
                 name: ghost-config
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
           livenessProbe:
             httpGet:
               path: /health
               port: 8001
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /health
               port: 8001
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
           resources:
             limits:
@@ -179,9 +173,6 @@ spec:
         - name: proxy-secret
           secret:
             secretName: ghost-proxy-secret
-        - name: data
-          persistentVolumeClaim:
-            claimName: ghost-data
 ---
 apiVersion: v1
 kind: ServiceAccount
