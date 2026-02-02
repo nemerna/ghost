@@ -450,6 +450,16 @@ The OpenShift deployment includes:
 | `github_add_pr_comment` | Add a comment to a PR |
 | `github_search_prs` | Search PRs across repositories |
 
+#### PR Reviews
+
+| Tool | Description |
+|------|-------------|
+| `github_create_pr_review` | Submit a review: approve, request changes, or comment (with optional inline comments) |
+| `github_add_pr_review_comment` | Add an inline comment on a specific file and line in the diff |
+| `github_request_reviewers` | Request users or teams to review a PR |
+| `github_remove_requested_reviewers` | Remove pending reviewer requests from a PR |
+| `github_dismiss_pr_review` | Dismiss a submitted review (requires write access) |
+
 #### Issues
 
 | Tool | Description |
@@ -515,6 +525,9 @@ Management reports use structured entries with per-item visibility control:
 - *"List my in-progress Jira tickets and summarize blockers."* (uses `/mcp/jira`)
 - *"Show open PRs for org/repo and summarize review feedback."* (uses `/mcp/github`)
 - *"Create a GitHub issue to track this bug."* (uses `/mcp/github`)
+- *"Review PR #123 on org/repo and approve it with a comment."* (uses `/mcp/github`)
+- *"Request @alice and @bob to review PR #456."* (uses `/mcp/github`)
+- *"Add a comment on line 42 of src/main.py in PR #789 about the error handling."* (uses `/mcp/github`)
 - *"Log that I worked on PROJ-123 today."* (uses `/mcp/reports`)
 - *"Log activity on github.com/org/repo#456."* (uses `/mcp/reports`)
 - *"Generate my weekly report and save it."* (uses `/mcp/reports`)

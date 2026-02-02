@@ -833,6 +833,194 @@ class GitHubSearchPRsInput(BaseModel):
     )
 
 
+# --- GitHub PR Review Input Schemas ---
+
+
+class ReviewCommentInput(BaseModel):
+    """Input for an inline comment in a PR review."""
+
+    path: str = Field(
+        ...,
+        description="Relative path to the file being commented on.",
+    )
+    line: int = Field(
+        ...,
+        ge=1,
+        description="Line number in the diff to comment on.",
+    )
+    body: str = Field(
+        ...,
+        min_length=1,
+        description="Comment body (Markdown).",
+    )
+    side: str = Field(
+        default="RIGHT",
+        description="Which side of the diff: 'LEFT' (deletions) or 'RIGHT' (additions).",
+    )
+    start_line: int | None = Field(
+        default=None,
+        ge=1,
+        description="For multi-line comments, the first line of the range.",
+    )
+
+
+class GitHubCreatePRReviewInput(BaseModel):
+    """Input schema for github_create_pr_review tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    event: str = Field(
+        ...,
+        description="Review action: 'APPROVE', 'REQUEST_CHANGES', or 'COMMENT'.",
+    )
+    body: str | None = Field(
+        default=None,
+        description="Review body/summary (Markdown). Required for REQUEST_CHANGES.",
+    )
+    comments: list[ReviewCommentInput] | None = Field(
+        default=None,
+        description="Optional list of inline comments to include with the review.",
+    )
+    commit_id: str | None = Field(
+        default=None,
+        description="Optional SHA of the commit to review. Defaults to PR head.",
+    )
+
+
+class GitHubAddPRReviewCommentInput(BaseModel):
+    """Input schema for github_add_pr_review_comment tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    body: str = Field(
+        ...,
+        min_length=1,
+        description="Comment body (Markdown).",
+    )
+    commit_id: str = Field(
+        ...,
+        description="SHA of the commit to comment on (use PR head SHA from github_get_pr).",
+    )
+    path: str = Field(
+        ...,
+        description="Relative path to the file being commented on.",
+    )
+    line: int = Field(
+        ...,
+        ge=1,
+        description="Line number in the diff to comment on.",
+    )
+    side: str = Field(
+        default="RIGHT",
+        description="Which side of the diff: 'LEFT' (deletions) or 'RIGHT' (additions).",
+    )
+    start_line: int | None = Field(
+        default=None,
+        ge=1,
+        description="For multi-line comments, the first line of the range.",
+    )
+    start_side: str | None = Field(
+        default=None,
+        description="For multi-line comments, the side of the start line.",
+    )
+
+
+class GitHubRequestReviewersInput(BaseModel):
+    """Input schema for github_request_reviewers tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    reviewers: list[str] | None = Field(
+        default=None,
+        description="List of usernames to request as reviewers.",
+    )
+    team_reviewers: list[str] | None = Field(
+        default=None,
+        description="List of team slugs to request as reviewers.",
+    )
+
+
+class GitHubRemoveRequestedReviewersInput(BaseModel):
+    """Input schema for github_remove_requested_reviewers tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    reviewers: list[str] | None = Field(
+        default=None,
+        description="List of usernames to remove from reviewers.",
+    )
+    team_reviewers: list[str] | None = Field(
+        default=None,
+        description="List of team slugs to remove from reviewers.",
+    )
+
+
+class GitHubDismissPRReviewInput(BaseModel):
+    """Input schema for github_dismiss_pr_review tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    pr_number: int = Field(
+        ...,
+        description="Pull request number.",
+    )
+    review_id: int = Field(
+        ...,
+        description="The review ID to dismiss (get from github_get_pr_reviews).",
+    )
+    message: str = Field(
+        ...,
+        min_length=1,
+        description="Reason for dismissing the review.",
+    )
+
+
 # --- GitHub Issues Input Schemas ---
 
 

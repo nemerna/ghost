@@ -42,6 +42,12 @@ from jira_mcp.tools.schemas import (
     GitHubGetPRReviewsInput,
     GitHubListPRsInput,
     GitHubSearchPRsInput,
+    # GitHub PR Reviews
+    GitHubAddPRReviewCommentInput,
+    GitHubCreatePRReviewInput,
+    GitHubDismissPRReviewInput,
+    GitHubRemoveRequestedReviewersInput,
+    GitHubRequestReviewersInput,
     # GitHub Issues
     GitHubAddIssueCommentInput,
     GitHubCloseIssueInput,
@@ -849,6 +855,221 @@ GITHUB_TOOLS: list[Tool] = [
         inputSchema={
             "type": "object",
             "properties": {},
+        },
+    ),
+    # --- GitHub PR Review Tools ---
+    Tool(
+        name="github_create_pr_review",
+        description="Create a review on a pull request. Use 'APPROVE' to approve, 'REQUEST_CHANGES' to request changes (body required), or 'COMMENT' to leave a review comment without approval/rejection. Can include inline comments on specific files and lines.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "event": {
+                    "type": "string",
+                    "description": "Review action: 'APPROVE', 'REQUEST_CHANGES', or 'COMMENT'.",
+                    "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Review body/summary (Markdown). Required for REQUEST_CHANGES.",
+                },
+                "comments": {
+                    "type": "array",
+                    "description": "Optional inline comments to include. Each comment needs: path, line, body. Optional: side ('LEFT'/'RIGHT'), start_line.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Relative path to the file.",
+                            },
+                            "line": {
+                                "type": "integer",
+                                "description": "Line number in the diff.",
+                            },
+                            "body": {
+                                "type": "string",
+                                "description": "Comment body (Markdown).",
+                            },
+                            "side": {
+                                "type": "string",
+                                "description": "Side of diff: 'LEFT' (deletions) or 'RIGHT' (additions). Default: 'RIGHT'.",
+                                "enum": ["LEFT", "RIGHT"],
+                                "default": "RIGHT",
+                            },
+                            "start_line": {
+                                "type": "integer",
+                                "description": "For multi-line comments, the first line.",
+                            },
+                        },
+                        "required": ["path", "line", "body"],
+                    },
+                },
+                "commit_id": {
+                    "type": "string",
+                    "description": "Optional SHA of commit to review. Defaults to PR head.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number", "event"],
+        },
+    ),
+    Tool(
+        name="github_add_pr_review_comment",
+        description="Add an inline review comment on a specific file and line in a PR diff. Requires the commit SHA from the PR head (use github_get_pr to get it).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Comment body (Markdown).",
+                },
+                "commit_id": {
+                    "type": "string",
+                    "description": "SHA of the commit to comment on (use head.sha from github_get_pr).",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Relative path to the file being commented on.",
+                },
+                "line": {
+                    "type": "integer",
+                    "description": "Line number in the diff to comment on.",
+                },
+                "side": {
+                    "type": "string",
+                    "description": "Which side of the diff: 'LEFT' (deletions) or 'RIGHT' (additions). Default: 'RIGHT'.",
+                    "enum": ["LEFT", "RIGHT"],
+                    "default": "RIGHT",
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "For multi-line comments, the first line of the range.",
+                },
+                "start_side": {
+                    "type": "string",
+                    "description": "For multi-line comments, the side of the start line.",
+                    "enum": ["LEFT", "RIGHT"],
+                },
+            },
+            "required": ["owner", "repo", "pr_number", "body", "commit_id", "path", "line"],
+        },
+    ),
+    Tool(
+        name="github_request_reviewers",
+        description="Request specific users or teams to review a pull request. At least one of reviewers or team_reviewers must be provided.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "reviewers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of usernames to request as reviewers.",
+                },
+                "team_reviewers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of team slugs to request as reviewers.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_remove_requested_reviewers",
+        description="Remove pending reviewer requests from a pull request. Does not affect reviews already submitted.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "reviewers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of usernames to remove from reviewers.",
+                },
+                "team_reviewers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of team slugs to remove from reviewers.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number"],
+        },
+    ),
+    Tool(
+        name="github_dismiss_pr_review",
+        description="Dismiss a submitted pull request review. Requires write access to the repository. Use github_get_pr_reviews to find the review_id.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number.",
+                },
+                "review_id": {
+                    "type": "integer",
+                    "description": "The review ID to dismiss (get from github_get_pr_reviews).",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Reason for dismissing the review.",
+                },
+            },
+            "required": ["owner", "repo", "pr_number", "review_id", "message"],
         },
     ),
     # --- GitHub Issues Tools ---
@@ -1925,6 +2146,78 @@ async def _execute_github_tool(
 
     elif name == "github_get_current_user":
         return github_client.get_current_user()
+
+    # --- GitHub PR Review Tools ---
+
+    elif name == "github_create_pr_review":
+        input_data = GitHubCreatePRReviewInput(**arguments)
+        # Convert Pydantic comment models to dicts for the client
+        comments = None
+        if input_data.comments:
+            comments = [
+                {
+                    "path": c.path,
+                    "line": c.line,
+                    "body": c.body,
+                    "side": c.side,
+                    **({"start_line": c.start_line} if c.start_line else {}),
+                }
+                for c in input_data.comments
+            ]
+        return github_client.create_pull_request_review(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            event=input_data.event,
+            body=input_data.body,
+            comments=comments,
+            commit_id=input_data.commit_id,
+        )
+
+    elif name == "github_add_pr_review_comment":
+        input_data = GitHubAddPRReviewCommentInput(**arguments)
+        return github_client.add_pull_request_review_comment(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            body=input_data.body,
+            commit_id=input_data.commit_id,
+            path=input_data.path,
+            line=input_data.line,
+            side=input_data.side,
+            start_line=input_data.start_line,
+            start_side=input_data.start_side,
+        )
+
+    elif name == "github_request_reviewers":
+        input_data = GitHubRequestReviewersInput(**arguments)
+        return github_client.request_reviewers(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            reviewers=input_data.reviewers,
+            team_reviewers=input_data.team_reviewers,
+        )
+
+    elif name == "github_remove_requested_reviewers":
+        input_data = GitHubRemoveRequestedReviewersInput(**arguments)
+        return github_client.remove_requested_reviewers(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            reviewers=input_data.reviewers,
+            team_reviewers=input_data.team_reviewers,
+        )
+
+    elif name == "github_dismiss_pr_review":
+        input_data = GitHubDismissPRReviewInput(**arguments)
+        return github_client.dismiss_pull_request_review(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            pr_number=input_data.pr_number,
+            review_id=input_data.review_id,
+            message=input_data.message,
+        )
 
     # --- GitHub Issues Tools ---
 
