@@ -9,8 +9,8 @@ from pydantic import BaseModel
 
 from sqlalchemy.orm import joinedload
 
-from jira_mcp.api.deps import CurrentUser, require_manager_or_admin
-from jira_mcp.db import (
+from ghost.api.deps import CurrentUser, require_manager_or_admin
+from ghost.db import (
     ManagementReport,
     ReportField,
     ReportProject,
@@ -21,7 +21,7 @@ from jira_mcp.db import (
     WeeklyReport,
     get_db,
 )
-from jira_mcp.tools import reports as report_tools
+from ghost.tools import reports as report_tools
 
 router = APIRouter()
 
@@ -1027,7 +1027,7 @@ async def get_consolidated_report(
 
         # Group individual report entries by detected project
         # Each entry is assigned to its ticket's detected_project_id
-        from jira_mcp.db import ActivityLog
+        from ghost.db import ActivityLog
 
         entries_by_project: dict[int, list[ConsolidatedEntry]] = {}
         uncategorized_entries: list[ConsolidatedEntry] = []
@@ -1139,7 +1139,7 @@ async def get_consolidated_report(
 
         # Auto-save snapshot on first view of this period (if there are entries)
         if total_entries > 0:
-            from jira_mcp.db import ConsolidatedReportSnapshot, SnapshotType
+            from ghost.db import ConsolidatedReportSnapshot, SnapshotType
             
             # Determine the report period to use for snapshot
             # If not specified, use the current week
@@ -1372,7 +1372,7 @@ async def list_consolidated_drafts(
     
     Only the manager of the team (or admin) can view drafts.
     """
-    from jira_mcp.db import ConsolidatedReportDraft
+    from ghost.db import ConsolidatedReportDraft
     
     db = get_db()
 
@@ -1419,7 +1419,7 @@ async def get_consolidated_draft(
     
     Only the manager who created the draft (or admin) can view it.
     """
-    from jira_mcp.db import ConsolidatedReportDraft
+    from ghost.db import ConsolidatedReportDraft
     
     db = get_db()
 
@@ -1458,7 +1458,7 @@ async def create_consolidated_draft(
     If content is not provided, initializes from current consolidated report data.
     The draft captures the current state of team members' reports for editing.
     """
-    from jira_mcp.db import ConsolidatedReportDraft
+    from ghost.db import ConsolidatedReportDraft
     
     db = get_db()
 
@@ -1499,7 +1499,7 @@ async def _get_consolidated_as_draft_content(session, team_id: int, user: User) 
     
     This converts the live consolidated data into editable draft format.
     """
-    from jira_mcp.db import ActivityLog
+    from ghost.db import ActivityLog
     
     # Get team member emails
     memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
@@ -1656,7 +1656,7 @@ async def update_consolidated_draft(
     
     Only the manager who created the draft (or admin) can update it.
     """
-    from jira_mcp.db import ConsolidatedReportDraft
+    from ghost.db import ConsolidatedReportDraft
     
     db = get_db()
 
@@ -1705,7 +1705,7 @@ async def delete_consolidated_draft(
     
     Only the manager who created the draft (or admin) can delete it.
     """
-    from jira_mcp.db import ConsolidatedReportDraft
+    from ghost.db import ConsolidatedReportDraft
     
     db = get_db()
 
@@ -1801,7 +1801,7 @@ async def list_consolidated_snapshots(
     
     Returns snapshots sorted by created_at descending (most recent first).
     """
-    from jira_mcp.db import ConsolidatedReportSnapshot
+    from ghost.db import ConsolidatedReportSnapshot
     
     db = get_db()
 
@@ -1837,7 +1837,7 @@ async def get_consolidated_snapshot(
     user: Annotated[User, Depends(require_manager_or_admin)],
 ):
     """Get a specific consolidated report snapshot."""
-    from jira_mcp.db import ConsolidatedReportSnapshot
+    from ghost.db import ConsolidatedReportSnapshot
     
     db = get_db()
 
@@ -1872,7 +1872,7 @@ async def create_consolidated_snapshot(
     This creates a labeled snapshot that the manager can reference later.
     Use this for "Final Version", "Before Edits", etc.
     """
-    from jira_mcp.db import ConsolidatedReportSnapshot, SnapshotType
+    from ghost.db import ConsolidatedReportSnapshot, SnapshotType
     
     db = get_db()
 
@@ -1920,7 +1920,7 @@ async def delete_consolidated_snapshot(
     Only admins can delete auto-saved snapshots.
     Managers can delete their own manual snapshots.
     """
-    from jira_mcp.db import ConsolidatedReportSnapshot, SnapshotType
+    from ghost.db import ConsolidatedReportSnapshot, SnapshotType
     
     db = get_db()
 

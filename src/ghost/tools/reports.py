@@ -12,7 +12,7 @@ import fnmatch
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
-from jira_mcp.db import (
+from ghost.db import (
     ActivityLog,
     ManagementReport,
     ProjectGitRepo,
@@ -23,7 +23,7 @@ from jira_mcp.db import (
     WeeklyReport,
     get_db,
 )
-from jira_mcp.db.models import ActionType
+from ghost.db.models import ActionType
 
 logger = logging.getLogger(__name__)
 

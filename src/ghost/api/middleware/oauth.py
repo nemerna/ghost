@@ -26,7 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from jira_mcp.db import User, UserRole, get_db
+from ghost.db import User, UserRole, get_db
 
 
 def _get_email_list(env_var: str) -> set[str]:

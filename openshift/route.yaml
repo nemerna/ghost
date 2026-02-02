@@ -1,13 +1,13 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: jira-mcp
+  name: ghost
   labels:
-    app: jira-mcp
+    app: ghost
 spec:
   to:
     kind: Service
-    name: jira-mcp
+    name: ghost
     weight: 100
   port:
     targetPort: https

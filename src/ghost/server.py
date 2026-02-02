@@ -11,14 +11,14 @@ from typing import Any
 from mcp.server import Server
 from mcp.types import Resource, ResourceContents, TextContent, TextResourceContents, Tool
 
-from jira_mcp.config import get_management_report_instructions
-from jira_mcp.db import init_db
-from jira_mcp.github_client import GitHubClient, GitHubClientError
-from jira_mcp.jira_client import JiraClient, JiraClientError
+from ghost.config import get_management_report_instructions
+from ghost.db import init_db
+from ghost.github_client import GitHubClient, GitHubClientError
+from ghost.jira_client import JiraClient, JiraClientError
 
 # Import activity tracking and report functions
-from jira_mcp.tools import reports as report_tools
-from jira_mcp.tools.schemas import (
+from ghost.tools import reports as report_tools
+from ghost.tools.schemas import (
     AddCommentInput,
     CreateSubtaskInput,
     CreateTicketInput,
@@ -82,7 +82,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
 # Create separate MCP Servers for Jira, GitHub, and Reports
-jira_mcp_server = Server("jira-mcp")
+ghost_server = Server("ghost")
 github_mcp_server = Server("github-mcp")
 reports_mcp_server = Server("reports-mcp")
 
@@ -1779,13 +1779,13 @@ Items from activities marked as private will be automatically hidden from manage
 # =============================================================================
 
 
-@jira_mcp_server.list_tools()
+@ghost_server.list_tools()
 async def list_jira_tools() -> list[Tool]:
     """List available Jira MCP tools."""
     return JIRA_TOOLS
 
 
-@jira_mcp_server.call_tool()
+@ghost_server.call_tool()
 async def call_jira_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle Jira tool calls from MCP clients."""
     try:
@@ -2551,10 +2551,10 @@ async def run_sse(host: str, port: int) -> None:
             logger.warning(f"Jira client config error: {e}")
 
         async with jira_sse_transport.connect_sse(scope, receive, send) as streams:
-            await jira_mcp_server.run(
+            await ghost_server.run(
                 streams[0],
                 streams[1],
-                jira_mcp_server.create_initialization_options(),
+                ghost_server.create_initialization_options(),
             )
 
     async def handle_github_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
@@ -2699,7 +2699,7 @@ Reports Headers:
   X-Username           Username for activity tracking (required)
 
 Example:
-  jira-mcp --host 0.0.0.0 --port 8080
+  ghost --host 0.0.0.0 --port 8080
         """,
     )
     parser.add_argument(

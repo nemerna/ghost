@@ -1,10 +1,10 @@
 """MCP Tools for Jira operations."""
 
-from jira_mcp.tools.comments import (
+from ghost.tools.comments import (
     jira_add_comment,
     jira_get_comments,
 )
-from jira_mcp.tools.discovery import (
+from ghost.tools.discovery import (
     jira_get_current_user,
     jira_get_transitions,
     jira_list_components,
@@ -13,7 +13,7 @@ from jira_mcp.tools.discovery import (
     jira_list_projects,
     jira_list_statuses,
 )
-from jira_mcp.tools.reports import (
+from ghost.tools.reports import (
     delete_management_report,
     delete_saved_report,
     detect_project_for_activity,
@@ -30,7 +30,7 @@ from jira_mcp.tools.reports import (
     save_weekly_report,
     update_management_report,
 )
-from jira_mcp.tools.tickets import (
+from ghost.tools.tickets import (
     jira_create_ticket,
     jira_get_ticket,
     jira_list_tickets,
