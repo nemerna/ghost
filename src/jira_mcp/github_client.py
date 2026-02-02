@@ -122,6 +122,24 @@ class GitHubClient:
         """Make a PATCH request to the GitHub API."""
         return self._request("PATCH", endpoint, headers=headers, json_body=json_body)
 
+    def _put(
+        self,
+        endpoint: str,
+        json_body: dict[str, Any],
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Make a PUT request to the GitHub API."""
+        return self._request("PUT", endpoint, headers=headers, json_body=json_body)
+
+    def _delete(
+        self,
+        endpoint: str,
+        json_body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Make a DELETE request to the GitHub API."""
+        return self._request("DELETE", endpoint, headers=headers, json_body=json_body)
+
     # --- Pull Request Methods ---
 
     def list_pull_requests(
@@ -491,6 +509,239 @@ class GitHubClient:
             "created_at": comment["created_at"],
             "updated_at": comment["updated_at"],
             "url": comment["html_url"],
+        }
+
+    def create_pull_request_review(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        event: str,
+        body: str | None = None,
+        comments: list[dict[str, Any]] | None = None,
+        commit_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create a review on a pull request (approve, request changes, or comment).
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            event: Review action: 'APPROVE', 'REQUEST_CHANGES', or 'COMMENT'
+            body: Review body/summary (Markdown). Required for REQUEST_CHANGES.
+            comments: Optional list of inline comments to include with the review.
+                      Each comment dict should have: path, line, body, and optionally
+                      side ('LEFT' or 'RIGHT'), start_line (for multi-line comments).
+            commit_id: Optional SHA of the commit to review. Defaults to PR head.
+
+        Returns:
+            Created review details
+        """
+        json_body: dict[str, Any] = {"event": event}
+
+        if body:
+            json_body["body"] = body
+        if commit_id:
+            json_body["commit_id"] = commit_id
+        if comments:
+            json_body["comments"] = comments
+
+        review = self._post(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+            json_body=json_body,
+        )
+
+        return {
+            "id": review["id"],
+            "user": review["user"]["login"] if review["user"] else None,
+            "state": review["state"],
+            "body": review.get("body"),
+            "submitted_at": review.get("submitted_at"),
+            "commit_id": review.get("commit_id"),
+            "url": review.get("html_url"),
+        }
+
+    def add_pull_request_review_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        body: str,
+        commit_id: str,
+        path: str,
+        line: int,
+        side: str = "RIGHT",
+        start_line: int | None = None,
+        start_side: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Add an inline review comment on a specific file and line in a PR diff.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            body: Comment body (Markdown)
+            commit_id: SHA of the commit to comment on (use PR head SHA)
+            path: Relative path to the file being commented on
+            line: Line number in the diff to comment on
+            side: Which side of the diff: 'LEFT' (deletions) or 'RIGHT' (additions)
+            start_line: For multi-line comments, the first line of the range
+            start_side: For multi-line comments, the side of the start line
+
+        Returns:
+            Created comment details
+        """
+        json_body: dict[str, Any] = {
+            "body": body,
+            "commit_id": commit_id,
+            "path": path,
+            "line": line,
+            "side": side,
+        }
+
+        if start_line is not None:
+            json_body["start_line"] = start_line
+            if start_side:
+                json_body["start_side"] = start_side
+
+        comment = self._post(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/comments",
+            json_body=json_body,
+        )
+
+        return {
+            "id": comment["id"],
+            "user": comment["user"]["login"] if comment["user"] else None,
+            "body": comment["body"],
+            "path": comment["path"],
+            "line": comment.get("line"),
+            "side": comment.get("side"),
+            "start_line": comment.get("start_line"),
+            "diff_hunk": comment.get("diff_hunk"),
+            "commit_id": comment.get("commit_id"),
+            "created_at": comment["created_at"],
+            "updated_at": comment["updated_at"],
+            "url": comment["html_url"],
+        }
+
+    def request_reviewers(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        reviewers: list[str] | None = None,
+        team_reviewers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Request reviewers for a pull request.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            reviewers: List of usernames to request as reviewers
+            team_reviewers: List of team slugs to request as reviewers
+
+        Returns:
+            Updated PR details with requested reviewers
+        """
+        json_body: dict[str, Any] = {}
+
+        if reviewers:
+            json_body["reviewers"] = reviewers
+        if team_reviewers:
+            json_body["team_reviewers"] = team_reviewers
+
+        result = self._post(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/requested_reviewers",
+            json_body=json_body,
+        )
+
+        return {
+            "pr_number": result["number"],
+            "title": result["title"],
+            "requested_reviewers": [r["login"] for r in result.get("requested_reviewers", [])],
+            "requested_teams": [t["slug"] for t in result.get("requested_teams", [])],
+            "url": result["html_url"],
+        }
+
+    def remove_requested_reviewers(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        reviewers: list[str] | None = None,
+        team_reviewers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Remove requested reviewers from a pull request.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            reviewers: List of usernames to remove from reviewers
+            team_reviewers: List of team slugs to remove from reviewers
+
+        Returns:
+            Updated PR details with remaining requested reviewers
+        """
+        json_body: dict[str, Any] = {}
+
+        if reviewers:
+            json_body["reviewers"] = reviewers
+        if team_reviewers:
+            json_body["team_reviewers"] = team_reviewers
+
+        result = self._delete(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/requested_reviewers",
+            json_body=json_body,
+        )
+
+        return {
+            "pr_number": result["number"],
+            "title": result["title"],
+            "requested_reviewers": [r["login"] for r in result.get("requested_reviewers", [])],
+            "requested_teams": [t["slug"] for t in result.get("requested_teams", [])],
+            "url": result["html_url"],
+        }
+
+    def dismiss_pull_request_review(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        review_id: int,
+        message: str,
+    ) -> dict[str, Any]:
+        """
+        Dismiss a pull request review.
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            pr_number: Pull request number
+            review_id: The review ID to dismiss
+            message: Reason for dismissing the review
+
+        Returns:
+            Dismissed review details
+        """
+        review = self._put(
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews/{review_id}/dismissals",
+            json_body={"message": message},
+        )
+
+        return {
+            "id": review["id"],
+            "user": review["user"]["login"] if review["user"] else None,
+            "state": review["state"],
+            "body": review.get("body"),
+            "dismissed_at": review.get("submitted_at"),
+            "dismissal_message": message,
+            "url": review.get("html_url"),
         }
 
     def search_pull_requests(
