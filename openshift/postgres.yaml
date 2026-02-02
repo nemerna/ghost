@@ -1,0 +1,114 @@
+# PostgreSQL Database for Ghost
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghost-postgres
+  labels:
+    app: ghost-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ghost-postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ghost-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: registry.redhat.io/rhel9/postgresql-15:latest
+          ports:
+            - containerPort: 5432
+              name: postgres
+              protocol: TCP
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ghost-postgres-secret
+                  key: database-user
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ghost-postgres-secret
+                  key: database-password
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: ghost-postgres-secret
+                  key: database-name
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/pgsql/data
+          livenessProbe:
+            exec:
+              command:
+                - /usr/libexec/check-container
+                - --live
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            timeoutSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - /usr/libexec/check-container
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: ghost-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ghost-postgres
+  labels:
+    app: ghost-postgres
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+  selector:
+    app: ghost-postgres
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ghost-postgres-data
+  labels:
+    app: ghost-postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ghost-postgres-secret
+  labels:
+    app: ghost-postgres
+type: Opaque
+stringData:
+  database-user: ghost
+  database-password: ghostpass123
+  database-name: ghost
+  # Connection URL for the application
+  database-url: "postgresql://ghost:ghostpass123@ghost-postgres:5432/ghost"

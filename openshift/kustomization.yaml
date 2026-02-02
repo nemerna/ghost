@@ -2,27 +2,26 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: ghost
+namespace: jira-mcp
 
 resources:
+  - postgres.yaml
   - deployment.yaml
   - service.yaml
   - route.yaml
   - configmap.yaml
-  - pvc.yaml
   # Note: secrets.yaml is not included - create secrets manually or use sealed-secrets
+  # Note: pvc.yaml removed - using PostgreSQL instead of SQLite
 
 commonLabels:
   app.kubernetes.io/name: ghost
   app.kubernetes.io/part-of: ghost
 
 # Customize images for your registry
-# Default: uses internal OpenShift registry
-# Change newName to your registry (e.g., quay.io/youruser/ghost)
 images:
   - name: ghost-frontend
-    newName: image-registry.openshift-image-registry.svc:5000/ghost/ghost-frontend
-    newTag: latest
+    newName: quay.io/nnaamneh/jira-mcp
+    newTag: frontend
   - name: ghost-backend
-    newName: image-registry.openshift-image-registry.svc:5000/ghost/ghost-backend
-    newTag: latest
+    newName: quay.io/nnaamneh/jira-mcp
+    newTag: backend
