@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
-from jira_mcp.db import Team, TeamMembership, User, UserRole, get_db
+from ghost.db import Team, TeamMembership, User, UserRole, get_db
 
 
 def get_current_user(request: Request) -> User:

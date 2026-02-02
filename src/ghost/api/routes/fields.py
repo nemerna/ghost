@@ -6,8 +6,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from jira_mcp.api.deps import CurrentUser, require_admin
-from jira_mcp.db import (
+from ghost.api.deps import CurrentUser, require_admin
+from ghost.db import (
     ProjectGitRepo,
     ProjectJiraComponent,
     ReportField,
@@ -15,7 +15,7 @@ from jira_mcp.db import (
     User,
     get_db,
 )
-from jira_mcp.tools.reports import redetect_project_assignments
+from ghost.tools.reports import redetect_project_assignments
 
 router = APIRouter()
 

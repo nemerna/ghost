@@ -10,5 +10,5 @@ async def health_check():
     """Health check endpoint - no authentication required."""
     return {
         "status": "healthy",
-        "service": "jira-mcp-api",
+        "service": "ghost-api",
     }

@@ -1,7 +1,7 @@
 """Database layer for Jira MCP activity tracking, reports, and user management."""
 
-from jira_mcp.db.database import Database, get_db, init_db
-from jira_mcp.db.models import (
+from ghost.db.database import Database, get_db, init_db
+from ghost.db.models import (
     ActionType,
     ActivityLog,
     ConsolidatedReportDraft,

@@ -1,14 +1,14 @@
-# Jira MCP Backend Container
+# Ghost Backend Container
 # FastAPI application serving the REST API
 # Based on Red Hat Universal Base Image 9
 
 FROM registry.access.redhat.com/ubi9/python-311:latest
 
 # Labels for container metadata
-LABEL name="jira-mcp-backend" \
+LABEL name="ghost-backend" \
       version="1.0.0" \
-      summary="Backend API for Jira MCP" \
-      description="FastAPI REST API for Jira integration, activity tracking, and weekly report generation" \
+      summary="Backend API for Ghost" \
+      description="FastAPI REST API for Jira, GitHub integration, activity tracking, and report generation" \
       maintainer="Your Name <your.email@example.com>"
 
 # Set working directory
@@ -37,7 +37,7 @@ ENV JIRA_SERVER_URL="" \
     JIRA_PERSONAL_ACCESS_TOKEN="" \
     JIRA_VERIFY_SSL="true" \
     DATABASE_URL="" \
-    JIRA_MCP_DATA_DIR="/app/data" \
+    GHOST_DATA_DIR="/app/data" \
     DEV_MODE="false" \
     CORS_ORIGINS="*"
 
@@ -55,4 +55,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 USER 1001
 
 # Run uvicorn
-CMD ["python", "-m", "uvicorn", "jira_mcp.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "ghost.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

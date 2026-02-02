@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: jira-mcp
+  name: ghost
   labels:
-    app: jira-mcp
+    app: ghost
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: jira-mcp
+      app: ghost
   template:
     metadata:
       labels:
-        app: jira-mcp
+        app: ghost
     spec:
-      serviceAccountName: jira-mcp
+      serviceAccountName: ghost
       containers:
         # OAuth Proxy sidecar - handles authentication
         - name: oauth-proxy
@@ -32,7 +32,7 @@ spec:
             - --tls-cert=/etc/tls/private/tls.crt
             - --tls-key=/etc/tls/private/tls.key
             - --cookie-secret-file=/etc/proxy/secrets/session-secret
-            - --openshift-service-account=jira-mcp
+            - --openshift-service-account=ghost
             - --openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
             - --skip-auth-regex=^/(api/health|mcp/|mcp/jira|mcp/github|mcp/reports)
             - --pass-user-headers=true
@@ -55,7 +55,7 @@ spec:
 
         # Frontend container - nginx serving static files and proxying API
         - name: frontend
-          image: jira-mcp-frontend:latest
+          image: ghost-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -83,7 +83,7 @@ spec:
 
         # Backend container - FastAPI REST API
         - name: backend
-          image: jira-mcp-backend:latest
+          image: ghost-backend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -95,7 +95,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: jira-mcp-secrets
+                  name: ghost-secrets
                   key: database-url
             - name: CORS_ORIGINS
               value: "*"
@@ -107,7 +107,7 @@ spec:
               value: ""
           envFrom:
             - configMapRef:
-                name: jira-mcp-config
+                name: ghost-config
           volumeMounts:
             - name: data
               mountPath: /app/data
@@ -133,9 +133,9 @@ spec:
 
         # MCP Server container - MCP SSE server for AI tool integration
         - name: mcp
-          image: jira-mcp-backend:latest
+          image: ghost-backend:latest
           imagePullPolicy: Always
-          command: ["python", "-m", "jira_mcp.server", "--host", "0.0.0.0", "--port", "8001"]
+          command: ["python", "-m", "ghost.server", "--host", "0.0.0.0", "--port", "8001"]
           ports:
             - containerPort: 8001
               name: mcp
@@ -144,11 +144,11 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: jira-mcp-secrets
+                  name: ghost-secrets
                   key: database-url
           envFrom:
             - configMapRef:
-                name: jira-mcp-config
+                name: ghost-config
           volumeMounts:
             - name: data
               mountPath: /app/data
@@ -175,17 +175,17 @@ spec:
       volumes:
         - name: proxy-tls
           secret:
-            secretName: jira-mcp-tls
+            secretName: ghost-tls
         - name: proxy-secret
           secret:
-            secretName: jira-mcp-proxy-secret
+            secretName: ghost-proxy-secret
         - name: data
           persistentVolumeClaim:
-            claimName: jira-mcp-data
+            claimName: ghost-data
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: jira-mcp
+  name: ghost
   annotations:
-    serviceaccounts.openshift.io/oauth-redirectreference.primary: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"jira-mcp"}}'
+    serviceaccounts.openshift.io/oauth-redirectreference.primary: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"ghost"}}'

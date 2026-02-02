@@ -8,9 +8,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from jira_mcp.api.deps import CurrentUser, require_manager_or_admin
-from jira_mcp.db import ActivityLog, Team, TeamMembership, TicketSource, User, UserRole, get_db
-from jira_mcp.db.models import ActionType
+from ghost.api.deps import CurrentUser, require_manager_or_admin
+from ghost.db import ActivityLog, Team, TeamMembership, TicketSource, User, UserRole, get_db
+from ghost.db.models import ActionType
 
 router = APIRouter()
 

@@ -1,4 +1,4 @@
-# Jira MCP Server
+# Ghost
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -10,7 +10,7 @@ A Model Context Protocol (MCP) server that connects Jira and GitHub to AI-powere
 
 ```bash
 # 1. Clone and start with Docker Compose
-git clone <repository-url> && cd jira-mcp
+git clone <repository-url> && cd ghost
 docker-compose up -d
 
 # 2. Configure Cursor IDE (.cursor/mcp.json)
@@ -192,7 +192,7 @@ The web UI provides a dashboard for activity tracking and report management:
 
 ```bash
 git clone <repository-url>
-cd jira-mcp
+cd ghost
 docker-compose up -d
 ```
 
@@ -202,16 +202,16 @@ Access the web UI at `http://localhost:8080`
 
 ```bash
 git clone <repository-url>
-cd jira-mcp
+cd ghost
 python -m venv venv
 source venv/bin/activate
 pip install -e .
 
 # Run MCP server only
-python -m jira_mcp.server --host 0.0.0.0 --port 8001
+python -m ghost.server --host 0.0.0.0 --port 8001
 
 # Or run the REST API backend
-uvicorn jira_mcp.api.main:app --host 0.0.0.0 --port 8000
+uvicorn ghost.api.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Creating Personal Access Tokens
@@ -274,7 +274,7 @@ Credentials are passed from the MCP client via headers. Each endpoint requires i
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | — | PostgreSQL connection string (leave empty for SQLite) |
-| `JIRA_MCP_DATA_DIR` | `./data` | SQLite storage directory |
+| `GHOST_DATA_DIR` | `./data` | SQLite storage directory |
 | `DEV_MODE` | `false` | Enable development mode (bypass OAuth, enable API docs) |
 | `DEV_EMAIL` | `dev@example.com` | Email to use in development mode |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
@@ -346,20 +346,20 @@ docker-compose --profile postgres up -d
 
 ```bash
 # Build backend image
-docker build -t jira-mcp:backend -f Containerfile.backend .
+docker build -t ghost:backend -f Containerfile.backend .
 
 # Build frontend image
-docker build -t jira-mcp:frontend -f Containerfile.frontend .
+docker build -t ghost:frontend -f Containerfile.frontend .
 ```
 
 ### Local Development
 
 ```bash
 # MCP server only (for AI tool integration)
-python -m jira_mcp.server --host 0.0.0.0 --port 8001
+python -m ghost.server --host 0.0.0.0 --port 8001
 
 # REST API backend (for web UI)
-DEV_MODE=true uvicorn jira_mcp.api.main:app --host 0.0.0.0 --port 8000 --reload
+DEV_MODE=true uvicorn ghost.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Frontend development (requires Node.js 22+)
 cd ui
@@ -536,8 +536,8 @@ Management reports use structured entries with per-item visibility control:
 ## Project Structure
 
 ```
-jira-mcp/
-├── src/jira_mcp/
+ghost/
+├── src/ghost/
 │   ├── server.py              # MCP SSE server with /mcp/jira, /mcp/github, /mcp/reports
 │   ├── jira_client.py         # Jira API wrapper
 │   ├── github_client.py       # GitHub API wrapper (PRs and Issues)
@@ -598,7 +598,7 @@ jira-mcp/
 | SSL errors | Set `X-Jira-Verify-SSL: false` in client headers |
 | Auth failures | Verify PAT is valid and has required permissions |
 | Connection refused | Confirm server is running and endpoint is reachable |
-| Database errors | Check `JIRA_MCP_DATA_DIR` is writable or `DATABASE_URL` is correct |
+| Database errors | Check `GHOST_DATA_DIR` is writable or `DATABASE_URL` is correct |
 | Missing headers | Ensure client sends required headers for the endpoint (`X-Username` for `/mcp/reports`) |
 | Tools not loading | Restart Cursor after updating `.cursor/mcp.json` |
 | Reports not saving | Verify `X-Username` header is set on the `/mcp/reports` endpoint |

@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from jira_mcp.jira_client import JiraClient, get_jira_client
-from jira_mcp.tools.schemas import AddCommentInput, GetCommentsInput
+from ghost.jira_client import JiraClient, get_jira_client
+from ghost.tools.schemas import AddCommentInput, GetCommentsInput
 
 
 def jira_add_comment(

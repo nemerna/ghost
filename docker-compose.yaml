@@ -1,4 +1,4 @@
-# Jira MCP Server - Full Deployment Stack
+# Ghost - Full Deployment Stack
 # 
 # This docker-compose file provides two deployment options:
 #   1. SQLite mode (default): Simple, file-based database
@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile.frontend
-    container_name: jira-mcp-frontend
+    container_name: ghost-frontend
     ports:
       - "8080:8080"
     environment:
@@ -50,7 +50,7 @@ services:
       start_period: 5s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
   # ===========================================
   # Backend - FastAPI REST API (with SQLite - default)
@@ -59,17 +59,17 @@ services:
     build:
       context: .
       dockerfile: Containerfile.backend
-    container_name: jira-mcp-backend
+    container_name: ghost-backend
     environment:
       # Database - SQLite (default)
-      - JIRA_MCP_DATA_DIR=/app/data
+      - GHOST_DATA_DIR=/app/data
       # Leave DATABASE_URL empty for SQLite
       - DATABASE_URL=
       - DEV_MODE=false
       - CORS_ORIGINS=*
     volumes:
       # Persistent storage for SQLite database
-      - jira-mcp-data:/app/data
+      - ghost-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
@@ -78,7 +78,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
   # ===========================================
   # MCP Server - SSE server for AI tools (with SQLite - default)
@@ -87,16 +87,16 @@ services:
     build:
       context: .
       dockerfile: Containerfile.backend
-    container_name: jira-mcp-mcp
-    command: ["python", "-m", "jira_mcp.server", "--host", "0.0.0.0", "--port", "8001"]
+    container_name: ghost-mcp
+    command: ["python", "-m", "ghost.server", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       # Database - SQLite (default)
-      - JIRA_MCP_DATA_DIR=/app/data
+      - GHOST_DATA_DIR=/app/data
       # Leave DATABASE_URL empty for SQLite
       - DATABASE_URL=
     volumes:
       # Shared storage with backend for SQLite database
-      - jira-mcp-data:/app/data
+      - ghost-data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
@@ -105,7 +105,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
   # ===========================================
   # Frontend - Nginx (PostgreSQL mode)
@@ -114,7 +114,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile.frontend
-    container_name: jira-mcp-frontend-pg
+    container_name: ghost-frontend-pg
     profiles:
       - postgres
     ports:
@@ -137,7 +137,7 @@ services:
       start_period: 5s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
   # ===========================================
   # Backend - FastAPI REST API (with PostgreSQL)
@@ -146,12 +146,12 @@ services:
     build:
       context: .
       dockerfile: Containerfile.backend
-    container_name: jira-mcp-backend-pg
+    container_name: ghost-backend-pg
     profiles:
       - postgres
     environment:
       # Database - PostgreSQL
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-jira_mcp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-jira_mcp}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ghost}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-ghost}
       - DEV_MODE=false
       - CORS_ORIGINS=*
     depends_on:
@@ -165,7 +165,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
   # ===========================================
   # MCP Server - SSE server for AI tools (with PostgreSQL)
@@ -174,13 +174,13 @@ services:
     build:
       context: .
       dockerfile: Containerfile.backend
-    container_name: jira-mcp-mcp-pg
+    container_name: ghost-mcp-pg
     profiles:
       - postgres
-    command: ["python", "-m", "jira_mcp.server", "--host", "0.0.0.0", "--port", "8001"]
+    command: ["python", "-m", "ghost.server", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       # Database - PostgreSQL
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-jira_mcp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-jira_mcp}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ghost}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-ghost}
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,37 +192,37 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
   # ===========================================
   # PostgreSQL Database (optional)
   # ===========================================
   postgres:
     image: postgres:16-alpine
-    container_name: jira-mcp-postgres-db
+    container_name: ghost-postgres-db
     profiles:
       - postgres
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-jira_mcp}
+      - POSTGRES_USER=${POSTGRES_USER:-ghost}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-      - POSTGRES_DB=${POSTGRES_DB:-jira_mcp}
+      - POSTGRES_DB=${POSTGRES_DB:-ghost}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jira_mcp} -d ${POSTGRES_DB:-jira_mcp}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ghost} -d ${POSTGRES_DB:-ghost}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
     networks:
-      - jira-mcp-net
+      - ghost-net
 
 # ===========================================
 # Networks
 # ===========================================
 networks:
-  jira-mcp-net:
+  ghost-net:
     driver: bridge
 
 # ===========================================
@@ -230,7 +230,7 @@ networks:
 # ===========================================
 volumes:
   # SQLite data volume (shared between backend and mcp)
-  jira-mcp-data:
+  ghost-data:
     driver: local
   # PostgreSQL data volume
   postgres-data:

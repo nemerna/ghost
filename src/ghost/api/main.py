@@ -11,8 +11,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from jira_mcp.api.middleware import OAuthProxyMiddleware
-from jira_mcp.db import init_db
+from ghost.api.middleware import OAuthProxyMiddleware
+from ghost.db import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def create_app(
     )
     
     # Register API routes
-    from jira_mcp.api.routes import (
+    from ghost.api.routes import (
         activities_router,
         fields_router,
         health_router,

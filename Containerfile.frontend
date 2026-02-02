@@ -1,4 +1,4 @@
-# Jira MCP Frontend Container
+# Ghost Frontend Container
 # Nginx serving static frontend files and proxying API requests
 # Based on Red Hat Universal Base Image 9
 
@@ -33,9 +33,9 @@ RUN npm run build
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 # Labels for container metadata
-LABEL name="jira-mcp-frontend" \
+LABEL name="ghost-frontend" \
       version="1.0.0" \
-      summary="Frontend for Jira MCP - PatternFly React UI" \
+      summary="Frontend for Ghost - PatternFly React UI" \
       description="Nginx serving static frontend files and proxying API requests to backend" \
       maintainer="Your Name <your.email@example.com>"
 

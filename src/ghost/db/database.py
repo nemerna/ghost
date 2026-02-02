@@ -1,4 +1,4 @@
-"""Database connection and initialization for Jira MCP."""
+"""Database connection and initialization for Ghost."""
 
 import logging
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from jira_mcp.db.models import Base
+from ghost.db.models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -188,9 +188,9 @@ class Database:
             return url
 
         # Default to SQLite in data directory
-        data_dir = Path(os.environ.get("JIRA_MCP_DATA_DIR", "./data"))
+        data_dir = Path(os.environ.get("GHOST_DATA_DIR", "./data"))
         data_dir.mkdir(parents=True, exist_ok=True)
-        return f"sqlite:///{data_dir}/jira_mcp.db"
+        return f"sqlite:///{data_dir}/ghost.db"
 
     def _get_safe_url(self) -> str:
         """Get database URL with password masked for logging."""

@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from jira_mcp.api.deps import (
+from ghost.api.deps import (
     CurrentUser,
     UserTeams,
     require_admin,
@@ -14,7 +14,7 @@ from jira_mcp.api.deps import (
     require_team_manager,
     require_team_member,
 )
-from jira_mcp.db import Team, TeamMembership, User, UserRole, get_db
+from ghost.db import Team, TeamMembership, User, UserRole, get_db
 
 router = APIRouter()
 

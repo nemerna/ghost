@@ -1,8 +1,8 @@
-# Kustomization file for deploying Jira MCP to OpenShift
+# Kustomization file for deploying Ghost to OpenShift
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: jira-mcp
+namespace: ghost
 
 resources:
   - deployment.yaml
@@ -13,16 +13,16 @@ resources:
   # Note: secrets.yaml is not included - create secrets manually or use sealed-secrets
 
 commonLabels:
-  app.kubernetes.io/name: jira-mcp
-  app.kubernetes.io/part-of: jira-mcp
+  app.kubernetes.io/name: ghost
+  app.kubernetes.io/part-of: ghost
 
 # Customize images for your registry
 # Default: uses internal OpenShift registry
-# Change newName to your registry (e.g., quay.io/youruser/jira-mcp)
+# Change newName to your registry (e.g., quay.io/youruser/ghost)
 images:
-  - name: jira-mcp-frontend
-    newName: image-registry.openshift-image-registry.svc:5000/jira-mcp/jira-mcp-frontend
+  - name: ghost-frontend
+    newName: image-registry.openshift-image-registry.svc:5000/ghost/ghost-frontend
     newTag: latest
-  - name: jira-mcp-backend
-    newName: image-registry.openshift-image-registry.svc:5000/jira-mcp/jira-mcp-backend
+  - name: ghost-backend
+    newName: image-registry.openshift-image-registry.svc:5000/ghost/ghost-backend
     newTag: latest

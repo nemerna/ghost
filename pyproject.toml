@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jira-mcp"
+name = "ghost"
 version = "0.1.0"
-description = "MCP Server for Jira ticket management"
+description = "MCP Server for Jira, GitHub, and report management"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.scripts]
-jira-mcp = "jira_mcp.server:main"
+ghost = "ghost.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

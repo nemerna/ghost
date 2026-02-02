@@ -1,4 +1,4 @@
-"""Configuration management for Jira MCP Server."""
+"""Configuration management for Ghost Server."""
 
 import os
 from functools import lru_cache
@@ -176,7 +176,7 @@ def get_management_report_instructions() -> str:
     default_paths = [
         Path("management_report_instructions.md"),
         Path("config/management_report_instructions.md"),
-        Path.home() / ".config" / "jira-mcp" / "management_report_instructions.md",
+        Path.home() / ".config" / "ghost" / "management_report_instructions.md",
     ]
 
     for path in default_paths:
