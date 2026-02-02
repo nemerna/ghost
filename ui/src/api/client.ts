@@ -1,5 +1,5 @@
 /**
- * API client for Jira MCP backend
+ * API client for Ghost backend
  */
 
 import axios, { AxiosError, AxiosInstance } from 'axios';

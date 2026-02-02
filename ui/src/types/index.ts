@@ -1,5 +1,5 @@
 /**
- * Type definitions for Jira MCP UI
+ * Type definitions for Ghost UI
  */
 
 // =============================================================================
