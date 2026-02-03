@@ -373,7 +373,7 @@ class ReportField(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
-    # Relationships
+    # Relationships - includes ALL projects (both top-level and nested)
     projects = relationship(
         "ReportProject",
         back_populates="field",
@@ -383,8 +383,19 @@ class ReportField(Base):
 
     __table_args__ = (Index("idx_field_order", "display_order"),)
 
-    def to_dict(self, include_projects: bool = False) -> dict:
-        """Convert to dictionary."""
+    @property
+    def top_level_projects(self) -> list["ReportProject"]:
+        """Get only top-level projects (parent_id is None)."""
+        return [p for p in self.projects if p.parent_id is None]
+
+    def to_dict(self, include_projects: bool = False, include_children: bool = False) -> dict:
+        """Convert to dictionary.
+        
+        Args:
+            include_projects: Include project data in output
+            include_children: If True, include nested children hierarchy; 
+                            if False, include flat list of all projects
+        """
         result = {
             "id": self.id,
             "name": self.name,
@@ -394,7 +405,18 @@ class ReportField(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
         if include_projects:
-            result["projects"] = [p.to_dict(include_config=True) for p in self.projects]
+            if include_children:
+                # Return hierarchical structure with only top-level projects
+                # (children are nested within each project)
+                result["projects"] = [
+                    p.to_dict(include_config=True, include_children=True)
+                    for p in sorted(self.top_level_projects, key=lambda x: x.display_order)
+                ]
+            else:
+                # Flat list of all projects (backward compatible)
+                result["projects"] = [
+                    p.to_dict(include_config=True) for p in self.projects
+                ]
         return result
 
     def __repr__(self) -> str:
@@ -402,7 +424,11 @@ class ReportField(Base):
 
 
 class ReportProject(Base):
-    """Project within a field for report consolidation."""
+    """Project within a field for report consolidation.
+    
+    Supports hierarchical nesting via parent_id for N-level deep structures.
+    Detection mappings (git repos, Jira components) should only be on leaf projects.
+    """
 
     __tablename__ = "report_projects"
 
@@ -411,11 +437,14 @@ class ReportProject(Base):
     # Parent field
     field_id = Column(Integer, ForeignKey("report_fields.id"), nullable=False, index=True)
 
+    # Self-referential parent (null = top-level project under field)
+    parent_id = Column(Integer, ForeignKey("report_projects.id"), nullable=True, index=True)
+
     # Project info
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
 
-    # Ordering within field
+    # Ordering within parent (or field if top-level)
     display_order = Column(Integer, nullable=False, default=0)
 
     # Timestamps
@@ -424,6 +453,20 @@ class ReportProject(Base):
 
     # Relationships
     field = relationship("ReportField", back_populates="projects")
+    
+    # Self-referential relationships for hierarchy
+    parent = relationship(
+        "ReportProject",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children = relationship(
+        "ReportProject",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        order_by="ReportProject.display_order",
+    )
+    
     git_repos = relationship(
         "ProjectGitRepo",
         back_populates="project",
@@ -438,17 +481,39 @@ class ReportProject(Base):
 
     __table_args__ = (
         Index("idx_project_field_order", "field_id", "display_order"),
-        Index("idx_project_name", "field_id", "name", unique=True),
+        Index("idx_project_parent", "parent_id"),
+        # Unique name within same parent (or field if top-level)
+        Index("idx_project_name", "field_id", "parent_id", "name", unique=True),
     )
 
-    def to_dict(self, include_config: bool = False) -> dict:
+    @property
+    def is_leaf(self) -> bool:
+        """Check if this project has no children (is a leaf node)."""
+        return len(self.children) == 0
+
+    def get_ancestry_path(self) -> list["ReportProject"]:
+        """Get the full ancestry path from root to this project (inclusive)."""
+        path = [self]
+        current = self
+        while current.parent is not None:
+            path.insert(0, current.parent)
+            current = current.parent
+        return path
+
+    def get_full_name(self, separator: str = " > ") -> str:
+        """Get the full hierarchical name (e.g., 'AI/ML > ExploitIQ > CVE Analysis')."""
+        return separator.join(p.name for p in self.get_ancestry_path())
+
+    def to_dict(self, include_config: bool = False, include_children: bool = False) -> dict:
         """Convert to dictionary."""
         result = {
             "id": self.id,
             "field_id": self.field_id,
+            "parent_id": self.parent_id,
             "name": self.name,
             "description": self.description,
             "display_order": self.display_order,
+            "is_leaf": self.is_leaf,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -458,10 +523,15 @@ class ReportProject(Base):
                 {"jira_project_key": c.jira_project_key, "component_name": c.component_name}
                 for c in self.jira_components
             ]
+        if include_children:
+            result["children"] = [
+                c.to_dict(include_config=include_config, include_children=True)
+                for c in sorted(self.children, key=lambda x: x.display_order)
+            ]
         return result
 
     def __repr__(self) -> str:
-        return f"<ReportProject(id={self.id}, name={self.name}, field_id={self.field_id})>"
+        return f"<ReportProject(id={self.id}, name={self.name}, field_id={self.field_id}, parent_id={self.parent_id})>"
 
 
 class ProjectGitRepo(Base):

@@ -231,11 +231,14 @@ export interface JiraComponentConfig {
 export interface ReportProject {
   id: number;
   field_id: number;
+  parent_id: number | null;
   name: string;
   description: string | null;
   display_order: number;
+  is_leaf: boolean;
   git_repos: string[];
   jira_components: JiraComponentConfig[];
+  children: ReportProject[];
   created_at: string | null;
   updated_at: string | null;
 }
@@ -272,6 +275,7 @@ export interface FieldReorderRequest {
 export interface ProjectCreateRequest {
   name: string;
   description?: string;
+  parent_id?: number | null;
   git_repos?: string[];
   jira_components?: JiraComponentConfig[];
 }
@@ -279,6 +283,7 @@ export interface ProjectCreateRequest {
 export interface ProjectUpdateRequest {
   name?: string;
   description?: string;
+  parent_id?: number | null;
   git_repos?: string[];
   jira_components?: JiraComponentConfig[];
 }
@@ -319,7 +324,10 @@ export interface ConsolidatedProject {
   id: number;
   name: string;
   description: string | null;
+  parent_id: number | null;
+  is_leaf: boolean;
   entries: ConsolidatedEntry[];
+  children: ConsolidatedProject[];
 }
 
 export interface ConsolidatedField {
@@ -379,7 +387,10 @@ export interface ConsolidatedDraftEntry {
 export interface ConsolidatedDraftProject {
   id: number;
   name: string;
+  parent_id?: number | null;
+  is_leaf?: boolean;
   entries: ConsolidatedDraftEntry[];
+  children?: ConsolidatedDraftProject[];
 }
 
 export interface ConsolidatedDraftField {

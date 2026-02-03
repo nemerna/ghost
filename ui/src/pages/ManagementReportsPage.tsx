@@ -547,33 +547,39 @@ export function ManagementReportsPage() {
     }
   };
 
-  // Convert consolidated data to draft content format
+  // Convert consolidated data to draft content format (supports hierarchical projects)
   const convertConsolidatedToDraftContent = useCallback((data: ConsolidatedReportResponse): ConsolidatedDraftContent => {
+    // Recursive function to convert projects with children
+    const convertProject = (project: typeof data.fields[0]['projects'][0]): ConsolidatedDraftContent['fields'][0]['projects'][0] => ({
+      id: project.id,
+      name: project.name,
+      parent_id: project.parent_id,
+      is_leaf: project.is_leaf,
+      // Flatten user entries into individual entries (only for leaf projects)
+      entries: project.entries.flatMap((userEntry) =>
+        (userEntry.entries || []).length > 0
+          ? userEntry.entries.map((entry) => ({
+              text: entry.text,
+              original_report_id: userEntry.report_id,
+              original_username: userEntry.username,
+              is_manager_added: false,
+            }))
+          : [{
+              text: userEntry.content,
+              original_report_id: userEntry.report_id,
+              original_username: userEntry.username,
+              is_manager_added: false,
+            }]
+      ),
+      children: (project.children || []).map(convertProject),
+    });
+
     return {
       format: 'consolidated_v1',
       fields: data.fields.map((field) => ({
         id: field.id,
         name: field.name,
-        projects: field.projects.map((project) => ({
-          id: project.id,
-          name: project.name,
-          // Flatten user entries into individual entries
-          entries: project.entries.flatMap((userEntry) =>
-            (userEntry.entries || []).length > 0
-              ? userEntry.entries.map((entry) => ({
-                  text: entry.text,
-                  original_report_id: userEntry.report_id,
-                  original_username: userEntry.username,
-                  is_manager_added: false,
-                }))
-              : [{
-                  text: userEntry.content,
-                  original_report_id: userEntry.report_id,
-                  original_username: userEntry.username,
-                  is_manager_added: false,
-                }]
-          ),
-        })),
+        projects: field.projects.map(convertProject),
       })),
       uncategorized: data.uncategorized.flatMap((userEntry) =>
         (userEntry.entries || []).length > 0
@@ -593,24 +599,35 @@ export function ManagementReportsPage() {
     };
   }, []);
 
-  // Handle project entries change
+  // Handle project entries change (supports nested projects)
   const handleProjectEntriesChange = useCallback((fieldId: number, projectId: number, newEntries: ProjectEntry[]) => {
     if (!editedDraftContent) return;
 
+    // Recursive function to find and update a project in the tree
+    type DraftProject = ConsolidatedDraftContent['fields'][0]['projects'][0];
+    const findAndUpdateProject = (projects: DraftProject[]): boolean => {
+      for (const project of projects) {
+        if (project.id === projectId) {
+          project.entries = newEntries.map(e => ({
+            text: e.text,
+            original_report_id: e.originalReportId,
+            original_username: e.originalUsername,
+            is_manager_added: e.isManagerAdded,
+          }));
+          return true;
+        }
+        if (project.children && findAndUpdateProject(project.children)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
     const newContent = { ...editedDraftContent };
     const field = newContent.fields.find((f) => f.id === fieldId);
-    if (field) {
-      const project = field.projects.find((p) => p.id === projectId);
-      if (project) {
-        project.entries = newEntries.map(e => ({
-          text: e.text,
-          original_report_id: e.originalReportId,
-          original_username: e.originalUsername,
-          is_manager_added: e.isManagerAdded,
-        }));
-        setEditedDraftContent(newContent);
-        setHasDraftChanges(true);
-      }
+    if (field && findAndUpdateProject(field.projects)) {
+      setEditedDraftContent(newContent);
+      setHasDraftChanges(true);
     }
   }, [editedDraftContent]);
 
@@ -629,24 +646,41 @@ export function ManagementReportsPage() {
     setHasDraftChanges(true);
   }, [editedDraftContent]);
 
-  // Generate markdown from draft content
+  // Generate markdown from draft content (supports hierarchical projects)
   const draftToMarkdown = useCallback((): string => {
     if (!editedDraftContent) return '';
 
     const lines: string[] = [];
+
+    // Recursive function to render projects at the correct heading level
+    type DraftProject = ConsolidatedDraftContent['fields'][0]['projects'][0];
+    const renderProject = (project: DraftProject, level: number) => {
+      const heading = '#'.repeat(Math.min(level, 6)); // Markdown supports up to h6
+      lines.push(`${heading} ${project.name}`);
+      lines.push('');
+
+      // Only leaf projects have entries
+      if (project.entries && project.entries.length > 0) {
+        project.entries.forEach((entry) => {
+          lines.push(`- ${entry.text}`);
+        });
+        lines.push('');
+      }
+
+      // Render children recursively
+      if (project.children && project.children.length > 0) {
+        project.children.forEach((child) => {
+          renderProject(child, level + 1);
+        });
+      }
+    };
 
     editedDraftContent.fields.forEach((field) => {
       lines.push(`# ${field.name}`);
       lines.push('');
 
       field.projects.forEach((project) => {
-        lines.push(`## ${project.name}`);
-        lines.push('');
-
-        project.entries.forEach((entry) => {
-          lines.push(`- ${entry.text}`);
-        });
-        lines.push('');
+        renderProject(project, 2); // Start at h2 for projects
       });
     });
 
@@ -705,6 +739,7 @@ export function ManagementReportsPage() {
 
   /**
    * Generate filtered markdown for a template (only include specified fields/projects)
+   * Supports hierarchical projects
    */
   const generateFilteredMarkdown = useCallback((template: EmailDistributionTemplate | null): string => {
     if (!editedDraftContent) return '';
@@ -713,19 +748,52 @@ export function ManagementReportsPage() {
     const hasFieldFilter = template && template.included_field_ids.length > 0;
     const hasProjectFilter = template && template.included_project_ids.length > 0;
 
+    // Recursive function to check if a project or any descendant is in the filter
+    type DraftProject = ConsolidatedDraftContent['fields'][0]['projects'][0];
+    const projectOrDescendantInFilter = (project: DraftProject, filterIds: number[]): boolean => {
+      if (filterIds.includes(project.id)) return true;
+      return (project.children || []).some(child => projectOrDescendantInFilter(child, filterIds));
+    };
+
+    // Recursive function to filter projects
+    const filterProjects = (projects: DraftProject[], filterIds: number[] | null): DraftProject[] => {
+      if (!filterIds) return projects;
+      return projects
+        .filter(project => projectOrDescendantInFilter(project, filterIds))
+        .map(project => ({
+          ...project,
+          children: filterProjects(project.children || [], filterIds),
+        }));
+    };
+
+    // Recursive function to render projects
+    const renderProject = (project: DraftProject, level: number) => {
+      const heading = '#'.repeat(Math.min(level, 6));
+      lines.push(`${heading} ${project.name}`);
+      lines.push('');
+
+      if (project.entries && project.entries.length > 0) {
+        project.entries.forEach((entry) => {
+          lines.push(`- ${entry.text}`);
+        });
+        lines.push('');
+      }
+
+      (project.children || []).forEach((child) => {
+        renderProject(child, level + 1);
+      });
+    };
+
     editedDraftContent.fields.forEach((field) => {
       // Skip field if not in filter
       if (hasFieldFilter && !template.included_field_ids.includes(field.id)) {
         return;
       }
 
-      const filteredProjects = field.projects.filter((project) => {
-        // Skip project if not in filter
-        if (hasProjectFilter && !template.included_project_ids.includes(project.id)) {
-          return false;
-        }
-        return true;
-      });
+      const filteredProjects = filterProjects(
+        field.projects,
+        hasProjectFilter ? template.included_project_ids : null
+      );
 
       // Skip field if no projects after filtering
       if (filteredProjects.length === 0) return;
@@ -734,13 +802,7 @@ export function ManagementReportsPage() {
       lines.push('');
 
       filteredProjects.forEach((project) => {
-        lines.push(`## ${project.name}`);
-        lines.push('');
-
-        project.entries.forEach((entry) => {
-          lines.push(`- ${entry.text}`);
-        });
-        lines.push('');
+        renderProject(project, 2);
       });
     });
 
@@ -1226,37 +1288,71 @@ export function ManagementReportsPage() {
 
         {/* Report content - either review or edit mode */}
         {isEditing ? (
-          // Edit mode - show ProjectEntryEditor per project
+          // Edit mode - show ProjectEntryEditor per project (supports hierarchy)
           <>
-            {editedDraftContent.fields.map((field) => (
-              <Card key={field.id} style={{ marginBottom: '1rem' }}>
-                <CardTitle>
-                  <CubesIcon style={{ marginRight: '0.5rem' }} />
-                  {field.name}
-                  <Label color="purple" style={{ marginLeft: '0.5rem' }}>
-                    {field.projects.length} {field.projects.length === 1 ? 'project' : 'projects'}
-                  </Label>
-                </CardTitle>
-                <CardBody>
-                  {field.projects.map((project) => (
-                    <ProjectEntryEditor
-                      key={project.id}
-                      projectId={project.id}
-                      projectName={project.name}
-                      entries={project.entries.map(e => ({
-                        text: e.text,
-                        originalReportId: e.original_report_id,
-                        originalUsername: e.original_username,
-                        isManagerAdded: e.is_manager_added,
-                      }))}
-                      teamMembers={teamMembers}
-                      isEditing={true}
-                      onEntriesChange={(newEntries) => handleProjectEntriesChange(field.id, project.id, newEntries)}
-                    />
-                  ))}
-                </CardBody>
-              </Card>
-            ))}
+            {editedDraftContent.fields.map((field) => {
+              // Count total projects including nested
+              type DraftProject = ConsolidatedDraftContent['fields'][0]['projects'][0];
+              const countProjects = (projects: DraftProject[]): number =>
+                projects.reduce((sum, p) => sum + 1 + countProjects(p.children || []), 0);
+              
+              // Recursive component to render project tree in edit mode
+              const renderEditableProject = (project: DraftProject, depth: number = 0) => {
+                const hasChildren = project.children && project.children.length > 0;
+                const isLeaf = project.is_leaf !== false && !hasChildren;
+                
+                return (
+                  <div key={project.id} style={{ marginLeft: depth > 0 ? '1.5rem' : 0 }}>
+                    {isLeaf ? (
+                      // Leaf project - show entry editor
+                      <ProjectEntryEditor
+                        projectId={project.id}
+                        projectName={project.name}
+                        entries={project.entries.map(e => ({
+                          text: e.text,
+                          originalReportId: e.original_report_id,
+                          originalUsername: e.original_username,
+                          isManagerAdded: e.is_manager_added,
+                        }))}
+                        teamMembers={teamMembers}
+                        isEditing={true}
+                        onEntriesChange={(newEntries) => handleProjectEntriesChange(field.id, project.id, newEntries)}
+                      />
+                    ) : (
+                      // Non-leaf project - show as header with children
+                      <div style={{ marginBottom: '1rem' }}>
+                        <div style={{ 
+                          fontWeight: 600, 
+                          fontSize: depth === 0 ? '1.1rem' : '1rem',
+                          marginBottom: '0.5rem',
+                          color: '#151515',
+                          borderBottom: depth === 0 ? '1px solid #d2d2d2' : 'none',
+                          paddingBottom: depth === 0 ? '0.25rem' : 0,
+                        }}>
+                          {project.name}
+                        </div>
+                        {project.children?.map((child) => renderEditableProject(child, depth + 1))}
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              return (
+                <Card key={field.id} style={{ marginBottom: '1rem' }}>
+                  <CardTitle>
+                    <CubesIcon style={{ marginRight: '0.5rem' }} />
+                    {field.name}
+                    <Label color="purple" style={{ marginLeft: '0.5rem' }}>
+                      {countProjects(field.projects)} {countProjects(field.projects) === 1 ? 'project' : 'projects'}
+                    </Label>
+                  </CardTitle>
+                  <CardBody>
+                    {field.projects.map((project) => renderEditableProject(project))}
+                  </CardBody>
+                </Card>
+              );
+            })}
 
             {/* Uncategorized entries */}
             {editedDraftContent.uncategorized.length > 0 && (
