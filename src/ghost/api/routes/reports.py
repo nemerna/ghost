@@ -909,21 +909,24 @@ class ConsolidatedEntry(BaseModel):
 
 
 class ConsolidatedProject(BaseModel):
-    """Project with its entries in consolidated view."""
+    """Project with its entries in consolidated view (supports hierarchy)."""
 
     id: int
     name: str
     description: str | None
-    entries: list[ConsolidatedEntry]
+    parent_id: int | None = None
+    is_leaf: bool = True
+    entries: list[ConsolidatedEntry]  # Only populated for leaf projects
+    children: list["ConsolidatedProject"] = []  # Nested subprojects
 
 
 class ConsolidatedField(BaseModel):
-    """Field with its projects in consolidated view."""
+    """Field with its projects (hierarchical) in consolidated view."""
 
     id: int
     name: str
     description: str | None
-    projects: list[ConsolidatedProject]
+    projects: list[ConsolidatedProject]  # Top-level projects (with nested children)
 
 
 class ConsolidatedReportResponse(BaseModel):
@@ -1011,7 +1014,7 @@ async def get_consolidated_report(
                 if report.created_at > latest_by_user[report.username].created_at:
                     latest_by_user[report.username] = report
 
-        # Get all fields with projects
+        # Get all fields with projects (including nested hierarchy)
         fields = (
             session.query(ReportField)
             .options(joinedload(ReportField.projects))
@@ -1019,7 +1022,7 @@ async def get_consolidated_report(
             .all()
         )
 
-        # Build project ID to field/project mapping
+        # Build project ID to field/project mapping (includes all projects, nested or not)
         project_to_field: dict[int, tuple[ReportField, ReportProject]] = {}
         for field in fields:
             for project in field.projects:
@@ -1096,23 +1099,55 @@ async def get_consolidated_report(
                 else:
                     uncategorized_entries.append(consolidated_entry)
 
-        # Build the response structure
-        consolidated_fields: list[ConsolidatedField] = []
-
-        for field in fields:
-            field_projects: list[ConsolidatedProject] = []
-
-            for project in sorted(field.projects, key=lambda p: p.display_order):
-                project_entries = entries_by_project.get(project.id, [])
-                if project_entries:  # Only include projects with entries
-                    field_projects.append(
+        # Build the response structure with hierarchical projects
+        def build_consolidated_project_tree(
+            projects: list, 
+            parent_id: int | None,
+            entries_by_project: dict[int, list[ConsolidatedEntry]]
+        ) -> list[ConsolidatedProject]:
+            """Recursively build consolidated project tree."""
+            result = []
+            level_projects = sorted(
+                [p for p in projects if p.parent_id == parent_id],
+                key=lambda p: p.display_order
+            )
+            
+            for project in level_projects:
+                children = build_consolidated_project_tree(
+                    projects, project.id, entries_by_project
+                )
+                is_leaf = len(children) == 0
+                project_entries = entries_by_project.get(project.id, []) if is_leaf else []
+                
+                # Include project if it has entries or any descendant has entries
+                has_entries = len(project_entries) > 0
+                has_child_entries = any(
+                    len(c.entries) > 0 or len(c.children) > 0 
+                    for c in children
+                )
+                
+                if has_entries or has_child_entries:
+                    result.append(
                         ConsolidatedProject(
                             id=project.id,
                             name=project.name,
                             description=project.description,
+                            parent_id=project.parent_id,
+                            is_leaf=is_leaf,
                             entries=project_entries,
+                            children=children,
                         )
                     )
+            
+            return result
+        
+        consolidated_fields: list[ConsolidatedField] = []
+
+        for field in fields:
+            # Build hierarchical project tree for this field
+            field_projects = build_consolidated_project_tree(
+                list(field.projects), None, entries_by_project
+            )
 
             if field_projects:  # Only include fields with projects that have entries
                 consolidated_fields.append(
@@ -1124,8 +1159,16 @@ async def get_consolidated_report(
                     )
                 )
 
+        def count_entries_recursive(projects: list[ConsolidatedProject]) -> int:
+            """Count entries across all projects including nested children."""
+            total = 0
+            for p in projects:
+                total += len(p.entries)
+                total += count_entries_recursive(p.children)
+            return total
+        
         total_entries = sum(
-            len(p.entries) for f in consolidated_fields for p in f.projects
+            count_entries_recursive(f.projects) for f in consolidated_fields
         ) + len(uncategorized_entries)
 
         response = ConsolidatedReportResponse(
@@ -1219,7 +1262,41 @@ async def get_filtered_consolidated_report(
     if not filter_field_ids and not filter_project_ids:
         return full_report
     
-    # Apply filters
+    # Apply filters with support for hierarchical projects
+    def filter_projects_recursive(
+        projects: list[ConsolidatedProject],
+        filter_ids: set[int] | None
+    ) -> list[ConsolidatedProject]:
+        """Recursively filter projects, keeping those that match or have matching descendants."""
+        result = []
+        for project in projects:
+            # Recursively filter children
+            filtered_children = filter_projects_recursive(project.children, filter_ids)
+            
+            # Include project if:
+            # - No filter specified
+            # - Project is in the filter list
+            # - Any descendant is in the filter list (filtered_children not empty)
+            should_include = (
+                not filter_ids or 
+                project.id in filter_ids or 
+                len(filtered_children) > 0
+            )
+            
+            if should_include:
+                result.append(
+                    ConsolidatedProject(
+                        id=project.id,
+                        name=project.name,
+                        description=project.description,
+                        parent_id=project.parent_id,
+                        is_leaf=project.is_leaf,
+                        entries=project.entries,
+                        children=filtered_children,
+                    )
+                )
+        return result
+    
     filtered_fields: list[ConsolidatedField] = []
     
     for field in full_report.fields:
@@ -1227,15 +1304,11 @@ async def get_filtered_consolidated_report(
         if filter_field_ids and field.id not in filter_field_ids:
             continue
         
-        # Filter projects within this field
-        filtered_projects: list[ConsolidatedProject] = []
-        
-        for project in field.projects:
-            # Include project if:
-            # - No project filter specified (include all in selected fields)
-            # - Project is in the filter list
-            if not filter_project_ids or project.id in filter_project_ids:
-                filtered_projects.append(project)
+        # Filter projects within this field (recursively handles hierarchy)
+        filtered_projects = filter_projects_recursive(
+            field.projects, 
+            filter_project_ids if filter_project_ids else None
+        )
         
         # Only include field if it has projects after filtering
         if filtered_projects:
@@ -1248,10 +1321,15 @@ async def get_filtered_consolidated_report(
                 )
             )
     
-    # Recalculate total entries
-    total_entries = sum(
-        len(p.entries) for f in filtered_fields for p in f.projects
-    )
+    # Recalculate total entries (recursively)
+    def count_entries_recursive(projects: list[ConsolidatedProject]) -> int:
+        total = 0
+        for p in projects:
+            total += len(p.entries)
+            total += count_entries_recursive(p.children)
+        return total
+    
+    total_entries = sum(count_entries_recursive(f.projects) for f in filtered_fields)
     
     # Note: uncategorized entries are excluded from filtered reports
     # since they don't belong to any specific field/project

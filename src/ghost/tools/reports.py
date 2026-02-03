@@ -126,7 +126,7 @@ def get_activity_details(username: str, ticket_key: str) -> dict[str, Any]:
         ticket_key: The ticket key to look up
     
     Returns:
-        Activity details including jira_components and detected_project_id
+        Activity details including jira_components, detected_project_id, and full path
     """
     db = get_db()
     
@@ -144,12 +144,19 @@ def get_activity_details(username: str, ticket_key: str) -> dict[str, Any]:
         if not activity:
             return {"error": True, "message": f"No activity found for {ticket_key}"}
         
-        # Get detected project name if set
+        # Get detected project info if set
         detected_project_name = None
+        detected_project_path = None
+        detected_field_name = None
         if activity.detected_project_id:
-            project = session.query(ReportProject).filter(ReportProject.id == activity.detected_project_id).first()
+            project = session.query(ReportProject).filter(
+                ReportProject.id == activity.detected_project_id
+            ).first()
             if project:
                 detected_project_name = project.name
+                detected_project_path = project.get_full_name()
+                if project.field:
+                    detected_field_name = project.field.name
         
         return {
             "activity_id": activity.id,
@@ -160,18 +167,60 @@ def get_activity_details(username: str, ticket_key: str) -> dict[str, Any]:
             "jira_components": activity.jira_components,
             "detected_project_id": activity.detected_project_id,
             "detected_project_name": detected_project_name,
+            "detected_project_path": detected_project_path,
+            "detected_field_name": detected_field_name,
             "github_repo": activity.github_repo,
             "action_type": activity.action_type.value if activity.action_type else None,
             "timestamp": activity.timestamp.isoformat() if activity.timestamp else None,
         }
 
 
+def _build_project_tree(projects: list, parent_id=None) -> list[dict]:
+    """
+    Build a hierarchical tree structure from a flat list of projects.
+    
+    Args:
+        projects: Flat list of all projects belonging to a field
+        parent_id: ID of parent to build children for (None for top-level)
+    
+    Returns:
+        List of project dicts with nested 'children' arrays
+    """
+    result = []
+    # Get projects at this level
+    level_projects = sorted(
+        [p for p in projects if p.parent_id == parent_id],
+        key=lambda p: p.display_order
+    )
+    
+    for project in level_projects:
+        project_data = {
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "display_order": project.display_order,
+            "parent_id": project.parent_id,
+            "is_leaf": project.is_leaf,
+            "jira_components": [
+                {"jira_project_key": jc.jira_project_key, "component_name": jc.component_name}
+                for jc in project.jira_components
+            ],
+            "git_repos": [gr.repo_pattern for gr in project.git_repos],
+            "children": _build_project_tree(projects, project.id),
+        }
+        result.append(project_data)
+    
+    return result
+
+
 def list_report_fields() -> dict[str, Any]:
     """
     List all report fields and their projects with configured mappings.
     
+    Returns hierarchical structure with nested children.
+    
     Returns:
-        Dictionary with fields, their projects, and configured Jira components/GitHub repos.
+        Dictionary with fields, their projects (hierarchical), and configured mappings.
     """
     db = get_db()
     
@@ -189,36 +238,56 @@ def list_report_fields() -> dict[str, Any]:
         )
         
         result = []
+        total_projects = 0
+        
         for field in fields:
+            # Build hierarchical project tree
+            projects_tree = _build_project_tree(list(field.projects))
+            
             field_data = {
                 "id": field.id,
                 "name": field.name,
                 "description": field.description,
                 "display_order": field.display_order,
-                "projects": [],
+                "projects": projects_tree,
             }
-            
-            for project in sorted(field.projects, key=lambda p: p.display_order):
-                project_data = {
-                    "id": project.id,
-                    "name": project.name,
-                    "description": project.description,
-                    "display_order": project.display_order,
-                    "jira_components": [
-                        {"jira_project_key": jc.jira_project_key, "component_name": jc.component_name}
-                        for jc in project.jira_components
-                    ],
-                    "git_repos": [gr.repo_pattern for gr in project.git_repos],
-                }
-                field_data["projects"].append(project_data)
-            
             result.append(field_data)
+            total_projects += len(field.projects)
         
         return {
             "fields": result,
             "total_fields": len(result),
-            "total_projects": sum(len(f["projects"]) for f in result),
+            "total_projects": total_projects,
         }
+
+
+def _get_leaf_projects_in_priority_order(projects: list, parent_id=None) -> list:
+    """
+    Recursively collect leaf projects (no children) in depth-first order.
+    
+    This ensures that detection follows the hierarchy:
+    - Field display_order first
+    - Then project display_order at each level
+    - Depth-first traversal (parent before siblings, but only leaves returned)
+    """
+    result = []
+    # Get projects at this level, sorted by display_order
+    level_projects = sorted(
+        [p for p in projects if p.parent_id == parent_id],
+        key=lambda p: p.display_order
+    )
+    
+    for project in level_projects:
+        # Check if this project has children
+        children = [p for p in projects if p.parent_id == project.id]
+        if not children:
+            # This is a leaf project - include it
+            result.append(project)
+        else:
+            # Not a leaf - recurse into children
+            result.extend(_get_leaf_projects_in_priority_order(projects, project.id))
+    
+    return result
 
 
 def detect_project_for_activity(
@@ -230,7 +299,10 @@ def detect_project_for_activity(
     """
     Detect which report project an activity belongs to.
     
-    Matching is done in priority order (by field display_order, then project display_order).
+    Only matches against leaf projects (projects with no children).
+    Matching is done in priority order:
+    - Field display_order
+    - Project hierarchy depth-first (following display_order at each level)
     First match wins.
     
     Args:
@@ -240,7 +312,7 @@ def detect_project_for_activity(
         session: Optional SQLAlchemy session (will create one if not provided)
     
     Returns:
-        project_id of the first matching ReportProject, or None if no match
+        project_id of the first matching leaf ReportProject, or None if no match
     """
     db = get_db()
     close_session = session is None
@@ -249,7 +321,7 @@ def detect_project_for_activity(
         session = db.get_session()
     
     try:
-        # Get all fields with their projects, ordered by display_order
+        # Get all fields with their projects (including nested), ordered by display_order
         fields = (
             session.query(ReportField)
             .options(
@@ -262,18 +334,18 @@ def detect_project_for_activity(
             .all()
         )
         
-        # Check each project in priority order
+        # Check each field's leaf projects in priority order
         for field in fields:
-            # Sort projects by display_order
-            sorted_projects = sorted(field.projects, key=lambda p: p.display_order)
+            # Get leaf projects in depth-first priority order
+            leaf_projects = _get_leaf_projects_in_priority_order(list(field.projects))
             
-            for project in sorted_projects:
+            for project in leaf_projects:
                 # Check GitHub repo patterns
                 if github_repo:
                     for git_repo in project.git_repos:
                         if _match_repo_pattern(github_repo, git_repo.repo_pattern):
                             logger.debug(
-                                f"Activity matched project {project.name} via git repo "
+                                f"Activity matched leaf project {project.get_full_name()} via git repo "
                                 f"pattern {git_repo.repo_pattern}"
                             )
                             return project.id
@@ -286,7 +358,7 @@ def detect_project_for_activity(
                             and jira_comp.component_name.lower() in [c.lower() for c in jira_components]
                         ):
                             logger.debug(
-                                f"Activity matched project {project.name} via Jira component "
+                                f"Activity matched leaf project {project.get_full_name()} via Jira component "
                                 f"{jira_comp.jira_project_key}/{jira_comp.component_name}"
                             )
                             return project.id

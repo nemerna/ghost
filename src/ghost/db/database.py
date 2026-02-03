@@ -139,6 +139,18 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 8: Add parent_id column to report_projects for hierarchical structure
+    {
+        "id": "008_add_project_parent_id",
+        "description": "Add parent_id column to report_projects for N-level hierarchy",
+        "check": lambda inspector: "report_projects" in inspector.get_table_names()
+        and "parent_id" not in [c["name"] for c in inspector.get_columns("report_projects")],
+        "sql": [
+            "ALTER TABLE report_projects ADD COLUMN parent_id INTEGER REFERENCES report_projects(id)",
+            "CREATE INDEX IF NOT EXISTS idx_project_parent ON report_projects (parent_id)",
+        ],
+        "optional": False,
+    },
 ]
 
 

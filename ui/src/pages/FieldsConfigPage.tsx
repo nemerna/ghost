@@ -66,6 +66,7 @@ export function FieldsConfigPage() {
   const [editingField, setEditingField] = useState<ReportField | null>(null);
   const [editingProject, setEditingProject] = useState<ReportProject | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<number | null>(null);
+  const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
   
   // Redetect state
   const [redetectResult, setRedetectResult] = useState<string | null>(null);
@@ -75,6 +76,7 @@ export function FieldsConfigPage() {
   const [projectForm, setProjectForm] = useState<ProjectCreateRequest>({
     name: '',
     description: '',
+    parent_id: null,
     git_repos: [],
     jira_components: [],
   });
@@ -164,13 +166,15 @@ export function FieldsConfigPage() {
     setFieldForm({ name: '', description: '' });
   };
 
-  const openProjectModal = (fieldId: number, project?: ReportProject) => {
+  const openProjectModal = (fieldId: number, project?: ReportProject, parentId?: number | null) => {
     setSelectedFieldId(fieldId);
+    setSelectedParentId(parentId ?? null);
     if (project) {
       setEditingProject(project);
       setProjectForm({
         name: project.name,
         description: project.description || '',
+        parent_id: project.parent_id,
         git_repos: project.git_repos || [],
         jira_components: project.jira_components || [],
       });
@@ -179,6 +183,7 @@ export function FieldsConfigPage() {
       setProjectForm({
         name: '',
         description: '',
+        parent_id: parentId ?? null,
         git_repos: [],
         jira_components: [],
       });
@@ -190,7 +195,8 @@ export function FieldsConfigPage() {
     setIsProjectModalOpen(false);
     setEditingProject(null);
     setSelectedFieldId(null);
-    setProjectForm({ name: '', description: '', git_repos: [], jira_components: [] });
+    setSelectedParentId(null);
+    setProjectForm({ name: '', description: '', parent_id: null, git_repos: [], jira_components: [] });
     setNewGitRepo('');
     setNewJiraProject('');
     setNewJiraComponent('');
@@ -225,9 +231,138 @@ export function FieldsConfigPage() {
   };
 
   const handleDeleteProject = (project: ReportProject) => {
-    if (confirm(`Delete project "${project.name}"?`)) {
+    const hasChildren = project.children && project.children.length > 0;
+    const message = hasChildren
+      ? `Delete project "${project.name}" and all its ${project.children.length} subproject(s)?`
+      : `Delete project "${project.name}"?`;
+    if (confirm(message)) {
       deleteProjectMutation.mutate(project.id);
     }
+  };
+
+  // Helper to count total projects in a field (including nested)
+  const countTotalProjects = (projects: ReportProject[]): number => {
+    return projects.reduce((sum, p) => sum + 1 + countTotalProjects(p.children || []), 0);
+  };
+
+  // Recursive component to render projects with their children
+  const ProjectTree = ({ 
+    project, 
+    fieldId, 
+    depth = 0 
+  }: { 
+    project: ReportProject; 
+    fieldId: number; 
+    depth?: number;
+  }) => {
+    const hasChildren = project.children && project.children.length > 0;
+    const isLeaf = project.is_leaf;
+    
+    return (
+      <ExpandableSection
+        key={project.id}
+        toggleContent={
+          <span>
+            {project.name}
+            {hasChildren && (
+              <Label color="blue" style={{ marginLeft: '0.5rem' }} isCompact>
+                {project.children.length} subproject{project.children.length !== 1 ? 's' : ''}
+              </Label>
+            )}
+            {isLeaf && (
+              <Label color="green" style={{ marginLeft: '0.5rem' }} isCompact>
+                leaf
+              </Label>
+            )}
+          </span>
+        }
+        style={{ marginBottom: '0.5rem', marginLeft: depth > 0 ? '1.5rem' : 0 }}
+      >
+        <Card isPlain style={{ marginLeft: '1rem' }}>
+          <CardBody>
+            <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
+              <FlexItem style={{ flex: 1 }}>
+                {project.description && <p style={{ marginBottom: '0.5rem' }}>{project.description}</p>}
+                
+                {/* Only show detection mappings for leaf projects */}
+                {isLeaf ? (
+                  <>
+                    <div style={{ marginBottom: '0.5rem' }}>
+                      <strong><CodeBranchIcon style={{ marginRight: '0.25rem' }} /> Git Repos:</strong>{' '}
+                      {project.git_repos.length > 0 ? (
+                        <LabelGroup>
+                          {project.git_repos.map((repo) => (
+                            <Label key={repo}>{repo}</Label>
+                          ))}
+                        </LabelGroup>
+                      ) : (
+                        <em>None configured</em>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <strong>Jira Components:</strong>{' '}
+                      {project.jira_components.length > 0 ? (
+                        <LabelGroup>
+                          {project.jira_components.map((comp, idx) => (
+                            <Label key={idx}>
+                              {comp.jira_project_key}/{comp.component_name}
+                            </Label>
+                          ))}
+                        </LabelGroup>
+                      ) : (
+                        <em>None configured</em>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ fontStyle: 'italic', color: '#6a6e73' }}>
+                    Detection mappings are configured on subprojects (leaf nodes only)
+                  </p>
+                )}
+              </FlexItem>
+              <FlexItem>
+                <Button
+                  variant="secondary"
+                  icon={<PlusIcon />}
+                  onClick={() => openProjectModal(fieldId, undefined, project.id)}
+                  style={{ marginRight: '0.25rem' }}
+                  size="sm"
+                >
+                  Add Subproject
+                </Button>
+                <Button
+                  variant="plain"
+                  icon={<EditAltIcon />}
+                  onClick={() => openProjectModal(fieldId, project)}
+                  style={{ marginRight: '0.25rem' }}
+                />
+                <Button
+                  variant="plain"
+                  isDanger
+                  icon={<TrashIcon />}
+                  onClick={() => handleDeleteProject(project)}
+                />
+              </FlexItem>
+            </Flex>
+            
+            {/* Render children recursively */}
+            {hasChildren && (
+              <div style={{ marginTop: '1rem' }}>
+                {project.children.map((child) => (
+                  <ProjectTree 
+                    key={child.id} 
+                    project={child} 
+                    fieldId={fieldId} 
+                    depth={depth + 1} 
+                  />
+                ))}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </ExpandableSection>
+    );
   };
 
   // Git repo handlers
@@ -340,7 +475,7 @@ export function FieldsConfigPage() {
                       </FlexItem>
                       <FlexItem>
                         <Label color="blue" style={{ marginLeft: '0.5rem' }}>
-                          {field.projects.length} projects
+                          {countTotalProjects(field.projects)} project{countTotalProjects(field.projects) !== 1 ? 's' : ''}
                         </Label>
                       </FlexItem>
                     </Flex>
@@ -349,7 +484,7 @@ export function FieldsConfigPage() {
                     <Button
                       variant="secondary"
                       icon={<PlusIcon />}
-                      onClick={() => openProjectModal(field.id)}
+                      onClick={() => openProjectModal(field.id, undefined, null)}
                       style={{ marginRight: '0.5rem' }}
                     >
                       Add Project
@@ -374,63 +509,11 @@ export function FieldsConfigPage() {
                 
                 {field.projects.length > 0 ? (
                   field.projects.map((project) => (
-                    <ExpandableSection
-                      key={project.id}
-                      toggleText={project.name}
-                      style={{ marginBottom: '0.5rem' }}
-                    >
-                      <Card isPlain style={{ marginLeft: '1rem' }}>
-                        <CardBody>
-                          <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
-                            <FlexItem style={{ flex: 1 }}>
-                              {project.description && <p style={{ marginBottom: '0.5rem' }}>{project.description}</p>}
-                              
-                              <div style={{ marginBottom: '0.5rem' }}>
-                                <strong><CodeBranchIcon style={{ marginRight: '0.25rem' }} /> Git Repos:</strong>{' '}
-                                {project.git_repos.length > 0 ? (
-                                  <LabelGroup>
-                                    {project.git_repos.map((repo) => (
-                                      <Label key={repo}>{repo}</Label>
-                                    ))}
-                                  </LabelGroup>
-                                ) : (
-                                  <em>None configured</em>
-                                )}
-                              </div>
-                              
-                              <div>
-                                <strong>Jira Components:</strong>{' '}
-                                {project.jira_components.length > 0 ? (
-                                  <LabelGroup>
-                                    {project.jira_components.map((comp, idx) => (
-                                      <Label key={idx}>
-                                        {comp.jira_project_key}/{comp.component_name}
-                                      </Label>
-                                    ))}
-                                  </LabelGroup>
-                                ) : (
-                                  <em>None configured</em>
-                                )}
-                              </div>
-                            </FlexItem>
-                            <FlexItem>
-                              <Button
-                                variant="plain"
-                                icon={<EditAltIcon />}
-                                onClick={() => openProjectModal(field.id, project)}
-                                style={{ marginRight: '0.25rem' }}
-                              />
-                              <Button
-                                variant="plain"
-                                isDanger
-                                icon={<TrashIcon />}
-                                onClick={() => handleDeleteProject(project)}
-                              />
-                            </FlexItem>
-                          </Flex>
-                        </CardBody>
-                      </Card>
-                    </ExpandableSection>
+                    <ProjectTree 
+                      key={project.id} 
+                      project={project} 
+                      fieldId={field.id} 
+                    />
                   ))
                 ) : (
                   <p><em>No projects yet. Add one to start configuring detection rules.</em></p>
@@ -499,9 +582,29 @@ export function FieldsConfigPage() {
         aria-labelledby="project-modal"
         variant="large"
       >
-        <ModalHeader title={editingProject ? 'Edit Project' : 'Create Project'} labelId="project-modal" />
+        <ModalHeader 
+          title={
+            editingProject 
+              ? 'Edit Project' 
+              : selectedParentId 
+                ? 'Create Subproject' 
+                : 'Create Project'
+          } 
+          labelId="project-modal" 
+        />
         <ModalBody>
           <Form>
+            {selectedParentId && !editingProject && (
+              <Alert 
+                variant="info" 
+                isInline 
+                title="Creating subproject"
+                style={{ marginBottom: '1rem' }}
+              >
+                This will be created as a subproject. Detection mappings can only be configured on leaf projects (projects without children).
+              </Alert>
+            )}
+            
             <FormGroup label="Project Name" isRequired fieldId="project-name">
               <TextInput
                 isRequired
@@ -522,90 +625,106 @@ export function FieldsConfigPage() {
               />
             </FormGroup>
 
-            <FormGroup
-              label="Git Repositories"
-              fieldId="git-repos"
-            >
-              <Flex>
-                <FlexItem style={{ flex: 1 }}>
-                  <TextInput
-                    id="new-git-repo"
-                    value={newGitRepo}
-                    onChange={(_event, value) => setNewGitRepo(value)}
-                    placeholder="e.g., myorg/myrepo or myorg/*"
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addGitRepo())}
-                  />
-                </FlexItem>
-                <FlexItem>
-                  <Button variant="secondary" onClick={addGitRepo} isDisabled={!newGitRepo}>
-                    Add
-                  </Button>
-                </FlexItem>
-              </Flex>
-              <FormHelperText>
-                <HelperText>
-                  <HelperTextItem>Add git repo patterns for auto-detection. Use wildcards like 'org/*' to match multiple repos.</HelperTextItem>
-                </HelperText>
-              </FormHelperText>
-              {projectForm.git_repos && projectForm.git_repos.length > 0 && (
-                <LabelGroup style={{ marginTop: '0.5rem' }}>
-                  {projectForm.git_repos.map((repo) => (
-                    <Label key={repo} onClose={() => removeGitRepo(repo)}>
-                      {repo}
-                    </Label>
-                  ))}
-                </LabelGroup>
-              )}
-            </FormGroup>
+            {/* Only show detection mappings for leaf projects (no children) */}
+            {(!editingProject || editingProject.is_leaf) && (
+              <>
+                <FormGroup
+                  label="Git Repositories"
+                  fieldId="git-repos"
+                >
+                  <Flex>
+                    <FlexItem style={{ flex: 1 }}>
+                      <TextInput
+                        id="new-git-repo"
+                        value={newGitRepo}
+                        onChange={(_event, value) => setNewGitRepo(value)}
+                        placeholder="e.g., myorg/myrepo or myorg/*"
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addGitRepo())}
+                      />
+                    </FlexItem>
+                    <FlexItem>
+                      <Button variant="secondary" onClick={addGitRepo} isDisabled={!newGitRepo}>
+                        Add
+                      </Button>
+                    </FlexItem>
+                  </Flex>
+                  <FormHelperText>
+                    <HelperText>
+                      <HelperTextItem>Add git repo patterns for auto-detection. Use wildcards like 'org/*' to match multiple repos.</HelperTextItem>
+                    </HelperText>
+                  </FormHelperText>
+                  {projectForm.git_repos && projectForm.git_repos.length > 0 && (
+                    <LabelGroup style={{ marginTop: '0.5rem' }}>
+                      {projectForm.git_repos.map((repo) => (
+                        <Label key={repo} onClose={() => removeGitRepo(repo)}>
+                          {repo}
+                        </Label>
+                      ))}
+                    </LabelGroup>
+                  )}
+                </FormGroup>
 
-            <FormGroup
-              label="Jira Components"
-              fieldId="jira-components"
-            >
-              <Flex>
-                <FlexItem>
-                  <TextInput
-                    id="new-jira-project"
-                    value={newJiraProject}
-                    onChange={(_event, value) => setNewJiraProject(value)}
-                    placeholder="Project key (e.g., APPENG)"
-                    style={{ width: '150px' }}
-                  />
-                </FlexItem>
-                <FlexItem style={{ flex: 1 }}>
-                  <TextInput
-                    id="new-jira-component"
-                    value={newJiraComponent}
-                    onChange={(_event, value) => setNewJiraComponent(value)}
-                    placeholder="Component name (e.g., API)"
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addJiraComponent())}
-                  />
-                </FlexItem>
-                <FlexItem>
-                  <Button
-                    variant="secondary"
-                    onClick={addJiraComponent}
-                    isDisabled={!newJiraProject || !newJiraComponent}
-                  >
-                    Add
-                  </Button>
-                </FlexItem>
-              </Flex>
-              <FormHelperText>
-                <HelperText>
-                  <HelperTextItem>Add Jira project + component pairs for auto-detection.</HelperTextItem>
-                </HelperText>
-              </FormHelperText>
-              {projectForm.jira_components && projectForm.jira_components.length > 0 && (
-                <LabelGroup style={{ marginTop: '0.5rem' }}>
-                  {projectForm.jira_components.map((comp, idx) => (
-                    <Label key={idx} onClose={() => removeJiraComponent(comp)}>
-                      {comp.jira_project_key}/{comp.component_name}
-                    </Label>
-                  ))}
-                </LabelGroup>
-              )}
-            </FormGroup>
+                <FormGroup
+                  label="Jira Components"
+                  fieldId="jira-components"
+                >
+                  <Flex>
+                    <FlexItem>
+                      <TextInput
+                        id="new-jira-project"
+                        value={newJiraProject}
+                        onChange={(_event, value) => setNewJiraProject(value)}
+                        placeholder="Project key (e.g., APPENG)"
+                        style={{ width: '150px' }}
+                      />
+                    </FlexItem>
+                    <FlexItem style={{ flex: 1 }}>
+                      <TextInput
+                        id="new-jira-component"
+                        value={newJiraComponent}
+                        onChange={(_event, value) => setNewJiraComponent(value)}
+                        placeholder="Component name (e.g., API)"
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addJiraComponent())}
+                      />
+                    </FlexItem>
+                    <FlexItem>
+                      <Button
+                        variant="secondary"
+                        onClick={addJiraComponent}
+                        isDisabled={!newJiraProject || !newJiraComponent}
+                      >
+                        Add
+                      </Button>
+                    </FlexItem>
+                  </Flex>
+                  <FormHelperText>
+                    <HelperText>
+                      <HelperTextItem>Add Jira project + component pairs for auto-detection.</HelperTextItem>
+                    </HelperText>
+                  </FormHelperText>
+                  {projectForm.jira_components && projectForm.jira_components.length > 0 && (
+                    <LabelGroup style={{ marginTop: '0.5rem' }}>
+                      {projectForm.jira_components.map((comp, idx) => (
+                        <Label key={idx} onClose={() => removeJiraComponent(comp)}>
+                          {comp.jira_project_key}/{comp.component_name}
+                        </Label>
+                      ))}
+                    </LabelGroup>
+                  )}
+                </FormGroup>
+              </>
+            )}
+            
+            {editingProject && !editingProject.is_leaf && (
+              <Alert 
+                variant="info" 
+                isInline 
+                title="Non-leaf project"
+                style={{ marginTop: '1rem' }}
+              >
+                This project has subprojects, so detection mappings are configured on its children instead.
+              </Alert>
+            )}
           </Form>
         </ModalBody>
         <ModalFooter>
