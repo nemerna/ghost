@@ -18,7 +18,7 @@ Connect Jira and GitHub to AI-powered IDEs. Spend less time writing status updat
 ```bash
 # 1. Clone and start
 git clone <repository-url> && cd ghost
-docker-compose up -d
+podman-compose up -d
 
 # 2. Access web UI
 open http://localhost:8080
@@ -74,14 +74,14 @@ Once configured, try these in your AI-powered IDE:
 | [Configuration](docs/configuration.md) | Headers, environment variables, client examples |
 | [Architecture](docs/architecture.md) | System design, containers, data flows |
 | [Tools Reference](docs/tools-reference.md) | Complete list of 50+ MCP tools |
-| [Deployment](docs/deployment.md) | Docker Compose, OpenShift, production setup |
+| [Deployment](docs/deployment.md) | Podman Compose, OpenShift, production setup |
 | [Web UI](docs/web-ui.md) | Dashboard features and authentication |
 | [Development](docs/development.md) | Local setup, testing, project structure |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
 
 ## Requirements
 
-- Docker and Docker Compose (recommended)
+- Podman and Podman Compose (recommended)
 - Jira Server/Data Center with PAT authentication
 - GitHub PAT (optional, for PR and issue tools)
 

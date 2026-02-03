@@ -1,15 +1,15 @@
 # Deployment
 
-This guide covers deployment options for Ghost, from local Docker Compose to production OpenShift.
+This guide covers deployment options for Ghost, from local Podman Compose to production OpenShift.
 
-## Docker Compose
+## Podman Compose
 
 ### Quick Start
 
 ```bash
 git clone <repository-url>
 cd ghost
-docker-compose up -d
+podman-compose up -d
 ```
 
 Access the web UI at `http://localhost:8080`
@@ -18,10 +18,10 @@ Access the web UI at `http://localhost:8080`
 
 ```bash
 # SQLite mode (default) - 3 containers: frontend, backend, mcp
-docker-compose up -d
+podman-compose up -d
 
 # PostgreSQL mode - adds postgres container
-docker-compose --profile postgres up -d
+podman-compose --profile postgres up -d
 ```
 
 ### Building Container Images
@@ -30,10 +30,10 @@ Build the images locally:
 
 ```bash
 # Build backend image
-docker build -t ghost:backend -f Containerfile.backend .
+podman build -t ghost:backend -f Containerfile.backend .
 
 # Build frontend image
-docker build -t ghost:frontend -f Containerfile.frontend .
+podman build -t ghost:frontend -f Containerfile.frontend .
 ```
 
 ### Environment Configuration
@@ -60,11 +60,11 @@ Kubernetes manifests are provided in the `openshift/` directory.
 ### Apply Manifests
 
 ```bash
+# Using oc (recommended)
+oc apply -k openshift/
+
 # Using kubectl
 kubectl apply -k openshift/
-
-# Using oc
-oc apply -k openshift/
 ```
 
 ### Included Resources
@@ -105,8 +105,8 @@ DATABASE_URL=postgresql://user:password@postgres:5432/ghost
 
 ### SSL/TLS
 
-- Use a reverse proxy (nginx, traefik) with SSL termination
-- Or configure OpenShift routes with edge TLS
+- Configure OpenShift routes with edge TLS termination
+- Or use a reverse proxy (nginx, HAProxy) with SSL termination
 
 ### Scaling
 
