@@ -144,9 +144,9 @@ sequenceDiagram
 - **TypeScript** - Type safety
 
 ### Infrastructure
-- **Docker** - Containerization
+- **Podman** - Containerization
 - **Nginx** - Reverse proxy
-- **OpenShift** - Kubernetes deployment (optional)
+- **OpenShift** - Kubernetes deployment
 
 ## See Also
 

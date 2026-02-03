@@ -6,7 +6,7 @@ This guide covers local development setup, testing, and project structure.
 
 - Python 3.11+
 - Node.js 22+ (for frontend)
-- Docker (optional, for containerized development)
+- Podman (optional, for containerized development)
 
 ## Local Development Setup
 
@@ -114,7 +114,7 @@ ghost/
 │   │   └── types/             # TypeScript types
 │   ├── package.json
 │   └── vite.config.ts
-├── openshift/                 # Kubernetes/OpenShift manifests
+├── openshift/                 # OpenShift/Kubernetes manifests
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   ├── route.yaml
@@ -126,7 +126,7 @@ ghost/
 ├── Containerfile.backend      # Backend container (Python/FastAPI)
 ├── Containerfile.frontend     # Frontend container (Nginx/React)
 ├── nginx.conf.template        # Nginx configuration template
-├── docker-compose.yaml        # Multi-container orchestration
+├── docker-compose.yaml        # Multi-container orchestration (works with podman-compose)
 ├── env.example                # Environment variables template
 ├── pyproject.toml
 ├── requirements.txt
@@ -166,13 +166,13 @@ React application with PatternFly components:
 
 ```bash
 # Build backend
-docker build -t ghost:backend -f Containerfile.backend .
+podman build -t ghost:backend -f Containerfile.backend .
 
 # Build frontend
-docker build -t ghost:frontend -f Containerfile.frontend .
+podman build -t ghost:frontend -f Containerfile.frontend .
 
-# Run with docker-compose
-docker-compose up -d
+# Run with podman-compose
+podman-compose up -d
 ```
 
 ## See Also

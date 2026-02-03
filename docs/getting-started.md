@@ -4,21 +4,21 @@ This guide covers installation and initial setup for Ghost.
 
 ## Prerequisites
 
-- Docker and Docker Compose (recommended)
+- Podman and Podman Compose (recommended)
 - Or: Python 3.11+ for local development
 - Jira Server or Data Center with PAT authentication
 - (Optional) GitHub PAT for PR and issue integration
 
 ## Installation
 
-### Docker Compose (Recommended)
+### Podman Compose (Recommended)
 
 The fastest way to get started:
 
 ```bash
 git clone <repository-url>
 cd ghost
-docker-compose up -d
+podman-compose up -d
 ```
 
 This starts three containers:
@@ -30,7 +30,7 @@ Access the web UI at `http://localhost:8080`
 
 ### Local Development
 
-For development without Docker:
+For development without containers:
 
 ```bash
 git clone <repository-url>

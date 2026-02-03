@@ -6,7 +6,7 @@ Common issues and their resolutions.
 
 | Issue | Resolution |
 |-------|------------|
-| Connection refused | Confirm server is running and endpoint is reachable. Check `docker-compose ps` for container status. |
+| Connection refused | Confirm server is running and endpoint is reachable. Check `podman-compose ps` for container status. |
 | SSL errors | Set `X-Jira-Verify-SSL: false` in client headers for self-signed certificates. |
 | Timeout errors | Increase client timeout settings. Check network connectivity to Jira/GitHub. |
 
@@ -33,7 +33,7 @@ Common issues and their resolutions.
 |-------|------------|
 | Database errors | Check `GHOST_DATA_DIR` is writable (SQLite) or `DATABASE_URL` is correct (PostgreSQL). |
 | Migration errors | Delete the SQLite file and restart to recreate. For PostgreSQL, check connection string. |
-| Data not persisting | Ensure volume is mounted correctly in Docker. Check PVC status in OpenShift. |
+| Data not persisting | Ensure volume is mounted correctly in Podman. Check PVC status in OpenShift. |
 
 ## Frontend Issues
 
@@ -43,22 +43,22 @@ Common issues and their resolutions.
 | API errors in browser | Check browser console for CORS errors. Verify `CORS_ORIGINS` environment variable. |
 | Authentication loop | Clear browser cookies. Check OAuth proxy configuration. |
 
-## Docker Issues
+## Container Issues
 
 | Issue | Resolution |
 |-------|------------|
-| Container won't start | Check `docker-compose logs <service>` for error messages. |
+| Container won't start | Check `podman-compose logs <service>` for error messages. |
 | Port already in use | Stop conflicting services or change ports in `docker-compose.yaml`. |
-| Build failures | Ensure Docker has enough resources. Try `docker system prune` to free space. |
+| Build failures | Ensure Podman has enough resources. Try `podman system prune` to free space. |
 
 ## Debugging Tips
 
 ### Check Server Logs
 
 ```bash
-# Docker Compose
-docker-compose logs -f backend
-docker-compose logs -f mcp
+# Podman Compose
+podman-compose logs -f backend
+podman-compose logs -f mcp
 
 # Local development
 # Logs appear in terminal where server is running
@@ -101,7 +101,7 @@ If you're still experiencing issues:
 
 1. Check server logs for detailed error messages
 2. Verify all configuration values are correct
-3. Try the minimal setup (Docker Compose with defaults)
+3. Try the minimal setup (Podman Compose with defaults)
 4. Open an issue with:
    - Error messages from logs
    - Configuration (redact tokens)
