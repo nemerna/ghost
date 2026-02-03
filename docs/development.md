@@ -126,7 +126,7 @@ ghost/
 ├── Containerfile.backend      # Backend container (Python/FastAPI)
 ├── Containerfile.frontend     # Frontend container (Nginx/React)
 ├── nginx.conf.template        # Nginx configuration template
-├── docker-compose.yaml        # Multi-container orchestration (works with podman-compose)
+├── podman-compose.yaml        # Multi-container orchestration
 ├── env.example                # Environment variables template
 ├── pyproject.toml
 ├── requirements.txt

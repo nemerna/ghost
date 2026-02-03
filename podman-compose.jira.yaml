@@ -1,0 +1,46 @@
+services:
+  jira:
+    image: atlassian/jira-software:latest
+    container_name: jira-software
+    ports:
+      - "8080:8080"
+    environment:
+      - ATL_JDBC_URL=jdbc:postgresql://postgres:5432/jiradb
+      - ATL_JDBC_USER=jira
+      - ATL_JDBC_PASSWORD=jirapass
+      - ATL_DB_DRIVER=org.postgresql.Driver
+      - ATL_DB_TYPE=postgres72
+    depends_on:
+      - postgres
+    volumes:
+      - jira_data:/var/atlassian/application-data/jira
+    networks:
+      jira-net:
+        ipv4_address: 172.28.0.10
+
+  postgres:
+    image: postgres:14
+    container_name: jira-postgres
+    environment:
+      - POSTGRES_USER=jira
+      - POSTGRES_PASSWORD=jirapass
+      - POSTGRES_DB=jiradb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      jira-net:
+        ipv4_address: 172.28.0.11
+
+networks:
+  jira-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
+
+volumes:
+  jira_data:
+  postgres_data:

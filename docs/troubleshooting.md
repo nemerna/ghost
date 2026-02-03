@@ -48,7 +48,7 @@ Common issues and their resolutions.
 | Issue | Resolution |
 |-------|------------|
 | Container won't start | Check `podman-compose logs <service>` for error messages. |
-| Port already in use | Stop conflicting services or change ports in `docker-compose.yaml`. |
+| Port already in use | Stop conflicting services or change ports in `podman-compose.yaml`. |
 | Build failures | Ensure Podman has enough resources. Try `podman system prune` to free space. |
 
 ## Debugging Tips
