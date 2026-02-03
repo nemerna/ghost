@@ -1,6 +1,6 @@
 # Ghost - Full Deployment Stack
 # 
-# This docker-compose file provides two deployment options:
+# This compose file provides two deployment options:
 #   1. SQLite mode (default): Simple, file-based database
 #   2. PostgreSQL mode: Production-ready with separate database container
 #
@@ -10,8 +10,8 @@
 #   - mcp: MCP SSE server for AI tool integration (Jira, GitHub, Reports)
 #
 # Usage:
-#   SQLite mode:   docker-compose up
-#   PostgreSQL:    docker-compose --profile postgres up
+#   SQLite mode:   podman-compose up
+#   PostgreSQL:    podman-compose --profile postgres up
 #
 # MCP Endpoints (via nginx):
 #   - /mcp/jira     - Jira tools (requires X-Jira-Server-URL, X-Jira-Token headers)
@@ -33,7 +33,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Backend URL for nginx proxy (container name in docker-compose network)
+      # Backend URL for nginx proxy (container name in podman network)
       - BACKEND_URL=http://backend:8000
       # MCP Server URL for nginx proxy
       - MCP_URL=http://mcp:8001
@@ -120,7 +120,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Backend URL for nginx proxy (container name in docker-compose network)
+      # Backend URL for nginx proxy (container name in podman network)
       - BACKEND_URL=http://backend-postgres:8000
       # MCP Server URL for nginx proxy
       - MCP_URL=http://mcp-postgres:8001
