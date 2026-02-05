@@ -531,20 +531,33 @@ async def list_management_reports(
     user: CurrentUser,
     project_key: str | None = Query(None, description="Filter by project"),
     author: str | None = Query(None, description="Filter by author email"),
+    show_all: bool = Query(False, description="Show all users' reports (admin/manager only)"),
     limit: int = Query(10, ge=1, le=50),
     offset: int = Query(0, ge=0),
 ):
-    """List management reports."""
+    """List management reports.
+    
+    By default, returns only the current user's reports.
+    Admins/managers can use show_all=true to see all users' reports,
+    or filter by specific author using the author parameter.
+    """
     db = get_db()
     
     with db.session() as session:
         query = session.query(ManagementReport)
         
-        # Non-admins only see their own reports by default
-        if user.role != UserRole.ADMIN and user.role != UserRole.MANAGER:
-            query = query.filter(ManagementReport.username == user.email)
-        elif author:
+        # Always filter by user unless admin/manager explicitly requests all reports
+        if author:
+            # Filter by specific author (anyone can filter to their own, admin/manager can filter to any)
+            if author != user.email and user.role not in [UserRole.ADMIN, UserRole.MANAGER]:
+                raise HTTPException(status_code=403, detail="Cannot view other users' reports")
             query = query.filter(ManagementReport.username == author)
+        elif show_all and user.role in [UserRole.ADMIN, UserRole.MANAGER]:
+            # Admin/manager explicitly requested all reports - no filtering
+            pass
+        else:
+            # Default: only show current user's own reports (for ALL users including admin/manager)
+            query = query.filter(ManagementReport.username == user.email)
         
         if project_key:
             query = query.filter(ManagementReport.project_key == project_key)
