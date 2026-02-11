@@ -182,7 +182,7 @@ export function SettingsPage() {
   const parsePatterns = (input: string): string[] =>
     input
       .split(/[,\n]/)
-      .map((p) => p.trim())
+      .map((p) => p.trim().replace(/^["']+|["']+$/g, ''))
       .filter(Boolean);
 
   const handleCreateGHConfig = () => {
@@ -782,7 +782,7 @@ export function SettingsPage() {
                 id="gh-config-patterns"
                 value={ghConfigPatterns}
                 onChange={(_event, value) => setGhConfigPatterns(value)}
-                placeholder='e.g., "my-org/*, my-user/specific-repo" (comma or newline separated)'
+                placeholder='e.g., my-org/*, my-user/specific-repo (comma or newline separated)'
               />
               <HelperText>
                 <HelperTextItem>
@@ -841,7 +841,7 @@ export function SettingsPage() {
                 id="edit-gh-config-patterns"
                 value={editGHConfigPatterns}
                 onChange={(_event, value) => setEditGHConfigPatterns(value)}
-                placeholder='e.g., "my-org/*, my-user/specific-repo"'
+                placeholder='e.g., my-org/*, my-user/specific-repo'
               />
               <HelperText>
                 <HelperTextItem>
