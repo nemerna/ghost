@@ -2,17 +2,19 @@
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import sys
 from contextvars import ContextVar
+from datetime import datetime
 from typing import Any
 
 from mcp.server import Server
 from mcp.types import Resource, ResourceContents, TextContent, TextResourceContents, Tool
 
 from ghost.config import get_management_report_instructions
-from ghost.db import init_db
+from ghost.db import PersonalAccessToken, User, get_db, init_db
 from ghost.github_client import GitHubClient, GitHubClientError
 from ghost.jira_client import JiraClient, JiraClientError
 
@@ -2528,6 +2530,79 @@ async def run_sse(host: str, port: int) -> None:
             headers[key_str] = value_str
         return headers
 
+    def authenticate_via_pat(headers: dict[str, str]) -> str | None:
+        """Authenticate a request using a Personal Access Token.
+
+        Checks the Authorization header for a Bearer token, hashes it,
+        looks it up in the database, and returns the user's email if valid.
+
+        Returns:
+            The user's email if authentication succeeds, None otherwise.
+        """
+        auth_header = headers.get("authorization", "")
+        if not auth_header.lower().startswith("bearer "):
+            return None
+
+        raw_token = auth_header[7:].strip()  # Strip "Bearer " prefix
+        if not raw_token:
+            return None
+
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+        try:
+            db = get_db()
+            with db.session() as session:
+                pat = (
+                    session.query(PersonalAccessToken)
+                    .filter(
+                        PersonalAccessToken.token_hash == token_hash,
+                        PersonalAccessToken.is_revoked == False,  # noqa: E712
+                    )
+                    .first()
+                )
+
+                if not pat:
+                    logger.warning("PAT authentication failed: token not found or revoked")
+                    return None
+
+                # Check expiry
+                if pat.expires_at and pat.expires_at <= datetime.utcnow():
+                    logger.warning(f"PAT authentication failed: token expired (id={pat.id})")
+                    return None
+
+                # Get user email
+                user = session.query(User).filter(User.id == pat.user_id).first()
+                if not user:
+                    logger.warning(f"PAT authentication failed: user not found (user_id={pat.user_id})")
+                    return None
+
+                # Update last_used_at
+                pat.last_used_at = datetime.utcnow()
+                session.flush()
+
+                logger.info(f"PAT authentication successful: user={user.email} (pat_id={pat.id})")
+                return user.email
+        except Exception as e:
+            logger.error(f"PAT authentication error: {e}")
+            return None
+
+    async def send_unauthorized(send: Send, detail: str = "Authentication required") -> None:
+        """Send a 401 Unauthorized HTTP response via ASGI."""
+        import json as _json
+        body = _json.dumps({"error": detail}).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                [b"content-type", b"application/json"],
+                [b"content-length", str(len(body)).encode("utf-8")],
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": body,
+        })
+
     async def handle_jira_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
         """Handle Jira SSE connection."""
         headers = extract_headers(scope)
@@ -2587,19 +2662,26 @@ async def run_sse(host: str, port: int) -> None:
         """Handle Reports SSE connection."""
         headers = extract_headers(scope)
 
-        # Extract username from headers
-        # Priority: X-Forwarded-Email (OAuth proxy) > X-Forwarded-User > X-Username (direct)
-        username = (
-            headers.get("x-forwarded-email") or 
-            headers.get("x-forwarded-user") or 
-            headers.get("x-username")
-        )
+        # Authenticate the request
+        # Priority 1: Personal Access Token (Bearer token)
+        username = authenticate_via_pat(headers)
 
-        if username:
-            _username_ctx.set(username)
-            logger.info(f"Reports SSE connection: user={username}")
-        else:
-            logger.warning("Reports SSE connection: No user header provided (X-Forwarded-Email, X-Forwarded-User, or X-Username)")
+        # Priority 2: OAuth proxy headers (X-Forwarded-Email > X-Forwarded-User > X-Username)
+        if not username:
+            username = (
+                headers.get("x-forwarded-email") or 
+                headers.get("x-forwarded-user") or 
+                headers.get("x-username")
+            )
+
+        # Reject unauthenticated connections
+        if not username:
+            logger.warning("Reports SSE connection rejected: no valid authentication")
+            await send_unauthorized(send, "Authentication required. Provide a Bearer token or valid proxy headers.")
+            return
+
+        _username_ctx.set(username)
+        logger.info(f"Reports SSE connection: user={username}")
 
         # Extract optional Jira configuration from headers for auto-fetching ticket details
         jira_server_url = headers.get("x-jira-server-url")
@@ -2641,6 +2723,26 @@ async def run_sse(host: str, port: int) -> None:
         await handle_reports_sse_raw(request.scope, request.receive, request._send)
         return Response()
 
+    async def authenticated_reports_messages(scope: Scope, receive: Receive, send: Send) -> None:
+        """Wrap reports messages POST with PAT / proxy header auth check."""
+        headers = extract_headers(scope)
+
+        # Check PAT first, then proxy headers
+        username = authenticate_via_pat(headers)
+        if not username:
+            username = (
+                headers.get("x-forwarded-email") or
+                headers.get("x-forwarded-user") or
+                headers.get("x-username")
+            )
+
+        if not username:
+            await send_unauthorized(send, "Authentication required for Reports MCP messages.")
+            return
+
+        # Delegate to the real handler
+        await reports_sse_transport.handle_post_message(scope, receive, send)
+
     # Create Starlette app with separate routes for Jira, GitHub, and Reports
     # All MCP routes use /mcp/ prefix to work with nginx proxy
     app = Starlette(
@@ -2655,9 +2757,9 @@ async def run_sse(host: str, port: int) -> None:
             # GitHub endpoints
             Route("/mcp/github", endpoint=handle_github_sse, methods=["GET"]),
             Mount("/mcp/github/messages/", app=github_sse_transport.handle_post_message),
-            # Reports endpoints
+            # Reports endpoints (protected with PAT / proxy auth)
             Route("/mcp/reports", endpoint=handle_reports_sse, methods=["GET"]),
-            Mount("/mcp/reports/messages/", app=reports_sse_transport.handle_post_message),
+            Mount("/mcp/reports/messages/", app=authenticated_reports_messages),
         ],
     )
 

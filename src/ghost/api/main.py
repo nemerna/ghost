@@ -86,6 +86,7 @@ def create_app(
         health_router,
         reports_router,
         teams_router,
+        tokens_router,
         users_router,
     )
     
@@ -95,6 +96,7 @@ def create_app(
     app.include_router(activities_router, prefix="/api/activities", tags=["activities"])
     app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
     app.include_router(fields_router, prefix="/api/fields", tags=["fields"])
+    app.include_router(tokens_router, prefix="/api/tokens", tags=["tokens"])
     
     # Note: Static frontend files are served by nginx, not FastAPI
     # FastAPI only handles /api/* routes

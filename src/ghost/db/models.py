@@ -74,6 +74,7 @@ class User(Base):
     # Relationships
     managed_teams = relationship("Team", back_populates="manager", foreign_keys="Team.manager_id")
     team_memberships = relationship("TeamMembership", back_populates="user", cascade="all, delete-orphan")
+    personal_access_tokens = relationship("PersonalAccessToken", back_populates="user", cascade="all, delete-orphan")
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -611,6 +612,56 @@ class ProjectJiraComponent(Base):
 # =============================================================================
 # Consolidated Report Draft Model (Manager Edits)
 # =============================================================================
+
+
+class PersonalAccessToken(Base):
+    """Personal Access Token for MCP authentication.
+    
+    Users create PATs via the web UI. The raw token is shown once at creation
+    and only the SHA-256 hash is stored. Tokens are validated at MCP connection
+    time by hashing the presented token and looking up the hash.
+    """
+
+    __tablename__ = "personal_access_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Owner
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Token metadata
+    name = Column(String(255), nullable=False)  # User-friendly label, e.g. "VS Code MCP"
+    token_prefix = Column(String(12), nullable=False)  # First chars for identification (e.g. "gmcp_Ab3x...")
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)  # SHA-256 hex digest
+
+    # Lifecycle
+    expires_at = Column(DateTime, nullable=True)  # Optional expiry
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    is_revoked = Column(Boolean, nullable=False, default=False)
+
+    # Relationships
+    user = relationship("User", back_populates="personal_access_tokens")
+
+    __table_args__ = (
+        Index("idx_pat_user", "user_id", "created_at"),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary (never includes token_hash)."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "name": self.name,
+            "token_prefix": self.token_prefix,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "is_revoked": self.is_revoked,
+        }
+
+    def __repr__(self) -> str:
+        return f"<PersonalAccessToken(id={self.id}, user_id={self.user_id}, name={self.name})>"
 
 
 class ConsolidatedReportDraft(Base):
