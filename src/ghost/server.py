@@ -15,7 +15,7 @@ from mcp.types import Resource, ResourceContents, TextContent, TextResourceConte
 
 from ghost.config import get_management_report_instructions
 from ghost.db import PersonalAccessToken, User, get_db, init_db
-from ghost.github_client import GitHubClient, GitHubClientError
+from ghost.github_client import GitHubClient, GitHubClientError, GitHubTokenManager
 from ghost.jira_client import JiraClient, JiraClientError
 
 # Import activity tracking and report functions
@@ -90,7 +90,7 @@ reports_mcp_server = Server("reports-mcp")
 
 # Context variables for per-connection clients (SSE mode)
 _jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("jira_client", default=None)
-_github_client_ctx: ContextVar[GitHubClient | None] = ContextVar("github_client", default=None)
+_github_token_manager_ctx: ContextVar[GitHubTokenManager | None] = ContextVar("github_token_manager", default=None)
 _username_ctx: ContextVar[str | None] = ContextVar("username", default=None)
 _reports_jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("reports_jira_client", default=None)
 
@@ -123,26 +123,41 @@ def get_jira_client() -> JiraClient:
     return client
 
 
-def create_github_client(
+def create_github_token_manager(
     token: str | None = None,
+    tokens_json: str | None = None,
     api_url: str | None = None,
-) -> GitHubClient:
-    """Create a GitHub client with the given configuration."""
-    if not token:
-        raise ValueError("GitHub token is required. Set X-GitHub-Token header.")
+) -> GitHubTokenManager:
+    """Create a GitHubTokenManager from headers.
 
-    return GitHubClient(
-        token=token,
-        api_url=api_url,
+    Prefers X-GitHub-Tokens (multi-token JSON) over X-GitHub-Token (single token).
+
+    Args:
+        token: Single token from X-GitHub-Token header (backward compat)
+        tokens_json: JSON string from X-GitHub-Tokens header (multi-token)
+        api_url: Default GitHub API base URL
+
+    Returns:
+        Configured GitHubTokenManager
+    """
+    if tokens_json:
+        return GitHubTokenManager.from_header(tokens_json, api_url)
+    if token:
+        return GitHubTokenManager.from_single_token(token, api_url)
+    raise ValueError(
+        "GitHub token is required. Set X-GitHub-Token or X-GitHub-Tokens header."
     )
 
 
-def get_github_client() -> GitHubClient:
-    """Get GitHub client from context."""
-    client = _github_client_ctx.get()
-    if client is None:
-        raise ValueError("GitHub client not configured. Ensure X-GitHub-Token header is set.")
-    return client
+def get_github_token_manager() -> GitHubTokenManager:
+    """Get GitHubTokenManager from context."""
+    manager = _github_token_manager_ctx.get()
+    if manager is None:
+        raise ValueError(
+            "GitHub tokens not configured. "
+            "Ensure X-GitHub-Token or X-GitHub-Tokens header is set."
+        )
+    return manager
 
 
 def get_username() -> str:
@@ -1408,6 +1423,17 @@ GITHUB_TOOLS: list[Tool] = [
             "required": ["query"],
         },
     ),
+    # --- Token Info ---
+    Tool(
+        name="github_list_tokens",
+        description="List configured GitHub token patterns (without exposing actual tokens). "
+        "Shows which repository patterns are mapped to which tokens, useful for "
+        "troubleshooting access issues when multiple PATs are configured.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
 ]
 
 
@@ -1825,8 +1851,8 @@ async def list_github_tools() -> list[Tool]:
 async def call_github_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle GitHub tool calls from MCP clients."""
     try:
-        github_client = get_github_client()
-        result = await _execute_github_tool(name, arguments, github_client)
+        token_manager = get_github_token_manager()
+        result = await _execute_github_tool(name, arguments, token_manager)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except GitHubClientError as e:
         error_response = {
@@ -2045,11 +2071,32 @@ async def _execute_jira_tool(
 
 
 async def _execute_github_tool(
-    name: str, arguments: dict[str, Any], github_client: GitHubClient
+    name: str, arguments: dict[str, Any], token_manager: GitHubTokenManager
 ) -> dict[str, Any] | list[dict[str, Any]] | str:
-    """Execute a GitHub tool and return the result."""
+    """Execute a GitHub tool and return the result.
 
-    if name == "github_list_prs":
+    Resolves the correct GitHubClient from the token manager based on the
+    owner/repo in the tool arguments. Falls back to the default client for
+    tools that don't target a specific repository (search, current_user).
+    """
+    # Tools that don't target a specific repo use the default client
+    non_repo_tools = {"github_search_prs", "github_search_issues", "github_get_current_user",
+                      "github_list_tokens"}
+
+    if name in non_repo_tools:
+        github_client = token_manager.get_default_client()
+    else:
+        # Resolve the correct client based on owner/repo from arguments
+        owner = arguments.get("owner")
+        repo = arguments.get("repo")
+        if not owner or not repo:
+            raise ValueError(f"Tool '{name}' requires 'owner' and 'repo' arguments")
+        github_client = token_manager.get_client(owner, repo)
+
+    if name == "github_list_tokens":
+        return token_manager.get_token_info()
+
+    elif name == "github_list_prs":
         input_data = GitHubListPRsInput(**arguments)
         return github_client.list_pull_requests(
             owner=input_data.owner,
@@ -2637,19 +2684,23 @@ async def run_sse(host: str, port: int) -> None:
         headers = extract_headers(scope)
 
         # Extract GitHub configuration from headers
+        # X-GitHub-Tokens (multi-token JSON) takes precedence over X-GitHub-Token (single)
         token = headers.get("x-github-token")
+        tokens_json = headers.get("x-github-tokens")
         api_url = headers.get("x-github-api-url")
 
-        # Create and set GitHub client
+        # Create and set GitHub token manager
         try:
-            client = create_github_client(
+            manager = create_github_token_manager(
                 token=token,
+                tokens_json=tokens_json,
                 api_url=api_url,
             )
-            _github_client_ctx.set(client)
-            logger.info(f"GitHub SSE connection: {client.api_url}")
+            _github_token_manager_ctx.set(manager)
+            token_count = len(manager.get_token_info())
+            logger.info(f"GitHub SSE connection: {token_count} token(s) configured")
         except ValueError as e:
-            logger.warning(f"GitHub client config error: {e}")
+            logger.warning(f"GitHub token manager config error: {e}")
 
         async with github_sse_transport.connect_sse(scope, receive, send) as streams:
             await github_mcp_server.run(
@@ -2793,9 +2844,14 @@ Jira Headers:
   X-Jira-Token         Personal Access Token (required)
   X-Jira-Verify-SSL    Verify SSL (default: true)
 
-GitHub Headers:
-  X-GitHub-Token       Personal Access Token (required)
+GitHub Headers (single token - simple):
+  X-GitHub-Token       Personal Access Token (required if X-GitHub-Tokens not set)
   X-GitHub-API-URL     API URL for Enterprise (optional)
+
+GitHub Headers (multi-token - for different orgs/repos):
+  X-GitHub-Tokens      JSON array of token-to-pattern mappings (overrides X-GitHub-Token)
+                       Format: [{"token":"ghp_...","patterns":["org/*"]},{"token":"ghp_...","patterns":["*"]}]
+  X-GitHub-API-URL     Default API URL for Enterprise (optional, can be overridden per token entry)
 
 Reports Headers:
   X-Username           Username for activity tracking (required)

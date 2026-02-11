@@ -1,5 +1,7 @@
 """GitHub API client wrapper for Pull Request and Issue operations."""
 
+import json
+from fnmatch import fnmatch
 from typing import Any
 
 import httpx
@@ -1273,3 +1275,174 @@ class GitHubClient:
             "closed_at": item.get("closed_at"),
             "url": item["html_url"],
         }
+
+
+class GitHubTokenManager:
+    """Manages multiple GitHub PATs with glob-based repo pattern matching.
+
+    Each token entry has a list of glob patterns matched against 'owner/repo'.
+    Patterns are evaluated in order; first match wins.
+
+    Example token entries:
+        [
+            {"token": "ghp_personal", "patterns": ["myuser/*"]},
+            {"token": "ghp_org", "patterns": ["my-org/*", "partner-org/shared-repo"]},
+            {"token": "ghp_fallback", "patterns": ["*"]}
+        ]
+    """
+
+    def __init__(
+        self,
+        entries: list[dict[str, Any]],
+        api_url: str | None = None,
+    ) -> None:
+        """
+        Initialize the token manager.
+
+        Args:
+            entries: Ordered list of dicts with 'token' and 'patterns' keys.
+                     Each entry may also include an optional 'api_url' override.
+            api_url: Default GitHub API base URL (for GitHub Enterprise).
+                     Individual entries can override this.
+        """
+        self._entries = entries
+        self._default_api_url = api_url
+        self._client_cache: dict[str, GitHubClient] = {}
+
+    def _get_or_create_client(self, token: str, api_url: str | None = None) -> GitHubClient:
+        """Get a cached GitHubClient or create a new one for the given token."""
+        effective_api_url = api_url or self._default_api_url
+        cache_key = f"{token}:{effective_api_url or ''}"
+        if cache_key not in self._client_cache:
+            self._client_cache[cache_key] = GitHubClient(
+                token=token,
+                api_url=effective_api_url,
+            )
+        return self._client_cache[cache_key]
+
+    def get_client(self, owner: str, repo: str) -> GitHubClient:
+        """Resolve the correct GitHubClient for the given owner/repo.
+
+        Iterates through entries in order and returns the client for the
+        first entry whose patterns match 'owner/repo'.
+
+        Args:
+            owner: Repository owner (user or organization)
+            repo: Repository name
+
+        Returns:
+            GitHubClient configured with the matched token
+
+        Raises:
+            GitHubClientError: If no token pattern matches the owner/repo
+        """
+        target = f"{owner}/{repo}"
+        for entry in self._entries:
+            patterns = entry.get("patterns", [])
+            token = entry["token"]
+            entry_api_url = entry.get("api_url")
+            for pattern in patterns:
+                if fnmatch(target, pattern):
+                    return self._get_or_create_client(token, entry_api_url)
+
+        raise GitHubClientError(
+            f"No GitHub token configured for repository '{target}'. "
+            f"Check your X-GitHub-Tokens header patterns.",
+            status_code=None,
+        )
+
+    def get_default_client(self) -> GitHubClient:
+        """Get the default GitHubClient for non-repo-scoped operations.
+
+        Returns the client for the first entry with a '*' (catch-all) pattern,
+        or falls back to the first entry in the list.
+
+        Returns:
+            GitHubClient for general use
+
+        Raises:
+            GitHubClientError: If no tokens are configured
+        """
+        if not self._entries:
+            raise GitHubClientError(
+                "No GitHub tokens configured. Set X-GitHub-Token or X-GitHub-Tokens header.",
+                status_code=None,
+            )
+
+        # Prefer the entry with a catch-all '*' pattern
+        for entry in self._entries:
+            patterns = entry.get("patterns", [])
+            if "*" in patterns or "*/*" in patterns:
+                return self._get_or_create_client(entry["token"], entry.get("api_url"))
+
+        # Fall back to the first entry
+        first = self._entries[0]
+        return self._get_or_create_client(first["token"], first.get("api_url"))
+
+    def get_token_info(self) -> list[dict[str, Any]]:
+        """Return token pattern info without exposing full tokens.
+
+        Returns:
+            List of dicts with 'patterns' and 'token_hint' (last 4 chars).
+        """
+        result = []
+        for entry in self._entries:
+            token = entry["token"]
+            # Show only last 4 characters as a hint
+            hint = f"...{token[-4:]}" if len(token) > 4 else "****"
+            result.append({
+                "patterns": entry.get("patterns", []),
+                "token_hint": hint,
+                "api_url": entry.get("api_url"),
+            })
+        return result
+
+    @classmethod
+    def from_header(cls, tokens_json: str, api_url: str | None = None) -> "GitHubTokenManager":
+        """Create a GitHubTokenManager from the X-GitHub-Tokens header value.
+
+        Args:
+            tokens_json: JSON string - an array of objects with 'token' and 'patterns' keys.
+            api_url: Default GitHub API base URL.
+
+        Returns:
+            Configured GitHubTokenManager
+
+        Raises:
+            ValueError: If the JSON is malformed or entries are invalid
+        """
+        try:
+            entries = json.loads(tokens_json)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid X-GitHub-Tokens JSON: {e}") from e
+
+        if not isinstance(entries, list):
+            raise ValueError("X-GitHub-Tokens must be a JSON array")
+
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise ValueError(f"X-GitHub-Tokens entry {i} must be an object")
+            if "token" not in entry:
+                raise ValueError(f"X-GitHub-Tokens entry {i} missing 'token' field")
+            if "patterns" not in entry or not isinstance(entry["patterns"], list):
+                raise ValueError(f"X-GitHub-Tokens entry {i} missing or invalid 'patterns' field")
+
+        return cls(entries=entries, api_url=api_url)
+
+    @classmethod
+    def from_single_token(cls, token: str, api_url: str | None = None) -> "GitHubTokenManager":
+        """Create a GitHubTokenManager from a single token (backward compatibility).
+
+        The single token matches all repositories (catch-all '*' pattern).
+
+        Args:
+            token: GitHub Personal Access Token
+            api_url: GitHub API base URL
+
+        Returns:
+            Configured GitHubTokenManager with a single catch-all entry
+        """
+        return cls(
+            entries=[{"token": token, "patterns": ["*"]}],
+            api_url=api_url,
+        )
