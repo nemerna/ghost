@@ -33,11 +33,17 @@ import {
   Title,
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
-import { KeyIcon, TrashIcon } from '@patternfly/react-icons';
+import { KeyIcon, PencilAltIcon, PlusCircleIcon, TrashIcon } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
 import { updateMyPreferences, getMyVisibilitySettings, updateMyVisibilitySettings } from '@/api/users';
 import { listTokens, createToken, revokeToken } from '@/api/tokens';
-import type { VisibilitySettings, PersonalAccessTokenCreateResponse } from '@/types';
+import {
+  listGitHubTokenConfigs,
+  createGitHubTokenConfig,
+  updateGitHubTokenConfig,
+  deleteGitHubTokenConfig,
+} from '@/api/github-tokens';
+import type { VisibilitySettings, PersonalAccessTokenCreateResponse, GitHubTokenConfig } from '@/types';
 
 export function SettingsPage() {
   const { user, refetchUser } = useAuth();
@@ -64,6 +70,14 @@ export function SettingsPage() {
   const [createdToken, setCreatedToken] = useState<PersonalAccessTokenCreateResponse | null>(null);
   const [tokenToRevoke, setTokenToRevoke] = useState<{ id: number; name: string } | null>(null);
 
+  // GitHub Token Config state
+  const [isCreateGHConfigModalOpen, setIsCreateGHConfigModalOpen] = useState(false);
+  const [ghConfigName, setGhConfigName] = useState('');
+  const [ghConfigPatterns, setGhConfigPatterns] = useState('');
+  const [editingGHConfig, setEditingGHConfig] = useState<GitHubTokenConfig | null>(null);
+  const [editGHConfigPatterns, setEditGHConfigPatterns] = useState('');
+  const [ghConfigToDelete, setGhConfigToDelete] = useState<{ id: number; name: string } | null>(null);
+
   // Fetch visibility settings
   const { data: visibilityData, isLoading: visibilityLoading } = useQuery({
     queryKey: ['visibilitySettings'],
@@ -74,6 +88,12 @@ export function SettingsPage() {
   const { data: tokensData, isLoading: tokensLoading } = useQuery({
     queryKey: ['personalAccessTokens'],
     queryFn: listTokens,
+  });
+
+  // Fetch GitHub token configs
+  const { data: ghConfigsData, isLoading: ghConfigsLoading } = useQuery({
+    queryKey: ['githubTokenConfigs'],
+    queryFn: listGitHubTokenConfigs,
   });
 
   // Update local state when visibility data is fetched
@@ -123,6 +143,84 @@ export function SettingsPage() {
       setTimeout(() => setSuccessMessage(''), 3000);
     },
   });
+
+  // GitHub token config mutations
+  const createGHConfigMutation = useMutation({
+    mutationFn: createGitHubTokenConfig,
+    onSuccess: () => {
+      setIsCreateGHConfigModalOpen(false);
+      setGhConfigName('');
+      setGhConfigPatterns('');
+      queryClient.invalidateQueries({ queryKey: ['githubTokenConfigs'] });
+      setSuccessMessage('GitHub token config created!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    },
+  });
+
+  const updateGHConfigMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { patterns: string[] } }) =>
+      updateGitHubTokenConfig(id, data),
+    onSuccess: () => {
+      setEditingGHConfig(null);
+      setEditGHConfigPatterns('');
+      queryClient.invalidateQueries({ queryKey: ['githubTokenConfigs'] });
+      setSuccessMessage('GitHub token config updated!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    },
+  });
+
+  const deleteGHConfigMutation = useMutation({
+    mutationFn: (configId: number) => deleteGitHubTokenConfig(configId),
+    onSuccess: () => {
+      setGhConfigToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ['githubTokenConfigs'] });
+      setSuccessMessage('GitHub token config deleted!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    },
+  });
+
+  const parsePatterns = (input: string): string[] =>
+    input
+      .split(/[,\n]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+  const handleCreateGHConfig = () => {
+    const patterns = parsePatterns(ghConfigPatterns);
+    createGHConfigMutation.mutate({ name: ghConfigName, patterns });
+  };
+
+  const handleUpdateGHConfig = () => {
+    if (!editingGHConfig) return;
+    const patterns = parsePatterns(editGHConfigPatterns);
+    updateGHConfigMutation.mutate({ id: editingGHConfig.id, data: { patterns } });
+  };
+
+  const handleOpenEditGHConfig = (config: GitHubTokenConfig) => {
+    setEditingGHConfig(config);
+    setEditGHConfigPatterns(config.patterns.join('\n'));
+  };
+
+  const ghConfigs = ghConfigsData?.configs || [];
+
+  // Build the copy-paste MCP config snippet for GitHub tokens
+  const ghSnippet = (() => {
+    if (ghConfigs.length === 0) return null;
+    const headers: Record<string, string> = {
+      'Authorization': 'Bearer <your reports PAT>',
+    };
+    for (const c of ghConfigs) {
+      headers[`X-GitHub-Token-${c.name}`] = `<paste your ${c.name} GitHub PAT here>`;
+    }
+    return JSON.stringify(
+      {
+        url: 'http://localhost:8080/mcp/github',
+        headers,
+      },
+      null,
+      2
+    );
+  })();
 
   const handleSave = () => {
     updateMutation.mutate();
@@ -290,6 +388,107 @@ export function SettingsPage() {
                   })}
                 </Tbody>
               </Table>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* GitHub Token Configuration */}
+        <Card style={{ marginBottom: '1rem' }}>
+          <CardTitle>
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              GitHub Token Configuration
+              <Button
+                variant="primary"
+                icon={<PlusCircleIcon />}
+                onClick={() => setIsCreateGHConfigModalOpen(true)}
+                size="sm"
+              >
+                Add Token Config
+              </Button>
+            </span>
+          </CardTitle>
+          <CardBody>
+            <Content style={{ marginBottom: '1rem' }}>
+              <p>
+                Configure multiple GitHub PATs for different organizations or repositories.
+                Each entry maps a named token to repository patterns using glob matching
+                (e.g., <code>my-org/*</code> matches all repos under <code>my-org</code>).
+              </p>
+            </Content>
+
+            {ghConfigsLoading ? (
+              <Content><p>Loading configurations...</p></Content>
+            ) : ghConfigs.length === 0 ? (
+              <EmptyState>
+                <EmptyStateBody>
+                  No GitHub token configurations yet. Add one to set up multi-PAT access for different orgs/repos.
+                </EmptyStateBody>
+              </EmptyState>
+            ) : (
+              <>
+                <Table aria-label="GitHub token configurations" variant="compact">
+                  <Thead>
+                    <Tr>
+                      <Th>Name</Th>
+                      <Th>Header</Th>
+                      <Th>Patterns</Th>
+                      <Th />
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {ghConfigs.map((config) => (
+                      <Tr key={config.id}>
+                        <Td dataLabel="Name"><strong>{config.name}</strong></Td>
+                        <Td dataLabel="Header">
+                          <code>X-GitHub-Token-{config.name}</code>
+                        </Td>
+                        <Td dataLabel="Patterns">
+                          {config.patterns.map((p, i) => (
+                            <Label key={i} style={{ marginRight: '0.25rem', marginBottom: '0.25rem' }}>{p}</Label>
+                          ))}
+                        </Td>
+                        <Td dataLabel="Actions" isActionCell>
+                          <Button
+                            variant="plain"
+                            aria-label={`Edit config ${config.name}`}
+                            onClick={() => handleOpenEditGHConfig(config)}
+                            icon={<PencilAltIcon />}
+                            style={{ marginRight: '0.25rem' }}
+                          />
+                          <Button
+                            variant="plain"
+                            aria-label={`Delete config ${config.name}`}
+                            onClick={() => setGhConfigToDelete({ id: config.id, name: config.name })}
+                            icon={<TrashIcon />}
+                            isDanger
+                          />
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+
+                {ghSnippet && (
+                  <div style={{ marginTop: '1rem' }}>
+                    <Content>
+                      <p><strong>MCP Client Configuration</strong></p>
+                      <p>
+                        Copy this snippet into your <code>.cursor/mcp.json</code> under <code>mcpServers.github</code> and
+                        replace the placeholder values with your actual tokens:
+                      </p>
+                    </Content>
+                    <ClipboardCopy
+                      isReadOnly
+                      hoverTip="Copy"
+                      clickTip="Copied"
+                      variant="expansion"
+                      isExpanded
+                    >
+                      {ghSnippet}
+                    </ClipboardCopy>
+                  </div>
+                )}
+              </>
             )}
           </CardBody>
         </Card>
@@ -537,6 +736,163 @@ export function SettingsPage() {
             Revoke
           </Button>
           <Button variant="link" onClick={() => setTokenToRevoke(null)}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Create GitHub Token Config Modal */}
+      <Modal
+        isOpen={isCreateGHConfigModalOpen}
+        onClose={() => {
+          setIsCreateGHConfigModalOpen(false);
+          setGhConfigName('');
+          setGhConfigPatterns('');
+          createGHConfigMutation.reset();
+        }}
+        variant="medium"
+      >
+        <ModalHeader title="Add GitHub Token Configuration" />
+        <ModalBody>
+          {createGHConfigMutation.isError && (
+            <Alert
+              variant="danger"
+              title={createGHConfigMutation.error?.message || 'Failed to create config'}
+              style={{ marginBottom: '1rem' }}
+            />
+          )}
+          <Form>
+            <FormGroup label="Token Name" isRequired fieldId="gh-config-name">
+              <TextInput
+                id="gh-config-name"
+                value={ghConfigName}
+                onChange={(_event, value) => setGhConfigName(value)}
+                placeholder='e.g., "personal", "work", "my-org"'
+                isRequired
+              />
+              <HelperText>
+                <HelperTextItem>
+                  Used as the header suffix: <code>X-GitHub-Token-{ghConfigName || '{name}'}</code>.
+                  Lowercase letters, digits, hyphens, and underscores only.
+                </HelperTextItem>
+              </HelperText>
+            </FormGroup>
+            <FormGroup label="Repository Patterns" isRequired fieldId="gh-config-patterns">
+              <TextInput
+                id="gh-config-patterns"
+                value={ghConfigPatterns}
+                onChange={(_event, value) => setGhConfigPatterns(value)}
+                placeholder='e.g., "my-org/*, my-user/specific-repo" (comma or newline separated)'
+              />
+              <HelperText>
+                <HelperTextItem>
+                  Glob patterns matched against <code>owner/repo</code>. Separate multiple patterns with commas or newlines.
+                  Use <code>*</code> as a catch-all for any repository.
+                </HelperTextItem>
+              </HelperText>
+            </FormGroup>
+          </Form>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="primary"
+            onClick={handleCreateGHConfig}
+            isDisabled={!ghConfigName.trim() || !ghConfigPatterns.trim()}
+            isLoading={createGHConfigMutation.isPending}
+          >
+            Create
+          </Button>
+          <Button
+            variant="link"
+            onClick={() => {
+              setIsCreateGHConfigModalOpen(false);
+              setGhConfigName('');
+              setGhConfigPatterns('');
+              createGHConfigMutation.reset();
+            }}
+          >
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Edit GitHub Token Config Modal */}
+      <Modal
+        isOpen={!!editingGHConfig}
+        onClose={() => {
+          setEditingGHConfig(null);
+          setEditGHConfigPatterns('');
+          updateGHConfigMutation.reset();
+        }}
+        variant="medium"
+      >
+        <ModalHeader title={`Edit "${editingGHConfig?.name}" Patterns`} />
+        <ModalBody>
+          {updateGHConfigMutation.isError && (
+            <Alert
+              variant="danger"
+              title={updateGHConfigMutation.error?.message || 'Failed to update config'}
+              style={{ marginBottom: '1rem' }}
+            />
+          )}
+          <Form>
+            <FormGroup label="Repository Patterns" isRequired fieldId="edit-gh-config-patterns">
+              <TextInput
+                id="edit-gh-config-patterns"
+                value={editGHConfigPatterns}
+                onChange={(_event, value) => setEditGHConfigPatterns(value)}
+                placeholder='e.g., "my-org/*, my-user/specific-repo"'
+              />
+              <HelperText>
+                <HelperTextItem>
+                  Glob patterns matched against <code>owner/repo</code>. Separate multiple patterns with commas or newlines.
+                </HelperTextItem>
+              </HelperText>
+            </FormGroup>
+          </Form>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="primary"
+            onClick={handleUpdateGHConfig}
+            isDisabled={!editGHConfigPatterns.trim()}
+            isLoading={updateGHConfigMutation.isPending}
+          >
+            Save
+          </Button>
+          <Button
+            variant="link"
+            onClick={() => {
+              setEditingGHConfig(null);
+              setEditGHConfigPatterns('');
+              updateGHConfigMutation.reset();
+            }}
+          >
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Delete GitHub Token Config Confirmation Modal */}
+      <Modal
+        isOpen={!!ghConfigToDelete}
+        onClose={() => setGhConfigToDelete(null)}
+        variant="small"
+      >
+        <ModalHeader title="Delete Token Configuration" />
+        <ModalBody>
+          Are you sure you want to delete the GitHub token configuration <strong>{ghConfigToDelete?.name}</strong>?
+          You will need to update your MCP client headers if you remove this.
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="danger"
+            onClick={() => ghConfigToDelete && deleteGHConfigMutation.mutate(ghConfigToDelete.id)}
+            isLoading={deleteGHConfigMutation.isPending}
+          >
+            Delete
+          </Button>
+          <Button variant="link" onClick={() => setGhConfigToDelete(null)}>
             Cancel
           </Button>
         </ModalFooter>

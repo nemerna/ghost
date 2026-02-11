@@ -6,6 +6,7 @@ from ghost.db.models import (
     ActivityLog,
     ConsolidatedReportDraft,
     ConsolidatedReportSnapshot,
+    GitHubTokenConfig,
     ManagementReport,
     PersonalAccessToken,
     ProjectGitRepo,
@@ -36,6 +37,7 @@ __all__ = [
     "Team",
     "TeamMembership",
     "PersonalAccessToken",
+    "GitHubTokenConfig",
     # Activity & Report Models
     "ActivityLog",
     "WeeklyReport",

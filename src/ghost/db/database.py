@@ -151,9 +151,29 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
-    # Migration 9: Create personal_access_tokens table for MCP authentication
+    # Migration 9: Create github_token_configs table for multi-PAT support
     {
-        "id": "009_create_personal_access_tokens",
+        "id": "009_create_github_token_configs",
+        "description": "Create github_token_configs table for named GitHub token patterns",
+        "check": lambda inspector: "github_token_configs" not in inspector.get_table_names(),
+        "sql": [
+            """CREATE TABLE github_token_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                name VARCHAR(100) NOT NULL,
+                patterns JSON NOT NULL,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME,
+                UNIQUE(user_id, name)
+            )""",
+            "CREATE INDEX idx_github_token_config_user ON github_token_configs (user_id, display_order)",
+        ],
+        "optional": False,
+    },
+    # Migration 10: Create personal_access_tokens table for MCP authentication
+    {
+        "id": "010_create_personal_access_tokens",
         "description": "Create personal_access_tokens table for PAT-based MCP auth",
         "check": lambda inspector: "personal_access_tokens" not in inspector.get_table_names(),
         "sql": [
