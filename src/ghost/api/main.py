@@ -83,6 +83,7 @@ def create_app(
     from ghost.api.routes import (
         activities_router,
         fields_router,
+        github_tokens_router,
         health_router,
         reports_router,
         teams_router,
@@ -97,6 +98,7 @@ def create_app(
     app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
     app.include_router(fields_router, prefix="/api/fields", tags=["fields"])
     app.include_router(tokens_router, prefix="/api/tokens", tags=["tokens"])
+    app.include_router(github_tokens_router, prefix="/api/github-tokens", tags=["github-tokens"])
     
     # Note: Static frontend files are served by nginx, not FastAPI
     # FastAPI only handles /api/* routes

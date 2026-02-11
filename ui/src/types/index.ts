@@ -503,6 +503,34 @@ export interface PersonalAccessTokenListResponse {
 }
 
 // =============================================================================
+// GitHub Token Config Types
+// =============================================================================
+
+export interface GitHubTokenConfig {
+  id: number;
+  name: string;
+  patterns: string[];
+  display_order: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface GitHubTokenConfigCreateRequest {
+  name: string;
+  patterns: string[];
+}
+
+export interface GitHubTokenConfigUpdateRequest {
+  patterns?: string[];
+  display_order?: number;
+}
+
+export interface GitHubTokenConfigListResponse {
+  configs: GitHubTokenConfig[];
+  total: number;
+}
+
+// =============================================================================
 // API Response Types
 // =============================================================================
 

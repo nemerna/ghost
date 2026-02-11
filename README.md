@@ -42,6 +42,14 @@ Then configure your IDE (`.cursor/mcp.json`):
         "X-GitHub-Token": "your-github-pat"
       }
     },
+    "github-multi": {
+      "url": "http://localhost:8080/mcp/github",
+      "headers": {
+        "Authorization": "Bearer your-reports-pat",
+        "X-GitHub-Token-personal": "ghp_personal_token_here",
+        "X-GitHub-Token-work": "ghp_org_token_here"
+      }
+    },
     "reports": {
       "url": "http://localhost:8080/mcp/reports",
       "headers": {
@@ -55,6 +63,45 @@ Then configure your IDE (`.cursor/mcp.json`):
 ```
 
 Generate a Personal Access Token from **Settings > Personal Access Tokens** in the web UI, then use it as the `Authorization: Bearer` header for the reports MCP. Restart Cursor after saving.
+
+> **Note:** The `github` and `github-multi` entries above show two alternatives -- use one or the other, not both. Use `X-GitHub-Token` for a single token, or named headers for multiple tokens (see below).
+
+## Multiple GitHub PATs
+
+A single GitHub PAT may not have access to all the repositories you work with (e.g., personal repos vs organization repos with different scopes). You can configure multiple PATs, each mapped to specific owners or repositories using glob patterns.
+
+### Setup via the Web UI (recommended)
+
+1. Go to **Settings > GitHub Token Configuration** in the web UI
+2. Add named entries with repo patterns:
+   - `personal` with patterns `myuser/*`
+   - `work` with patterns `my-org/*, partner-org/shared-repo`
+3. Copy the generated MCP config snippet into your `.cursor/mcp.json`
+4. Replace the placeholder values with your actual GitHub PATs
+
+The web UI generates clean, ready-to-paste configuration like:
+
+```json
+{
+  "url": "http://localhost:8080/mcp/github",
+  "headers": {
+    "Authorization": "Bearer <your reports PAT>",
+    "X-GitHub-Token-personal": "<paste your personal GitHub PAT here>",
+    "X-GitHub-Token-work": "<paste your org GitHub PAT here>"
+  }
+}
+```
+
+The `Authorization: Bearer` header (same PAT you use for reports) identifies you so the server can load your pattern config. The `X-GitHub-Token-{name}` headers carry the actual GitHub tokens, which are never stored on the server.
+
+### How pattern matching works
+
+- Patterns use `fnmatch`-style globs matched against `owner/repo`
+- `my-org/*` matches any repo under `my-org`
+- `my-org/specific-repo` matches exactly that repo
+- `*` matches everything (catch-all fallback)
+- Entries are evaluated in order -- first match wins
+- Use the `github_list_tokens` tool to verify your configured patterns
 
 ## Example Prompts
 

@@ -1446,3 +1446,48 @@ class GitHubTokenManager:
             entries=[{"token": token, "patterns": ["*"]}],
             api_url=api_url,
         )
+
+    @classmethod
+    def from_named_headers(
+        cls,
+        named_tokens: dict[str, str],
+        configs: list[dict[str, Any]],
+        api_url: str | None = None,
+    ) -> "GitHubTokenManager":
+        """Create a GitHubTokenManager from named headers and DB-stored configs.
+
+        Matches header names (from X-GitHub-Token-{name}) to DB config names
+        and builds entries using the stored patterns.
+
+        Args:
+            named_tokens: Dict mapping config name to token value,
+                          e.g., {"personal": "ghp_abc", "work": "ghp_xyz"}
+            configs: List of dicts from DB with 'name', 'patterns', and
+                     optionally 'display_order' keys.
+            api_url: Default GitHub API base URL.
+
+        Returns:
+            Configured GitHubTokenManager
+
+        Raises:
+            ValueError: If no matching configs are found for the provided headers
+        """
+        # Build a lookup from config name to patterns
+        config_lookup = {c["name"]: c["patterns"] for c in configs}
+
+        entries = []
+        for name, token in named_tokens.items():
+            patterns = config_lookup.get(name)
+            if patterns:
+                entries.append({"token": token, "patterns": patterns})
+
+        if not entries:
+            available = list(config_lookup.keys())
+            provided = list(named_tokens.keys())
+            raise ValueError(
+                f"No matching GitHub token configs found. "
+                f"Headers provided tokens for: {provided}. "
+                f"DB has configs for: {available}."
+            )
+
+        return cls(entries=entries, api_url=api_url)

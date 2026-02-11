@@ -3,7 +3,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -75,6 +75,7 @@ class User(Base):
     managed_teams = relationship("Team", back_populates="manager", foreign_keys="Team.manager_id")
     team_memberships = relationship("TeamMembership", back_populates="user", cascade="all, delete-orphan")
     personal_access_tokens = relationship("PersonalAccessToken", back_populates="user", cascade="all, delete-orphan")
+    github_token_configs = relationship("GitHubTokenConfig", back_populates="user", cascade="all, delete-orphan", order_by="GitHubTokenConfig.display_order")
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -662,6 +663,54 @@ class PersonalAccessToken(Base):
 
     def __repr__(self) -> str:
         return f"<PersonalAccessToken(id={self.id}, user_id={self.user_id}, name={self.name})>"
+
+
+class GitHubTokenConfig(Base):
+    """Named GitHub token configuration with repo patterns.
+
+    Users define named token slots (e.g., "personal", "work") with glob patterns
+    that match owner/repo. The actual token values are passed via HTTP headers
+    (X-GitHub-Token-{name}) and never stored in the database.
+    """
+
+    __tablename__ = "github_token_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Owner
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Config
+    name = Column(String(100), nullable=False)  # e.g., "personal", "work"
+    patterns = Column(JSON, nullable=False)  # e.g., ["myuser/*", "other-org/specific-repo"]
+    display_order = Column(Integer, nullable=False, default=0)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="github_token_configs")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_github_token_config_user_name"),
+        Index("idx_github_token_config_user", "user_id", "display_order"),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "name": self.name,
+            "patterns": self.patterns,
+            "display_order": self.display_order,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<GitHubTokenConfig(id={self.id}, user_id={self.user_id}, name={self.name})>"
 
 
 class ConsolidatedReportDraft(Base):

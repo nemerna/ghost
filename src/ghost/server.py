@@ -14,7 +14,7 @@ from mcp.server import Server
 from mcp.types import Resource, ResourceContents, TextContent, TextResourceContents, Tool
 
 from ghost.config import get_management_report_instructions
-from ghost.db import PersonalAccessToken, User, get_db, init_db
+from ghost.db import GitHubTokenConfig, PersonalAccessToken, User, get_db, init_db
 from ghost.github_client import GitHubClient, GitHubClientError, GitHubTokenManager
 from ghost.jira_client import JiraClient, JiraClientError
 
@@ -158,6 +158,29 @@ def get_github_token_manager() -> GitHubTokenManager:
             "Ensure X-GitHub-Token or X-GitHub-Tokens header is set."
         )
     return manager
+
+
+def _extract_named_token_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Extract named GitHub token headers (X-GitHub-Token-{name}).
+
+    Scans all headers for the pattern x-github-token-{name} (lowercase),
+    excluding the base x-github-token and x-github-tokens headers.
+
+    Returns:
+        Dict mapping config name to token value,
+        e.g., {"personal": "ghp_abc", "work": "ghp_xyz"}
+    """
+    prefix = "x-github-token-"
+    skip = {"x-github-token", "x-github-tokens"}
+    named_tokens = {}
+    for key, value in headers.items():
+        if key in skip:
+            continue
+        if key.startswith(prefix) and value:
+            name = key[len(prefix):]
+            if name:
+                named_tokens[name] = value
+    return named_tokens
 
 
 def get_username() -> str:
@@ -2680,27 +2703,74 @@ async def run_sse(host: str, port: int) -> None:
             )
 
     async def handle_github_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle GitHub SSE connection."""
+        """Handle GitHub SSE connection.
+
+        Token resolution priority:
+        1. Named headers (X-GitHub-Token-{name}) with DB-stored patterns (requires Bearer PAT auth)
+        2. JSON header (X-GitHub-Tokens) with inline patterns
+        3. Single header (X-GitHub-Token) matching all repos
+        """
         headers = extract_headers(scope)
-
-        # Extract GitHub configuration from headers
-        # X-GitHub-Tokens (multi-token JSON) takes precedence over X-GitHub-Token (single)
-        token = headers.get("x-github-token")
-        tokens_json = headers.get("x-github-tokens")
         api_url = headers.get("x-github-api-url")
+        manager = None
 
-        # Create and set GitHub token manager
-        try:
-            manager = create_github_token_manager(
-                token=token,
-                tokens_json=tokens_json,
-                api_url=api_url,
-            )
+        # Priority 1: Named headers with DB-stored patterns
+        # Requires Bearer PAT to identify the user and load their config
+        user_email = authenticate_via_pat(headers)
+        if user_email:
+            named_tokens = _extract_named_token_headers(headers)
+            if named_tokens:
+                try:
+                    db = get_db()
+                    with db.session() as session:
+                        user = session.query(User).filter(User.email == user_email).first()
+                        if user:
+                            configs = (
+                                session.query(GitHubTokenConfig)
+                                .filter(GitHubTokenConfig.user_id == user.id)
+                                .order_by(GitHubTokenConfig.display_order)
+                                .all()
+                            )
+                            if configs:
+                                config_dicts = [c.to_dict() for c in configs]
+                                manager = GitHubTokenManager.from_named_headers(
+                                    named_tokens=named_tokens,
+                                    configs=config_dicts,
+                                    api_url=api_url,
+                                )
+                                logger.info(
+                                    f"GitHub SSE connection: user={user_email}, "
+                                    f"{len(named_tokens)} named token(s) matched against "
+                                    f"{len(configs)} DB config(s)"
+                                )
+                except Exception as e:
+                    logger.warning(f"GitHub named token resolution failed: {e}")
+
+        # Priority 2: JSON header (X-GitHub-Tokens)
+        if manager is None:
+            tokens_json = headers.get("x-github-tokens")
+            if tokens_json:
+                try:
+                    manager = GitHubTokenManager.from_header(tokens_json, api_url)
+                    token_count = len(manager.get_token_info())
+                    logger.info(f"GitHub SSE connection: {token_count} token(s) via JSON header")
+                except ValueError as e:
+                    logger.warning(f"GitHub JSON token header error: {e}")
+
+        # Priority 3: Single header (X-GitHub-Token)
+        if manager is None:
+            token = headers.get("x-github-token")
+            if token:
+                try:
+                    manager = GitHubTokenManager.from_single_token(token, api_url)
+                    logger.info("GitHub SSE connection: single token configured")
+                except ValueError as e:
+                    logger.warning(f"GitHub single token error: {e}")
+
+        if manager is None:
+            logger.warning("GitHub SSE connection: no tokens configured")
+        else:
             _github_token_manager_ctx.set(manager)
-            token_count = len(manager.get_token_info())
-            logger.info(f"GitHub SSE connection: {token_count} token(s) configured")
-        except ValueError as e:
-            logger.warning(f"GitHub token manager config error: {e}")
 
         async with github_sse_transport.connect_sse(scope, receive, send) as streams:
             await github_mcp_server.run(
@@ -2845,10 +2915,15 @@ Jira Headers:
   X-Jira-Verify-SSL    Verify SSL (default: true)
 
 GitHub Headers (single token - simple):
-  X-GitHub-Token       Personal Access Token (required if X-GitHub-Tokens not set)
+  X-GitHub-Token       Personal Access Token (required if multi-token not used)
   X-GitHub-API-URL     API URL for Enterprise (optional)
 
-GitHub Headers (multi-token - for different orgs/repos):
+GitHub Headers (multi-token via UI - recommended):
+  Authorization        Bearer <reports PAT> to identify user and load DB-stored patterns
+  X-GitHub-Token-NAME  Named GitHub PATs (e.g., X-GitHub-Token-personal, X-GitHub-Token-work)
+                       Configure patterns in Settings > GitHub Token Configuration in the web UI
+
+GitHub Headers (multi-token via JSON - alternative):
   X-GitHub-Tokens      JSON array of token-to-pattern mappings (overrides X-GitHub-Token)
                        Format: [{"token":"ghp_...","patterns":["org/*"]},{"token":"ghp_...","patterns":["*"]}]
   X-GitHub-API-URL     Default API URL for Enterprise (optional, can be overridden per token entry)
