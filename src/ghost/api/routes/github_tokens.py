@@ -51,7 +51,7 @@ class GitHubTokenConfigCreate(BaseModel):
             raise ValueError("At least one pattern is required")
         cleaned = []
         for p in v:
-            p = p.strip()
+            p = p.strip().strip("\"'")
             if p:
                 cleaned.append(p)
         if not cleaned:
@@ -75,7 +75,7 @@ class GitHubTokenConfigUpdate(BaseModel):
             raise ValueError("At least one pattern is required")
         cleaned = []
         for p in v:
-            p = p.strip()
+            p = p.strip().strip("\"'")
             if p:
                 cleaned.append(p)
         if not cleaned:

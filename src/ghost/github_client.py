@@ -1472,8 +1472,11 @@ class GitHubTokenManager:
         Raises:
             ValueError: If no matching configs are found for the provided headers
         """
-        # Build a lookup from config name to patterns
-        config_lookup = {c["name"]: c["patterns"] for c in configs}
+        # Build a lookup from config name to patterns (strip stray quotes)
+        config_lookup = {
+            c["name"]: [p.strip("\"'") for p in c["patterns"]]
+            for c in configs
+        }
 
         entries = []
         for name, token in named_tokens.items():
