@@ -45,7 +45,7 @@ Then configure your IDE (`.cursor/mcp.json`):
     "reports": {
       "url": "http://localhost:8080/mcp/reports",
       "headers": {
-        "X-Username": "your-username",
+        "Authorization": "Bearer your-personal-access-token",
         "X-Jira-Server-URL": "https://jira.example.com",
         "X-Jira-Token": "your-jira-pat"
       }
@@ -54,7 +54,7 @@ Then configure your IDE (`.cursor/mcp.json`):
 }
 ```
 
-Restart Cursor after saving.
+Generate a Personal Access Token from **Settings > Personal Access Tokens** in the web UI, then use it as the `Authorization: Bearer` header for the reports MCP. Restart Cursor after saving.
 
 ## Example Prompts
 

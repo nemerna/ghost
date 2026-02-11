@@ -7,6 +7,7 @@ from ghost.db.models import (
     ConsolidatedReportDraft,
     ConsolidatedReportSnapshot,
     ManagementReport,
+    PersonalAccessToken,
     ProjectGitRepo,
     ProjectJiraComponent,
     ReportField,
@@ -34,6 +35,7 @@ __all__ = [
     "User",
     "Team",
     "TeamMembership",
+    "PersonalAccessToken",
     # Activity & Report Models
     "ActivityLog",
     "WeeklyReport",

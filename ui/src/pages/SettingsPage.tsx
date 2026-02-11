@@ -1,5 +1,5 @@
 /**
- * Settings page - user preferences
+ * Settings page - user preferences and personal access tokens
  */
 
 import { useState, useEffect } from 'react';
@@ -10,23 +10,34 @@ import {
   Card,
   CardBody,
   CardTitle,
+  ClipboardCopy,
   Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  EmptyState,
+  EmptyStateBody,
   Form,
   FormGroup,
   HelperText,
   HelperTextItem,
+  Label,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   PageSection,
   Switch,
   TextInput,
   Title,
 } from '@patternfly/react-core';
+import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
+import { KeyIcon, TrashIcon } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
 import { updateMyPreferences, getMyVisibilitySettings, updateMyVisibilitySettings } from '@/api/users';
-import type { VisibilitySettings } from '@/types';
+import { listTokens, createToken, revokeToken } from '@/api/tokens';
+import type { VisibilitySettings, PersonalAccessTokenCreateResponse } from '@/types';
 
 export function SettingsPage() {
   const { user, refetchUser } = useAuth();
@@ -46,10 +57,23 @@ export function SettingsPage() {
     management_reports: 'private',
   });
 
+  // PAT state
+  const [isCreateTokenModalOpen, setIsCreateTokenModalOpen] = useState(false);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [newTokenExpiry, setNewTokenExpiry] = useState('');
+  const [createdToken, setCreatedToken] = useState<PersonalAccessTokenCreateResponse | null>(null);
+  const [tokenToRevoke, setTokenToRevoke] = useState<{ id: number; name: string } | null>(null);
+
   // Fetch visibility settings
   const { data: visibilityData, isLoading: visibilityLoading } = useQuery({
     queryKey: ['visibilitySettings'],
     queryFn: getMyVisibilitySettings,
+  });
+
+  // Fetch tokens
+  const { data: tokensData, isLoading: tokensLoading } = useQuery({
+    queryKey: ['personalAccessTokens'],
+    queryFn: listTokens,
   });
 
   // Update local state when visibility data is fetched
@@ -78,6 +102,28 @@ export function SettingsPage() {
     },
   });
 
+  // Create token mutation
+  const createTokenMutation = useMutation({
+    mutationFn: createToken,
+    onSuccess: (data) => {
+      setCreatedToken(data);
+      setNewTokenName('');
+      setNewTokenExpiry('');
+      queryClient.invalidateQueries({ queryKey: ['personalAccessTokens'] });
+    },
+  });
+
+  // Revoke token mutation
+  const revokeTokenMutation = useMutation({
+    mutationFn: (tokenId: number) => revokeToken(tokenId),
+    onSuccess: () => {
+      setTokenToRevoke(null);
+      queryClient.invalidateQueries({ queryKey: ['personalAccessTokens'] });
+      setSuccessMessage('Token revoked successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    },
+  });
+
   const handleSave = () => {
     updateMutation.mutate();
   };
@@ -92,6 +138,23 @@ export function SettingsPage() {
       [field]: prev[field] === 'shared' ? 'private' : 'shared',
     }));
   };
+
+  const handleCreateToken = () => {
+    createTokenMutation.mutate({
+      name: newTokenName,
+      expires_at: newTokenExpiry || null,
+    });
+  };
+
+  const handleCloseCreateModal = () => {
+    setIsCreateTokenModalOpen(false);
+    setCreatedToken(null);
+    setNewTokenName('');
+    setNewTokenExpiry('');
+    createTokenMutation.reset();
+  };
+
+  const tokens = tokensData?.tokens || [];
 
   return (
     <>
@@ -137,6 +200,97 @@ export function SettingsPage() {
                 <em>Profile information is managed through OpenShift authentication.</em>
               </p>
             </Content>
+          </CardBody>
+        </Card>
+
+        {/* Personal Access Tokens */}
+        <Card style={{ marginBottom: '1rem' }}>
+          <CardTitle>
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              Personal Access Tokens
+              <Button
+                variant="primary"
+                icon={<KeyIcon />}
+                onClick={() => setIsCreateTokenModalOpen(true)}
+                size="sm"
+              >
+                Create Token
+              </Button>
+            </span>
+          </CardTitle>
+          <CardBody>
+            <Content style={{ marginBottom: '1rem' }}>
+              <p>
+                Personal access tokens are used to authenticate with the Reports MCP server.
+                Configure your MCP client with the token in the <code>Authorization: Bearer &lt;token&gt;</code> header.
+              </p>
+            </Content>
+
+            {tokensLoading ? (
+              <Content><p>Loading tokens...</p></Content>
+            ) : tokens.length === 0 ? (
+              <EmptyState>
+                <EmptyStateBody>
+                  No personal access tokens yet. Create one to authenticate with the Reports MCP.
+                </EmptyStateBody>
+              </EmptyState>
+            ) : (
+              <Table aria-label="Personal access tokens" variant="compact">
+                <Thead>
+                  <Tr>
+                    <Th>Name</Th>
+                    <Th>Token</Th>
+                    <Th>Created</Th>
+                    <Th>Last Used</Th>
+                    <Th>Expires</Th>
+                    <Th>Status</Th>
+                    <Th />
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {tokens.map((token) => {
+                    const isExpired = token.expires_at && new Date(token.expires_at) <= new Date();
+                    return (
+                      <Tr key={token.id}>
+                        <Td dataLabel="Name">{token.name}</Td>
+                        <Td dataLabel="Token">
+                          <code>{token.token_prefix}...</code>
+                        </Td>
+                        <Td dataLabel="Created">
+                          {token.created_at ? new Date(token.created_at).toLocaleDateString() : '-'}
+                        </Td>
+                        <Td dataLabel="Last Used">
+                          {token.last_used_at ? new Date(token.last_used_at).toLocaleString() : 'Never'}
+                        </Td>
+                        <Td dataLabel="Expires">
+                          {token.expires_at ? new Date(token.expires_at).toLocaleDateString() : 'Never'}
+                        </Td>
+                        <Td dataLabel="Status">
+                          {token.is_revoked ? (
+                            <Label color="red">Revoked</Label>
+                          ) : isExpired ? (
+                            <Label color="orange">Expired</Label>
+                          ) : (
+                            <Label color="green">Active</Label>
+                          )}
+                        </Td>
+                        <Td dataLabel="Actions" isActionCell>
+                          {!token.is_revoked && (
+                            <Button
+                              variant="plain"
+                              aria-label={`Revoke token ${token.name}`}
+                              onClick={() => setTokenToRevoke({ id: token.id, name: token.name })}
+                              icon={<TrashIcon />}
+                              isDanger
+                            />
+                          )}
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+            )}
           </CardBody>
         </Card>
 
@@ -247,6 +401,146 @@ export function SettingsPage() {
           </CardBody>
         </Card>
       </PageSection>
+
+      {/* Create Token Modal */}
+      <Modal
+        isOpen={isCreateTokenModalOpen}
+        onClose={handleCloseCreateModal}
+        variant="medium"
+      >
+        <ModalHeader title={createdToken ? 'Token Created' : 'Create Personal Access Token'} />
+        <ModalBody>
+          {createdToken ? (
+            <>
+              <Alert
+                variant="warning"
+                title="Copy your token now"
+                style={{ marginBottom: '1rem' }}
+              >
+                This is the only time you will see this token. Copy it and store it securely.
+              </Alert>
+              <FormGroup label="Token" fieldId="created-token">
+                <ClipboardCopy
+                  isReadOnly
+                  hoverTip="Copy"
+                  clickTip="Copied"
+                  variant="expansion"
+                >
+                  {createdToken.token}
+                </ClipboardCopy>
+              </FormGroup>
+              <Content style={{ marginTop: '1rem' }}>
+                <p>
+                  Use this token in your MCP client configuration:
+                </p>
+                <pre style={{ 
+                  backgroundColor: 'var(--pf-t--global--background--color--secondary--default)',
+                  padding: '0.75rem',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  overflowX: 'auto',
+                }}>
+{`{
+  "mcpServers": {
+    "work-reports": {
+      "url": "https://<your-host>/mcp/reports",
+      "headers": {
+        "Authorization": "Bearer ${createdToken.token}"
+      }
+    }
+  }
+}`}
+                </pre>
+              </Content>
+            </>
+          ) : (
+            <>
+              {createTokenMutation.isError && (
+                <Alert
+                  variant="danger"
+                  title={createTokenMutation.error?.message || 'Failed to create token'}
+                  style={{ marginBottom: '1rem' }}
+                />
+              )}
+              <Form>
+                <FormGroup label="Token Name" isRequired fieldId="token-name">
+                  <TextInput
+                    id="token-name"
+                    value={newTokenName}
+                    onChange={(_event, value) => setNewTokenName(value)}
+                    placeholder='e.g., "VS Code MCP" or "Cursor IDE"'
+                    isRequired
+                  />
+                  <HelperText>
+                    <HelperTextItem>
+                      A descriptive name to help you identify this token later.
+                    </HelperTextItem>
+                  </HelperText>
+                </FormGroup>
+                <FormGroup label="Expiration Date" fieldId="token-expiry">
+                  <TextInput
+                    id="token-expiry"
+                    type="date"
+                    value={newTokenExpiry}
+                    onChange={(_event, value) => setNewTokenExpiry(value)}
+                  />
+                  <HelperText>
+                    <HelperTextItem>
+                      Optional. Leave empty for a token that never expires.
+                    </HelperTextItem>
+                  </HelperText>
+                </FormGroup>
+              </Form>
+            </>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          {createdToken ? (
+            <Button variant="primary" onClick={handleCloseCreateModal}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="primary"
+                onClick={handleCreateToken}
+                isDisabled={!newTokenName.trim()}
+                isLoading={createTokenMutation.isPending}
+              >
+                Create
+              </Button>
+              <Button variant="link" onClick={handleCloseCreateModal}>
+                Cancel
+              </Button>
+            </>
+          )}
+        </ModalFooter>
+      </Modal>
+
+      {/* Revoke Token Confirmation Modal */}
+      <Modal
+        isOpen={!!tokenToRevoke}
+        onClose={() => setTokenToRevoke(null)}
+        variant="small"
+      >
+        <ModalHeader title="Revoke Token" />
+        <ModalBody>
+          Are you sure you want to revoke the token <strong>{tokenToRevoke?.name}</strong>?
+          Any MCP clients using this token will no longer be able to authenticate.
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="danger"
+            onClick={() => tokenToRevoke && revokeTokenMutation.mutate(tokenToRevoke.id)}
+            isLoading={revokeTokenMutation.isPending}
+          >
+            Revoke
+          </Button>
+          <Button variant="link" onClick={() => setTokenToRevoke(null)}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 }

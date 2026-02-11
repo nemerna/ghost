@@ -470,6 +470,39 @@ export interface EmailTemplateListResponse {
 }
 
 // =============================================================================
+// Personal Access Token Types
+// =============================================================================
+
+export interface PersonalAccessToken {
+  id: number;
+  name: string;
+  token_prefix: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: string | null;
+  is_revoked: boolean;
+}
+
+export interface PersonalAccessTokenCreateRequest {
+  name: string;
+  expires_at?: string | null;
+}
+
+export interface PersonalAccessTokenCreateResponse {
+  id: number;
+  name: string;
+  token_prefix: string;
+  token: string; // Raw token, shown only once
+  expires_at: string | null;
+  created_at: string | null;
+}
+
+export interface PersonalAccessTokenListResponse {
+  tokens: PersonalAccessToken[];
+  total: number;
+}
+
+// =============================================================================
 // API Response Types
 // =============================================================================
 

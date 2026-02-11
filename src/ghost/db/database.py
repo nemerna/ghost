@@ -151,6 +151,28 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 9: Create personal_access_tokens table for MCP authentication
+    {
+        "id": "009_create_personal_access_tokens",
+        "description": "Create personal_access_tokens table for PAT-based MCP auth",
+        "check": lambda inspector: "personal_access_tokens" not in inspector.get_table_names(),
+        "sql": [
+            """CREATE TABLE personal_access_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                name VARCHAR(255) NOT NULL,
+                token_prefix VARCHAR(12) NOT NULL,
+                token_hash VARCHAR(64) NOT NULL UNIQUE,
+                expires_at DATETIME,
+                last_used_at DATETIME,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                is_revoked BOOLEAN NOT NULL DEFAULT 0
+            )""",
+            "CREATE INDEX idx_pat_token_hash ON personal_access_tokens (token_hash)",
+            "CREATE INDEX idx_pat_user ON personal_access_tokens (user_id, created_at)",
+        ],
+        "optional": False,
+    },
 ]
 
 
