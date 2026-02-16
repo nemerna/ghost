@@ -746,6 +746,101 @@ class GitHubClient:
             "url": review.get("html_url"),
         }
 
+    def create_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        head: str,
+        base: str = "main",
+        body: str | None = None,
+        draft: bool = False,
+        maintainer_can_modify: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Create a new pull request.
+
+        Args:
+            owner: Repository owner (user or organization)
+            repo: Repository name
+            title: PR title
+            head: The name of the branch where your changes are implemented.
+                  For cross-repository PRs use 'username:branch'.
+            base: The name of the branch you want the changes pulled into (default: 'main')
+            body: PR body/description (Markdown)
+            draft: Whether to create the PR as a draft
+            maintainer_can_modify: Whether maintainers can modify the PR
+
+        Returns:
+            Created pull request details
+        """
+        json_body: dict[str, Any] = {
+            "title": title,
+            "head": head,
+            "base": base,
+            "draft": draft,
+            "maintainer_can_modify": maintainer_can_modify,
+        }
+
+        if body:
+            json_body["body"] = body
+
+        pr = self._post(f"/repos/{owner}/{repo}/pulls", json_body=json_body)
+        return self._format_pr_detail(pr)
+
+    def compare_branches(
+        self,
+        owner: str,
+        repo: str,
+        base: str,
+        head: str,
+    ) -> dict[str, Any]:
+        """
+        Compare two branches/commits/tags.
+
+        Uses the GitHub Compare API: GET /repos/{owner}/{repo}/compare/{base}...{head}
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            base: Base branch, tag, or commit SHA
+            head: Head branch, tag, or commit SHA
+
+        Returns:
+            Comparison details with status, commits, and files changed
+        """
+        result = self._get(f"/repos/{owner}/{repo}/compare/{base}...{head}")
+
+        return {
+            "status": result["status"],  # ahead, behind, diverged, identical
+            "ahead_by": result["ahead_by"],
+            "behind_by": result["behind_by"],
+            "total_commits": result["total_commits"],
+            "commits": [
+                {
+                    "sha": c["sha"][:8],
+                    "message": c["commit"]["message"].split("\n")[0],
+                    "author": c["commit"]["author"]["name"],
+                    "date": c["commit"]["author"]["date"],
+                    "url": c["html_url"],
+                }
+                for c in result.get("commits", [])
+            ],
+            "files": [
+                {
+                    "filename": f["filename"],
+                    "status": f["status"],
+                    "additions": f["additions"],
+                    "deletions": f["deletions"],
+                    "changes": f["changes"],
+                    "patch": f.get("patch"),
+                }
+                for f in result.get("files", [])
+            ],
+            "diff_url": result.get("diff_url"),
+            "html_url": result.get("html_url"),
+        }
+
     def search_pull_requests(
         self,
         query: str,
