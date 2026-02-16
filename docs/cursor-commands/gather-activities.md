@@ -1,6 +1,15 @@
 Discover all work I did during the current week by checking Jira and GitHub. Compare against what's already logged.
 
-**ALWAYS use MCP server tools** for all Jira, GitHub, and work-reports operations. Never use CLI tools, direct API calls, or custom clients.
+**ALWAYS use MCP server tools** for all Jira, GitHub, and work-reports operations. Never use CLI tools (`gh`, `jira-cli`), direct API calls, `curl`, or custom HTTP clients. If an MCP tool is unavailable or fails with a connection error, **STOP immediately** -- do not fall back to alternatives. Inform the user that the MCP server appears to be down and suggest checking the server status.
+
+## Step 0: Verify MCP Availability
+
+Before doing anything else, verify that the MCP server is reachable:
+
+1. Call `github_get_current_user` as a connectivity check
+2. If the tool is **not available**, returns a **connection error**, or **times out**: **STOP immediately**. Tell the user:
+   > "The MCP server appears to be unavailable. Please check that the Ghost server is running (`curl http://localhost:8080/health`) and that your `.cursor/mcp.json` is configured correctly."
+3. **Do NOT attempt to use CLI tools, direct API calls, or any alternative.** This workflow requires MCP tools -- there is no fallback.
 
 ## Steps
 
