@@ -174,22 +174,6 @@ export function TeamDashboardPage() {
               </CardBody>
             </Card>
 
-            {/* Activity by Action Type */}
-            {activitySummary && (activitySummary as Record<string, Record<string, number>>).by_action_type && (
-              <Card style={{ marginTop: '1rem' }}>
-                <CardTitle>Activity by Type (Last 7 Days)</CardTitle>
-                <CardBody>
-                  <DescriptionList isHorizontal>
-                    {Object.entries((activitySummary as Record<string, Record<string, number>>).by_action_type).map(([action, count]) => (
-                      <DescriptionListGroup key={action}>
-                        <DescriptionListTerm>{action}</DescriptionListTerm>
-                        <DescriptionListDescription>{count}</DescriptionListDescription>
-                      </DescriptionListGroup>
-                    ))}
-                  </DescriptionList>
-                </CardBody>
-              </Card>
-            )}
           </>
         )}
       </PageSection>

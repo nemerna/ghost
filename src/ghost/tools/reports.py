@@ -739,7 +739,6 @@ def generate_weekly_report(
     week_start = activity["week_start"]
     week_end = activity["week_end"]
     unique_tickets = activity["unique_tickets"]
-    by_action = activity["by_action_type"]
     by_source = activity.get("by_source", {"jira": 0, "github": 0})
 
     # Calculate statistics
@@ -750,12 +749,6 @@ def generate_weekly_report(
     github_repos = list(
         set(t["github_repo"] for t in unique_tickets if t["github_repo"])
     )
-
-    # Count by action type
-    created_count = len(by_action.get("create", []))
-    updated_count = len(by_action.get("update", []))
-    commented_count = len(by_action.get("comment", []))
-    transitioned_count = len(by_action.get("transition", []))
 
     # Build executive summary
     title = f"Weekly Report: {week_start} to {week_end}"
@@ -775,19 +768,6 @@ def generate_weekly_report(
         summary_parts.append(f"across **{len(jira_projects)} Jira projects**")
     if github_repos:
         summary_parts.append(f"and **{len(github_repos)} GitHub repos**")
-
-    action_summary = []
-    if created_count:
-        action_summary.append(f"{created_count} created")
-    if updated_count:
-        action_summary.append(f"{updated_count} updated")
-    if transitioned_count:
-        action_summary.append(f"{transitioned_count} status changes")
-    if commented_count:
-        action_summary.append(f"{commented_count} comments added")
-
-    if action_summary:
-        summary_parts.append(f"Actions: {', '.join(action_summary)}.")
 
     summary = " ".join(summary_parts)
 
@@ -809,10 +789,6 @@ def generate_weekly_report(
         f"- **GitHub Issues:** {by_source.get('github', 0)}",
         f"- **Jira Projects:** {', '.join(jira_projects) if jira_projects else 'N/A'}",
         f"- **GitHub Repos:** {', '.join(github_repos) if github_repos else 'N/A'}",
-        f"- **Tickets Created:** {created_count}",
-        f"- **Tickets Updated:** {updated_count}",
-        f"- **Status Transitions:** {transitioned_count}",
-        f"- **Comments Added:** {commented_count}",
         "",
     ]
 
@@ -844,39 +820,6 @@ def generate_weekly_report(
 
         content_lines.append("")
 
-    # Add activity breakdown if detailed
-    if include_details and by_action:
-        content_lines.extend(
-            [
-                "## Activity Breakdown",
-                "",
-            ]
-        )
-
-        for action_type, actions in by_action.items():
-            if actions:
-                content_lines.append(f"### {action_type.title()} ({len(actions)})")
-                content_lines.append("")
-                for action in actions[:10]:  # Limit to 10 per type
-                    source = action.get("ticket_source", "jira")
-                    source_label = "[Jira]" if source == "jira" else "[GitHub]"
-                    # Generate clickable link for the ticket
-                    ticket_link = _get_ticket_link(
-                        action["ticket_key"], source, action.get("github_repo")
-                    )
-                    line = f"- {source_label} **{ticket_link}**: {action['ticket_summary'] or 'N/A'}"
-                    if action.get("action_details"):
-                        details = action["action_details"]
-                        if isinstance(details, dict):
-                            detail_str = "; ".join(f"{k}: {v}" for k, v in details.items())
-                            line += f" — *{detail_str}*"
-                        else:
-                            line += f" — *{details}*"
-                    content_lines.append(line)
-                if len(actions) > 10:
-                    content_lines.append(f"- *...and {len(actions) - 10} more*")
-                content_lines.append("")
-
     content = "\n".join(content_lines)
 
     return {
@@ -890,12 +833,6 @@ def generate_weekly_report(
         "projects": jira_projects,
         "github_repos": github_repos,
         "by_source": by_source,
-        "statistics": {
-            "created": created_count,
-            "updated": updated_count,
-            "commented": commented_count,
-            "transitioned": transitioned_count,
-        },
     }
 
 
