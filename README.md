@@ -103,6 +103,33 @@ The `Authorization: Bearer` header (same PAT you use for reports) identifies you
 - Entries are evaluated in order -- first match wins
 - Use the `github_list_tokens` tool to verify your configured patterns
 
+## Cursor Commands
+
+Ghost ships with pre-built Cursor slash commands that streamline your weekly reporting workflow. Type `/` in the Cursor agent input to access them.
+
+| Command | What it does |
+|---------|-------------|
+| `/gather-activities` | Discovers work from Jira and GitHub for the current week, compares against already-logged activities |
+| `/log-activities` | Logs untracked items into the system (asks for confirmation first) |
+| `/create-management-report` | Creates a properly formatted management report from logged activities |
+| `/weekly-report` | Runs all three steps end-to-end in one go |
+
+### Setup
+
+The command files live in [`docs/cursor-commands/`](docs/cursor-commands/). Copy them to either location:
+
+```bash
+# Global (available in all projects)
+mkdir -p ~/.cursor/commands
+cp docs/cursor-commands/*.md ~/.cursor/commands/
+
+# Or project-level (this project only)
+mkdir -p .cursor/commands
+cp docs/cursor-commands/*.md .cursor/commands/
+```
+
+Then type `/` in Cursor's agent input to see them in the dropdown.
+
 ## Example Prompts
 
 Once configured, try these in your AI-powered IDE:
