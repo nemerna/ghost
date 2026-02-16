@@ -1009,6 +1009,17 @@ async def get_consolidated_report(
 
         if report_period:
             query = query.filter(ManagementReport.report_period == report_period)
+        else:
+            # Live view: only show reports from the current week (Monday-Sunday)
+            today = datetime.utcnow().date()
+            current_monday = today - timedelta(days=today.weekday())
+            current_sunday = current_monday + timedelta(days=6)
+            week_start = datetime.combine(current_monday, datetime.min.time())
+            week_end = datetime.combine(current_sunday, datetime.max.time())
+            query = query.filter(
+                ManagementReport.created_at >= week_start,
+                ManagementReport.created_at <= week_end,
+            )
 
         all_reports = query.order_by(ManagementReport.created_at.desc()).limit(limit).all()
         
@@ -1184,6 +1195,12 @@ async def get_consolidated_report(
             count_entries_recursive(f.projects) for f in consolidated_fields
         ) + len(uncategorized_entries)
 
+        # Ensure report_period has a value for the response (use current week if not specified)
+        if not report_period:
+            now = datetime.utcnow()
+            week_num = now.isocalendar()[1]
+            report_period = f"Week {week_num}, {now.strftime('%b %Y')}"
+
         response = ConsolidatedReportResponse(
             team_id=team_id,
             team_name=team.name,
@@ -1197,14 +1214,7 @@ async def get_consolidated_report(
         if total_entries > 0:
             from ghost.db import ConsolidatedReportSnapshot, SnapshotType
             
-            # Determine the report period to use for snapshot
-            # If not specified, use the current week
             snapshot_period = report_period
-            if not snapshot_period:
-                from datetime import datetime
-                now = datetime.utcnow()
-                week_num = now.isocalendar()[1]
-                snapshot_period = f"Week {week_num}, {now.strftime('%b %Y')}"
             
             # Check if an auto-snapshot already exists for this period
             existing = session.query(ConsolidatedReportSnapshot).filter(
