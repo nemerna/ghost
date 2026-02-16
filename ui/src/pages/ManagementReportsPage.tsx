@@ -836,47 +836,68 @@ export function ManagementReportsPage() {
 
   /**
    * Open Gmail compose window with pre-filled content
+   * Converts markdown to HTML and copies to clipboard for pasting
    */
-  const openGmailCompose = useCallback((
+  const openGmailCompose = useCallback(async (
     recipients: string[],
     subject: string,
     body: string
   ) => {
-    // Gmail compose URL format
-    const MAX_URL_LENGTH = 8000; // Approximate Gmail limit
+    try {
+      // Convert markdown to HTML for clickable links
+      const html = await marked.parse(body);
+      const styledHtml = `
+        <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
+          ${html}
+        </div>
+      `;
 
-    const baseUrl = 'https://mail.google.com/mail/?view=cm&fs=1';
-    const toParam = `&to=${encodeURIComponent(recipients.join(','))}`;
-    const subjectParam = `&su=${encodeURIComponent(subject)}`;
-    
-    // Calculate remaining space for body
-    const urlWithoutBody = baseUrl + toParam + subjectParam;
-    const maxBodyLength = MAX_URL_LENGTH - urlWithoutBody.length - 10; // Buffer
+      // Copy HTML to clipboard
+      const htmlBlob = new Blob([styledHtml], { type: 'text/html' });
+      const textBlob = new Blob([body], { type: 'text/plain' });
 
-    let truncatedBody = body;
-    if (body.length > maxBodyLength) {
-      truncatedBody = body.substring(0, maxBodyLength - 100) + 
-        '\n\n...(Report truncated due to length - view full report in system)';
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': htmlBlob,
+          'text/plain': textBlob,
+        }),
+      ]);
+
+      // Open Gmail compose with recipients and subject
+      const baseUrl = 'https://mail.google.com/mail/?view=cm&fs=1';
+      const toParam = `&to=${encodeURIComponent(recipients.join(','))}`;
+      const subjectParam = `&su=${encodeURIComponent(subject)}`;
+      const gmailUrl = baseUrl + toParam + subjectParam;
+
+      // Open Gmail in new tab
+      window.open(gmailUrl, '_blank');
+
+      // Notify user to paste
+      alert('Report copied to clipboard with formatting! Paste it into the Gmail compose window (Ctrl+V or Cmd+V).');
+    } catch (err) {
+      console.error('Failed to copy formatted report:', err);
+
+      // Fallback: open Gmail with plain text body
+      const baseUrl = 'https://mail.google.com/mail/?view=cm&fs=1';
+      const toParam = `&to=${encodeURIComponent(recipients.join(','))}`;
+      const subjectParam = `&su=${encodeURIComponent(subject)}`;
+      const bodyParam = `&body=${encodeURIComponent(body)}`;
+      const gmailUrl = baseUrl + toParam + subjectParam + bodyParam;
+      window.open(gmailUrl, '_blank');
     }
-
-    const bodyParam = `&body=${encodeURIComponent(truncatedBody)}`;
-    const gmailUrl = baseUrl + toParam + subjectParam + bodyParam;
-
-    // Open Gmail in new tab
-    window.open(gmailUrl, '_blank');
   }, []);
 
   /**
    * Handle sending report via Gmail
    */
-  const handleSendViaGmail = useCallback((template: EmailDistributionTemplate | null) => {
+  const handleSendViaGmail = useCallback(async (template: EmailDistributionTemplate | null) => {
     setGmailDropdownOpen(false);
 
     if (template) {
       // Use template settings
       const body = generateFilteredMarkdown(template);
       const subject = processSubjectTemplate(template.subject_template);
-      openGmailCompose(template.recipients, subject, body);
+      await openGmailCompose(template.recipients, subject, body);
     } else {
       // Full report - prompt for recipients
       const recipientsInput = prompt('Enter recipient email addresses (comma-separated):');
@@ -893,7 +914,7 @@ export function ManagementReportsPage() {
       const subject = `${teamName} - Weekly Report - ${period}`;
       const body = draftToMarkdown();
 
-      openGmailCompose(recipients, subject, body);
+      await openGmailCompose(recipients, subject, body);
     }
   }, [generateFilteredMarkdown, processSubjectTemplate, openGmailCompose, draftToMarkdown, teamsData, selectedTeamId, draftReportPeriod]);
 
