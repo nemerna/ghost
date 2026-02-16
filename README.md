@@ -113,6 +113,7 @@ Ghost ships with pre-built Cursor slash commands that streamline your weekly rep
 | `/log-activities` | Logs untracked items into the system (asks for confirmation first) |
 | `/create-management-report` | Creates a properly formatted management report from logged activities |
 | `/weekly-report` | Runs all three steps end-to-end in one go |
+| `/unghost` | Creates a tracking ticket (Jira or GitHub) for work already submitted without proper tracking, then links the commits/PRs |
 
 ### Setup
 
