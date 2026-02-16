@@ -15,11 +15,6 @@ Log untracked work activities into the system. Present the items first and wait 
 4. **Log each confirmed item** using `log_activity`:
    - **ticket_key**: `PROJ-123` (Jira) or `owner/repo#123` (GitHub)
    - **ticket_summary**: brief description
-   - **action_type**: `create`, `update`, `comment`, `transition`, `view`, `link`, or `other`
-     - `update` for PRs merged or code changes
-     - `create` for new tickets/issues/PRs
-     - `comment` for review comments
-     - `transition` for status changes
    - **github_repo**: required for GitHub items (format: `owner/repo`)
    - **jira_components**: required for Jira tickets — always fetch via `jira_get_ticket` first, needed for project detection
 

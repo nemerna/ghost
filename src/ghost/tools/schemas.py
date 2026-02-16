@@ -359,7 +359,7 @@ class LogActivityInput(BaseModel):
     )
     action_type: str = Field(
         default="other",
-        description="Type of action: view, create, update, comment, transition, link, or other.",
+        description="Optional internal metadata. Not displayed to users. Defaults to 'other'.",
     )
     ticket_summary: str | None = Field(
         default=None,

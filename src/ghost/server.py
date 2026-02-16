@@ -1488,7 +1488,7 @@ REPORTS_TOOLS: list[Tool] = [
                 "action_type": {
                     "type": "string",
                     "enum": ["view", "create", "update", "comment", "transition", "link", "other"],
-                    "description": "Type of action performed.",
+                    "description": "Optional internal metadata. Not displayed to users. Defaults to 'other'.",
                     "default": "other",
                 },
                 "ticket_summary": {

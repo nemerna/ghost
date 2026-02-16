@@ -33,9 +33,7 @@ import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { PlusIcon, TrashIcon, ExternalLinkAltIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { getMyActivities, createActivity, deleteActivity, updateActivityVisibility } from '@/api/activities';
-import type { Activity, ActivityCreateRequest, ActionType, TicketSource } from '@/types';
-
-const actionTypes: ActionType[] = ['view', 'create', 'update', 'comment', 'transition', 'link', 'other'];
+import type { Activity, ActivityCreateRequest, TicketSource } from '@/types';
 
 /**
  * Generate a URL for a ticket based on its source and key.
@@ -75,7 +73,6 @@ export function ActivitiesPage() {
 
   // Filter state
   const [projectFilter, setProjectFilter] = useState('');
-  const [actionTypeFilter, setActionTypeFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState<TicketSource | ''>('');
 
   // Modal state
@@ -83,18 +80,16 @@ export function ActivitiesPage() {
   const [newActivity, setNewActivity] = useState<ActivityCreateRequest>({
     ticket_key: '',
     ticket_summary: '',
-    action_type: 'other',
   });
 
   // Fetch activities
   const { data: activities, isLoading } = useQuery({
-    queryKey: ['myActivities', page, perPage, projectFilter, actionTypeFilter, sourceFilter],
+    queryKey: ['myActivities', page, perPage, projectFilter, sourceFilter],
     queryFn: () =>
       getMyActivities({
         limit: perPage,
         offset: (page - 1) * perPage,
         project_key: projectFilter || undefined,
-        action_type: actionTypeFilter || undefined,
         ticket_source: sourceFilter || undefined,
       }),
   });
@@ -106,7 +101,7 @@ export function ActivitiesPage() {
       queryClient.invalidateQueries({ queryKey: ['myActivities'] });
       queryClient.invalidateQueries({ queryKey: ['activitySummary'] });
       setIsModalOpen(false);
-      setNewActivity({ ticket_key: '', ticket_summary: '', action_type: 'other' });
+      setNewActivity({ ticket_key: '', ticket_summary: '' });
     },
   });
 
@@ -163,7 +158,7 @@ export function ActivitiesPage() {
     }
   };
 
-  const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Action', 'Timestamp', 'Visibility', 'Actions'];
+  const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Timestamp', 'Visibility', 'Actions'];
 
   return (
     <>
@@ -196,18 +191,6 @@ export function ActivitiesPage() {
                     onChange={(_event, value) => setProjectFilter(value)}
                     aria-label="Filter by project"
                   />
-                </ToolbarItem>
-                <ToolbarItem>
-                  <FormSelect
-                    value={actionTypeFilter}
-                    onChange={(_event, value) => setActionTypeFilter(value)}
-                    aria-label="Filter by action type"
-                  >
-                    <FormSelectOption value="" label="All actions" />
-                    {actionTypes.map((type) => (
-                      <FormSelectOption key={type} value={type} label={type} />
-                    ))}
-                  </FormSelect>
                 </ToolbarItem>
                 <ToolbarItem align={{ default: 'alignEnd' }}>
                   <Button
@@ -265,9 +248,6 @@ export function ActivitiesPage() {
                       </Td>
                       <Td dataLabel="Project/Repo">
                         {activity.project_key || activity.github_repo || '-'}
-                      </Td>
-                      <Td dataLabel="Action">
-                        {activity.action_type}
                       </Td>
                       <Td dataLabel="Timestamp">
                         {format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
@@ -361,19 +341,6 @@ export function ActivitiesPage() {
                 }
                 placeholder="Brief description of the ticket"
               />
-            </FormGroup>
-            <FormGroup label="Action Type" fieldId="action-type">
-              <FormSelect
-                id="action-type"
-                value={newActivity.action_type}
-                onChange={(_event, value) =>
-                  setNewActivity({ ...newActivity, action_type: value as ActionType })
-                }
-              >
-                {actionTypes.map((type) => (
-                  <FormSelectOption key={type} value={type} label={type} />
-                ))}
-              </FormSelect>
             </FormGroup>
           </Form>
         </ModalBody>

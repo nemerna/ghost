@@ -138,9 +138,6 @@ export function DashboardPage() {
                             {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
                           </Label>
                           <strong>{activity.ticket_key}</strong>
-                          <small style={{ marginLeft: '0.5rem' }}>
-                            {activity.action_type}
-                          </small>
                         </DescriptionListTerm>
                         <DescriptionListDescription>
                           {activity.ticket_summary || 'No summary'}
