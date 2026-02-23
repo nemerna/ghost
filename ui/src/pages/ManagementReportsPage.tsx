@@ -146,6 +146,9 @@ export function ManagementReportsPage() {
   // Copy success state
   const [copySuccess, setCopySuccess] = useState(false);
 
+  // Gmail notification state
+  const [gmailNotification, setGmailNotification] = useState<string | null>(null);
+
   // Gmail dropdown state
   const [gmailDropdownOpen, setGmailDropdownOpen] = useState(false);
   const [emailTemplatesModalOpen, setEmailTemplatesModalOpen] = useState(false);
@@ -853,6 +856,8 @@ export function ManagementReportsPage() {
       `;
 
       // Copy HTML to clipboard
+      // Note: ClipboardItem with text/html has limited support in older Safari versions
+      // The fallback catch block handles browsers that don't support this feature
       const htmlBlob = new Blob([styledHtml], { type: 'text/html' });
       const textBlob = new Blob([body], { type: 'text/plain' });
 
@@ -863,6 +868,12 @@ export function ManagementReportsPage() {
         }),
       ]);
 
+      // Show notification first (before opening Gmail to avoid focus issues)
+      setGmailNotification('Report copied to clipboard with formatting! Paste it into the Gmail compose window (Ctrl+V or Cmd+V).');
+
+      // Auto-dismiss notification after 8 seconds
+      setTimeout(() => setGmailNotification(null), 8000);
+
       // Open Gmail compose with recipients and subject
       const baseUrl = 'https://mail.google.com/mail/?view=cm&fs=1';
       const toParam = `&to=${encodeURIComponent(recipients.join(','))}`;
@@ -871,9 +882,6 @@ export function ManagementReportsPage() {
 
       // Open Gmail in new tab
       window.open(gmailUrl, '_blank');
-
-      // Notify user to paste
-      alert('Report copied to clipboard with formatting! Paste it into the Gmail compose window (Ctrl+V or Cmd+V).');
     } catch (err) {
       console.error('Failed to copy formatted report:', err);
 
@@ -884,6 +892,9 @@ export function ManagementReportsPage() {
       const bodyParam = `&body=${encodeURIComponent(body)}`;
       const gmailUrl = baseUrl + toParam + subjectParam + bodyParam;
       window.open(gmailUrl, '_blank');
+
+      setGmailNotification('Opened Gmail with plain text (clipboard copy not supported on this browser).');
+      setTimeout(() => setGmailNotification(null), 8000);
     }
   }, []);
 
@@ -1303,6 +1314,15 @@ export function ManagementReportsPage() {
             variant="success"
             isInline
             title="Report copied to clipboard! You can now paste it in Gmail."
+            style={{ marginBottom: '1rem' }}
+          />
+        )}
+
+        {gmailNotification && (
+          <Alert
+            variant="success"
+            isInline
+            title={gmailNotification}
             style={{ marginBottom: '1rem' }}
           />
         )}
