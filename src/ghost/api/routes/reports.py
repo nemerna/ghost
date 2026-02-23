@@ -1183,7 +1183,7 @@ async def get_consolidated_report(
         
         total_entries = sum(
             count_entries_recursive(f.projects) for f in consolidated_fields
-        ) + len(uncategorized_entries)
+        ) + sum(len(entry.entries) for entry in uncategorized_entries)
 
         response = ConsolidatedReportResponse(
             team_id=team_id,
@@ -1339,7 +1339,8 @@ async def get_filtered_consolidated_report(
     def count_entries_recursive(projects: list[ConsolidatedProject]) -> int:
         total = 0
         for p in projects:
-            total += len(p.entries)
+            # Count individual bullet entries within each user's report
+            total += sum(len(entry.entries) for entry in p.entries)
             total += count_entries_recursive(p.children)
         return total
     
