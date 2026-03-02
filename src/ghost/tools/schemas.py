@@ -833,6 +833,66 @@ class GitHubSearchPRsInput(BaseModel):
     )
 
 
+class GitHubCreatePRInput(BaseModel):
+    """Input schema for github_create_pr tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Pull request title.",
+    )
+    head: str = Field(
+        ...,
+        description="The name of the branch where your changes are implemented. For cross-repository PRs use 'username:branch'.",
+    )
+    base: str = Field(
+        default="main",
+        description="The name of the branch you want the changes pulled into. Default: 'main'.",
+    )
+    body: str | None = Field(
+        default=None,
+        description="Pull request body/description (Markdown).",
+    )
+    draft: bool = Field(
+        default=False,
+        description="Whether to create the pull request as a draft. Default: false.",
+    )
+    maintainer_can_modify: bool = Field(
+        default=True,
+        description="Whether maintainers can modify the pull request. Default: true.",
+    )
+
+
+class GitHubCompareBranchesInput(BaseModel):
+    """Input schema for github_compare_branches tool."""
+
+    owner: str = Field(
+        ...,
+        description="Repository owner (user or organization).",
+    )
+    repo: str = Field(
+        ...,
+        description="Repository name.",
+    )
+    base: str = Field(
+        ...,
+        description="Base branch, tag, or commit SHA.",
+    )
+    head: str = Field(
+        ...,
+        description="Head branch, tag, or commit SHA.",
+    )
+
+
 # --- GitHub PR Review Input Schemas ---
 
 

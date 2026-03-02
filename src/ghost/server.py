@@ -36,6 +36,8 @@ from ghost.tools.schemas import (
     GetWeeklyActivityInput,
     # GitHub Pull Requests
     GitHubAddPRCommentInput,
+    GitHubCompareBranchesInput,
+    GitHubCreatePRInput,
     GitHubGetPRCommentsInput,
     GitHubGetPRCommitsInput,
     GitHubGetPRDiffInput,
@@ -887,6 +889,78 @@ GITHUB_TOOLS: list[Tool] = [
                 },
             },
             "required": ["query"],
+        },
+    ),
+    # --- GitHub PR Create & Compare ---
+    Tool(
+        name="github_create_pr",
+        description="Create a new pull request. Returns the created PR with its number, URL, and full details.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Pull request title.",
+                },
+                "head": {
+                    "type": "string",
+                    "description": "The name of the branch where your changes are implemented. For cross-repository PRs use 'username:branch'.",
+                },
+                "base": {
+                    "type": "string",
+                    "description": "The name of the branch you want the changes pulled into. Default: 'main'.",
+                    "default": "main",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Pull request body/description (Markdown).",
+                },
+                "draft": {
+                    "type": "boolean",
+                    "description": "Whether to create the pull request as a draft. Default: false.",
+                    "default": False,
+                },
+                "maintainer_can_modify": {
+                    "type": "boolean",
+                    "description": "Whether maintainers can modify the pull request. Default: true.",
+                    "default": True,
+                },
+            },
+            "required": ["owner", "repo", "title", "head"],
+        },
+    ),
+    Tool(
+        name="github_compare_branches",
+        description="Compare two branches, tags, or commits. Returns the comparison status (ahead/behind/diverged), list of commits, and files changed. Useful for understanding what changes exist between two refs before creating a PR.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or organization).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name.",
+                },
+                "base": {
+                    "type": "string",
+                    "description": "Base branch, tag, or commit SHA.",
+                },
+                "head": {
+                    "type": "string",
+                    "description": "Head branch, tag, or commit SHA.",
+                },
+            },
+            "required": ["owner", "repo", "base", "head"],
         },
     ),
     Tool(
@@ -2218,6 +2292,30 @@ async def _execute_github_tool(
 
     elif name == "github_get_current_user":
         return github_client.get_current_user()
+
+    # --- GitHub PR Create & Compare ---
+
+    elif name == "github_create_pr":
+        input_data = GitHubCreatePRInput(**arguments)
+        return github_client.create_pull_request(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            title=input_data.title,
+            head=input_data.head,
+            base=input_data.base,
+            body=input_data.body,
+            draft=input_data.draft,
+            maintainer_can_modify=input_data.maintainer_can_modify,
+        )
+
+    elif name == "github_compare_branches":
+        input_data = GitHubCompareBranchesInput(**arguments)
+        return github_client.compare_branches(
+            owner=input_data.owner,
+            repo=input_data.repo,
+            base=input_data.base,
+            head=input_data.head,
+        )
 
     # --- GitHub PR Review Tools ---
 
