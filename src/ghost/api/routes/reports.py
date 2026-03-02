@@ -1187,13 +1187,14 @@ async def get_consolidated_report(
             """Count entries across all projects including nested children."""
             total = 0
             for p in projects:
-                total += len(p.entries)
+                # Count individual bullet entries within each user's report
+                total += sum(len(entry.entries) for entry in p.entries)
                 total += count_entries_recursive(p.children)
             return total
         
         total_entries = sum(
             count_entries_recursive(f.projects) for f in consolidated_fields
-        ) + len(uncategorized_entries)
+        ) + sum(len(entry.entries) for entry in uncategorized_entries)
 
         # Ensure report_period has a value for the response (use current week if not specified)
         if not report_period:
@@ -1348,7 +1349,8 @@ async def get_filtered_consolidated_report(
     def count_entries_recursive(projects: list[ConsolidatedProject]) -> int:
         total = 0
         for p in projects:
-            total += len(p.entries)
+            # Count individual bullet entries within each user's report
+            total += sum(len(entry.entries) for entry in p.entries)
             total += count_entries_recursive(p.children)
         return total
     
