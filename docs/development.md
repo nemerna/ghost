@@ -45,6 +45,73 @@ npm run dev
 
 The frontend dev server runs on `http://localhost:5173` with hot reload.
 
+## Claude Code MCP Integration
+
+Ghost exposes three MCP (Model Context Protocol) servers that provide AI assistants with direct access to Jira, GitHub, and work reporting tools. This section explains how to configure Claude Code to use these servers.
+
+### Prerequisites
+
+- [Claude Code](https://claude.com/claude-code) installed
+- Ghost MCP server running (see "Running the Backend" above)
+
+### Configuration
+
+Navigate to the ghost project directory and add the MCP servers:
+
+```bash
+cd /path/to/ghost
+
+# Add Jira MCP server
+claude mcp add --transport sse jira \
+  https://ghost-ghost.apps.cn-ai-lab.2vn8.p1.openshiftapps.com/mcp/jira \
+  --header "X-Jira-Server-URL: https://issues.redhat.com" \
+  --header "X-Jira-Token: YOUR_JIRA_TOKEN" \
+  --header "X-Jira-Verify-SSL: true"
+
+# Add GitHub MCP server
+claude mcp add --transport sse github \
+  https://ghost-ghost.apps.cn-ai-lab.2vn8.p1.openshiftapps.com/mcp/github \
+  --header "Authorization: Bearer generated-token-from-app" \
+  --header "X-GitHub-Token-rhecosystemappeng: YOUR_GITHUB_TOKEN"
+
+# Add Work Reports MCP server
+claude mcp add --transport sse work-reports \
+  https://ghost-ghost.apps.cn-ai-lab.2vn8.p1.openshiftapps.com/mcp/reports \
+  --header "Authorization: Bearer YOUR_MCP_TOKEN" \
+  --header "X-Jira-Server-URL: https://issues.redhat.com" \
+  --header "X-Jira-Token: YOUR_JIRA_TOKEN" \
+  --header "X-Jira-Verify-SSL: true"
+```
+
+**Note:** Replace `YOUR_JIRA_TOKEN`, `YOUR_GITHUB_TOKEN`, and `YOUR_MCP_TOKEN` with your actual credentials.
+
+### Verify Connection
+
+Check that all MCP servers are connected:
+
+```bash
+claude mcp list
+```
+
+Expected output:
+```
+Checking MCP server health...
+
+jira: https://ghost-ghost.apps.cn-ai-lab.2vn8.p1.openshiftapps.com/mcp/jira (SSE) - ✓ Connected
+github: https://ghost-ghost.apps.cn-ai-lab.2vn8.p1.openshiftapps.com/mcp/github (SSE) - ✓ Connected
+work-reports: https://ghost-ghost.apps.cn-ai-lab.2vn8.p1.openshiftapps.com/mcp/reports (SSE) - ✓ Connected
+```
+
+### Available Tools
+
+Once configured, Claude Code will have access to:
+
+- **Jira tools**: Search issues, create tickets, add comments, transition workflow states
+- **GitHub tools**: Search PRs and issues, get PR details, repository information
+- **Work Reports tools**: Log activities, create reports, retrieve team summaries
+
+**Important:** MCP servers are configured per-project. You must start Claude Code from the ghost project directory to use these tools.
+
 ## Testing
 
 ```bash
