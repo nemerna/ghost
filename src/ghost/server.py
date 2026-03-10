@@ -11,12 +11,22 @@ from datetime import datetime
 from typing import Any
 
 from mcp.server import Server
-from mcp.types import Resource, ResourceContents, TextContent, TextResourceContents, Tool
+from mcp.types import (
+    GetPromptResult,
+    Prompt,
+    Resource,
+    ResourceContents,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 
 from ghost.config import get_management_report_instructions
 from ghost.db import GitHubTokenConfig, PersonalAccessToken, User, get_db, init_db
 from ghost.github_client import GitHubClient, GitHubClientError, GitHubTokenManager
 from ghost.jira_client import JiraClient, JiraClientError
+from ghost.prompts import get_prompt as resolve_prompt
+from ghost.prompts import list_prompts as get_all_prompts
 
 # Import activity tracking and report functions
 from ghost.tools import reports as report_tools
@@ -2027,6 +2037,23 @@ async def read_reports_resource(uri: str) -> ResourceContents:
         ]
 
     raise ValueError(f"Unknown resource URI: {uri}")
+
+
+# =============================================================================
+# Reports MCP Prompts (workflow slash-commands)
+# =============================================================================
+
+
+@reports_mcp_server.list_prompts()
+async def list_reports_prompts() -> list[Prompt]:
+    """List available workflow prompts (show up as /commands in Cursor)."""
+    return get_all_prompts()
+
+
+@reports_mcp_server.get_prompt()
+async def get_reports_prompt(name: str, arguments: dict[str, str] | None = None) -> GetPromptResult:
+    """Return the content for a specific workflow prompt."""
+    return resolve_prompt(name, arguments)
 
 
 # =============================================================================
