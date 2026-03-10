@@ -23,6 +23,7 @@ import {
   DropdownList,
   EmptyState,
   EmptyStateBody,
+  ExpandableSection,
   Flex,
   FlexItem,
   Form,
@@ -62,6 +63,12 @@ import {
   OutlinedFileAltIcon,
   EnvelopeIcon,
   CogIcon,
+  CheckCircleIcon,
+  InProgressIcon,
+  ExclamationTriangleIcon,
+  AngleLeftIcon,
+  AngleRightIcon,
+  UsersIcon,
 } from '@patternfly/react-icons';
 import { format, formatDistanceToNow } from 'date-fns';
 import { marked } from 'marked';
@@ -79,6 +86,7 @@ import {
   deleteConsolidatedDraft,
   listConsolidatedSnapshots,
   deleteConsolidatedSnapshot,
+  getTeamReportingProgress,
 } from '@/api/reports';
 import { listTeams } from '@/api/teams';
 import { listEmailTemplates } from '@/api/users';
@@ -96,6 +104,7 @@ import type {
   ConsolidatedReportSnapshot,
   ConsolidatedReportResponse,
   EmailDistributionTemplate,
+  MemberReportingStatus,
 } from '@/types';
 
 // Configure marked for safe HTML output
@@ -152,6 +161,10 @@ export function ManagementReportsPage() {
   // Gmail dropdown state
   const [gmailDropdownOpen, setGmailDropdownOpen] = useState(false);
   const [emailTemplatesModalOpen, setEmailTemplatesModalOpen] = useState(false);
+
+  // Week offset for progress tracker (0 = current week)
+  const [progressWeekOffset, setProgressWeekOffset] = useState(0);
+  const [isProgressExpanded, setIsProgressExpanded] = useState(false);
 
   // Modal state (for creating new reports only - personal reports)
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -218,6 +231,13 @@ export function ManagementReportsPage() {
   const { data: snapshotsData, isLoading: isSnapshotsLoading } = useQuery({
     queryKey: ['consolidatedSnapshots', selectedTeamId],
     queryFn: () => listConsolidatedSnapshots(selectedTeamId!, { limit: 50 }),
+    enabled: !!selectedTeamId && canViewTeams,
+  });
+
+  // Fetch team reporting progress
+  const { data: progressData, isLoading: isProgressLoading } = useQuery({
+    queryKey: ['teamReportingProgress', selectedTeamId, progressWeekOffset],
+    queryFn: () => getTeamReportingProgress(selectedTeamId!, progressWeekOffset),
     enabled: !!selectedTeamId && canViewTeams,
   });
 
@@ -448,6 +468,7 @@ export function ManagementReportsPage() {
     setViewMode('review');
     setEditedDraftContent(null);
     setHasDraftChanges(false);
+    setProgressWeekOffset(0);
   };
 
   // Open a report from the table
@@ -1014,6 +1035,158 @@ export function ManagementReportsPage() {
   // ==========================================================================
   // Render Functions
   // ==========================================================================
+
+  // Render team reporting progress overview (compact collapsible card)
+  const renderProgressOverview = () => {
+    const statusLabel = (member: MemberReportingStatus) => {
+      switch (member.status) {
+        case 'done':
+          return <Label color="green" icon={<CheckCircleIcon />} isCompact>Done</Label>;
+        case 'in_progress':
+          return <Label color="orange" icon={<InProgressIcon />} isCompact>In Progress</Label>;
+        case 'missing':
+          return <Label color="red" icon={<ExclamationTriangleIcon />} isCompact>Missing</Label>;
+      }
+    };
+
+    // Build the toggle content: inline summary badges + week nav
+    const summaryToggle = (
+      <Flex
+        alignItems={{ default: 'alignItemsCenter' }}
+        style={{ gap: '0.75rem', width: '100%' }}
+        justifyContent={{ default: 'justifyContentSpaceBetween' }}
+      >
+        <FlexItem>
+          <Flex alignItems={{ default: 'alignItemsCenter' }} style={{ gap: '0.5rem' }}>
+            <FlexItem><UsersIcon /></FlexItem>
+            <FlexItem><strong>Reporting Progress</strong></FlexItem>
+            {isProgressLoading ? (
+              <FlexItem><Spinner size="sm" /></FlexItem>
+            ) : progressData ? (
+              <>
+                <FlexItem>
+                  <Label color="green" isCompact icon={<CheckCircleIcon />}>
+                    {progressData.summary.done} Done
+                  </Label>
+                </FlexItem>
+                <FlexItem>
+                  <Label color="orange" isCompact icon={<InProgressIcon />}>
+                    {progressData.summary.in_progress} In Progress
+                  </Label>
+                </FlexItem>
+                <FlexItem>
+                  <Label color="red" isCompact icon={<ExclamationTriangleIcon />}>
+                    {progressData.summary.missing} Missing
+                  </Label>
+                </FlexItem>
+              </>
+            ) : null}
+          </Flex>
+        </FlexItem>
+        <FlexItem>
+          <Flex
+            alignItems={{ default: 'alignItemsCenter' }}
+            style={{ gap: '0.25rem' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <FlexItem>
+              <Tooltip content="Previous week">
+                <Button
+                  variant="plain"
+                  size="sm"
+                  onClick={() => setProgressWeekOffset(Math.max(progressWeekOffset - 1, -52))}
+                  icon={<AngleLeftIcon />}
+                  aria-label="Previous week"
+                />
+              </Tooltip>
+            </FlexItem>
+            <FlexItem>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => setProgressWeekOffset(0)}
+                isDisabled={progressWeekOffset === 0}
+                style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}
+              >
+                {progressData
+                  ? `${progressData.week_start} — ${progressData.week_end}`
+                  : 'This Week'}
+              </Button>
+            </FlexItem>
+            <FlexItem>
+              <Tooltip content="Next week">
+                <Button
+                  variant="plain"
+                  size="sm"
+                  onClick={() => setProgressWeekOffset(Math.min(progressWeekOffset + 1, 0))}
+                  isDisabled={progressWeekOffset >= 0}
+                  icon={<AngleRightIcon />}
+                  aria-label="Next week"
+                />
+              </Tooltip>
+            </FlexItem>
+          </Flex>
+        </FlexItem>
+      </Flex>
+    );
+
+    return (
+      <Card isCompact style={{ marginBottom: '1rem' }}>
+        <CardBody style={{ paddingBottom: isProgressExpanded ? 0 : undefined }}>
+          <ExpandableSection
+            toggleContent={summaryToggle}
+            isExpanded={isProgressExpanded}
+            onToggle={(_event, expanded) => setIsProgressExpanded(expanded)}
+            isIndented
+          >
+            {progressData && progressData.members.length > 0 && (
+              <Table aria-label="Team reporting progress" variant="compact">
+                <Thead>
+                  <Tr>
+                    <Th width={35}>Member</Th>
+                    <Th width={15}>Status</Th>
+                    <Th width={35}>Latest Report</Th>
+                    <Th width={15}>Updated</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {progressData.members.map((member) => (
+                    <Tr key={member.user_id}>
+                      <Td dataLabel="Member">
+                        {member.display_name || member.email}
+                        {member.display_name && (
+                          <span style={{ color: '#6a6e73', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+                            {member.email}
+                          </span>
+                        )}
+                      </Td>
+                      <Td dataLabel="Status">
+                        {statusLabel(member)}
+                      </Td>
+                      <Td dataLabel="Latest Report">
+                        {member.latest_report_title || <span style={{ color: '#6a6e73' }}>—</span>}
+                        {member.report_count > 1 && (
+                          <Label color="grey" isCompact style={{ marginLeft: '0.5rem' }}>
+                            +{member.report_count - 1} more
+                          </Label>
+                        )}
+                      </Td>
+                      <Td dataLabel="Updated">
+                        {member.latest_report_updated_at
+                          ? formatDistanceToNow(new Date(member.latest_report_updated_at), { addSuffix: true })
+                          : <span style={{ color: '#6a6e73' }}>—</span>
+                        }
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            )}
+          </ExpandableSection>
+        </CardBody>
+      </Card>
+    );
+  };
 
   // Render the reports table (landing page for team view)
   const renderReportsTable = () => {
@@ -1611,8 +1784,13 @@ export function ManagementReportsPage() {
 
       <PageSection>
         {selectedTeamId ? (
-          // Team view: show table or detail view
-          selectedReportId ? renderReportDetailView() : renderReportsTable()
+          // Team view: show progress overview + table, or detail view
+          selectedReportId ? renderReportDetailView() : (
+            <>
+              {renderProgressOverview()}
+              {renderReportsTable()}
+            </>
+          )
         ) : (
           // Personal view: show personal reports
           renderPersonalReports()
