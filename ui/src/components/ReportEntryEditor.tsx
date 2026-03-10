@@ -39,7 +39,7 @@ export interface ReportEntryEditorProps {
  */
 export function reportEntriesToInputs(entries: ReportEntry[] | null | undefined): ReportEntryInput[] {
   if (!entries) return [];
-  return entries.map((e) => ({ text: e.text, private: e.private }));
+  return entries.map((e) => ({ text: e.text, private: e.private, ticket_key: e.ticket_key ?? undefined }));
 }
 
 export function ReportEntryEditor({
