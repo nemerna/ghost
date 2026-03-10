@@ -72,16 +72,16 @@ Restart Cursor after saving.
 <summary><strong>Claude Code</strong></summary>
 
 ```bash
-claude mcp add --transport sse jira \
+claude mcp add --transport streamable-http jira \
   GHOST_URL/mcp/jira \
   --header "X-Jira-Server-URL: JIRA_SERVER_URL" \
   --header "X-Jira-Token: JIRA_PAT"
 
-claude mcp add --transport sse github \
+claude mcp add --transport streamable-http github \
   GHOST_URL/mcp/github \
   --header "X-GitHub-Token: GITHUB_PAT"
 
-claude mcp add --transport sse reports \
+claude mcp add --transport streamable-http reports \
   GHOST_URL/mcp/reports \
   --header "Authorization: Bearer GHOST_PAT" \
   --header "X-Jira-Server-URL: JIRA_SERVER_URL" \
