@@ -27,9 +27,9 @@ flowchart TB
             FastAPI[FastAPI REST API]
         end
         subgraph MCP["MCP Server :8001"]
-            JiraSSE["/mcp/jira SSE"]
-            GitHubSSE["/mcp/github SSE"]
-            ReportsSSE["/mcp/reports SSE"]
+            JiraHTTP["/mcp/jira"]
+            GitHubHTTP["/mcp/github"]
+            ReportsHTTP["/mcp/reports"]
         end
         DB[(SQLite/PostgreSQL)]
     end
@@ -50,8 +50,8 @@ flowchart TB
     ReportsConfig -->|Headers| Nginx
     IDE <-->|MCP Protocol| Nginx
 
-    JiraSSE <-->|PAT| Jira
-    GitHubSSE <-->|PAT| GitHub
+    JiraHTTP <-->|PAT| Jira
+    GitHubHTTP <-->|PAT| GitHub
 ```
 
 ## Container Details
@@ -60,7 +60,7 @@ flowchart TB
 |-----------|------|-------------|
 | Frontend | 8080 | Nginx serving static UI, proxying `/api/*` to backend and `/mcp/*` to MCP server |
 | Backend | 8000 | FastAPI REST API for web UI (users, teams, activities, reports) |
-| MCP Server | 8001 | SSE server providing MCP tools for AI integration |
+| MCP Server | 8001 | Streamable HTTP server providing MCP tools for AI integration |
 
 ## Data Flow
 
@@ -116,16 +116,13 @@ sequenceDiagram
 | `/api/activities/*` | Activity tracking |
 | `/api/reports/*` | Report management |
 
-### MCP Server (AI Tools)
+### MCP Server (AI Tools — Streamable HTTP)
 
 | Endpoint | Description |
 |----------|-------------|
-| `/mcp/jira` | Jira MCP tools (SSE) |
-| `/mcp/jira/messages/` | Jira message handler |
-| `/mcp/github` | GitHub MCP tools (SSE) |
-| `/mcp/github/messages/` | GitHub message handler |
-| `/mcp/reports` | Reports MCP tools (SSE) |
-| `/mcp/reports/messages/` | Reports message handler |
+| `/mcp/jira` | Jira MCP tools (Streamable HTTP) |
+| `/mcp/github` | GitHub MCP tools (Streamable HTTP) |
+| `/mcp/reports` | Reports MCP tools (Streamable HTTP) |
 | `/health` | MCP server health check |
 
 ## Technology Stack

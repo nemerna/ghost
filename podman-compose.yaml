@@ -7,7 +7,7 @@
 # Architecture:
 #   - frontend: Nginx serving static files, proxying /api/* to backend and /mcp/* to MCP server
 #   - backend: FastAPI REST API for web UI
-#   - mcp: MCP SSE server for AI tool integration (Jira, GitHub, Reports)
+#   - mcp: MCP Streamable HTTP server for AI tool integration (Jira, GitHub, Reports)
 #
 # Usage:
 #   SQLite mode:   podman-compose up
@@ -81,7 +81,7 @@ services:
       - ghost-net
 
   # ===========================================
-  # MCP Server - SSE server for AI tools (with SQLite - default)
+  # MCP Server - Streamable HTTP server for AI tools (with SQLite - default)
   # ===========================================
   mcp:
     build:
@@ -168,7 +168,7 @@ services:
       - ghost-net
 
   # ===========================================
-  # MCP Server - SSE server for AI tools (with PostgreSQL)
+  # MCP Server - Streamable HTTP server for AI tools (with PostgreSQL)
   # ===========================================
   mcp-postgres:
     build:

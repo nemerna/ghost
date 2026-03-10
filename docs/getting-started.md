@@ -24,7 +24,7 @@ podman-compose up -d
 This starts three containers:
 - **Frontend** (port 8080) - Nginx serving the web UI
 - **Backend** (port 8000) - FastAPI REST API
-- **MCP Server** (port 8001) - SSE server for AI tools
+- **MCP Server** (port 8001) - Streamable HTTP server for AI tools
 
 Access the web UI at `http://localhost:8080`
 

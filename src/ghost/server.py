@@ -1,4 +1,4 @@
-"""MCP Server for Jira and GitHub with separate SSE endpoints."""
+"""MCP Server for Jira and GitHub with Streamable HTTP transport."""
 
 import argparse
 import asyncio
@@ -100,7 +100,7 @@ ghost_server = Server("ghost")
 github_mcp_server = Server("github-mcp")
 reports_mcp_server = Server("reports-mcp")
 
-# Context variables for per-connection clients (SSE mode)
+# Context variables for per-request clients (set by auth wrappers before each request)
 _jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("jira_client", default=None)
 _github_token_manager_ctx: ContextVar[GitHubTokenManager | None] = ContextVar("github_token_manager", default=None)
 _username_ctx: ContextVar[str | None] = ContextVar("username", default=None)
@@ -2679,35 +2679,37 @@ async def _execute_reports_tool(
 
 
 # =============================================================================
-# SSE Transport
+# Streamable HTTP Transport
 # =============================================================================
 
 
-async def run_sse(host: str, port: int) -> None:
-    """Run the MCP server with SSE transport (HTTP server mode)."""
+async def run_streamable_http(host: str, port: int) -> None:
+    """Run the MCP server with Streamable HTTP transport."""
     import uvicorn
-    from mcp.server.sse import SseServerTransport
+    from contextlib import AsyncExitStack, asynccontextmanager
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
     from starlette.requests import Request
-    from starlette.responses import JSONResponse, Response
+    from starlette.responses import JSONResponse
     from starlette.routing import Mount, Route
     from starlette.types import Receive, Scope, Send
 
-    logger.info(f"Starting MCP server with SSE transport on {host}:{port}")
+    logger.info(f"Starting MCP server with Streamable HTTP transport on {host}:{port}")
     logger.info(
         "Endpoints: /mcp/jira (Jira tools), /mcp/github (GitHub tools), /mcp/reports (Activity & Reports)"
     )
 
-    # Separate SSE transports for each server (using /mcp/ prefix for nginx proxy)
-    jira_sse_transport = SseServerTransport("/mcp/jira/messages/")
-    github_sse_transport = SseServerTransport("/mcp/github/messages/")
-    reports_sse_transport = SseServerTransport("/mcp/reports/messages/")
+    # Stateless session managers — each request is independent with its own context
+    jira_session_mgr = StreamableHTTPSessionManager(app=ghost_server, stateless=True)
+    github_session_mgr = StreamableHTTPSessionManager(app=github_mcp_server, stateless=True)
+    reports_session_mgr = StreamableHTTPSessionManager(app=reports_mcp_server, stateless=True)
 
     async def health_check(request: Request) -> JSONResponse:
         """Health check endpoint."""
         return JSONResponse(
             {
                 "status": "healthy",
+                "transport": "streamable-http",
                 "endpoints": {
                     "jira": "/mcp/jira",
                     "github": "/mcp/github",
@@ -2738,7 +2740,7 @@ async def run_sse(host: str, port: int) -> None:
         if not auth_header.lower().startswith("bearer "):
             return None
 
-        raw_token = auth_header[7:].strip()  # Strip "Bearer " prefix
+        raw_token = auth_header[7:].strip()
         if not raw_token:
             return None
 
@@ -2760,18 +2762,15 @@ async def run_sse(host: str, port: int) -> None:
                     logger.warning("PAT authentication failed: token not found or revoked")
                     return None
 
-                # Check expiry
                 if pat.expires_at and pat.expires_at <= datetime.utcnow():
                     logger.warning(f"PAT authentication failed: token expired (id={pat.id})")
                     return None
 
-                # Get user email
                 user = session.query(User).filter(User.id == pat.user_id).first()
                 if not user:
                     logger.warning(f"PAT authentication failed: user not found (user_id={pat.user_id})")
                     return None
 
-                # Update last_used_at
                 pat.last_used_at = datetime.utcnow()
                 session.flush()
 
@@ -2798,17 +2797,21 @@ async def run_sse(host: str, port: int) -> None:
             "body": body,
         })
 
-    async def handle_jira_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle Jira SSE connection."""
+    # ── Per-request auth wrappers (ASGI apps) ──────────────────────────────
+    # Each wrapper extracts headers, sets up context variables for the user's
+    # credentials, then delegates to the session manager. Because Streamable
+    # HTTP stateless mode spawns a new async task per request that inherits
+    # the current context, tool handlers see the correct per-user values.
+
+    async def jira_handler(scope: Scope, receive: Receive, send: Send) -> None:
+        """Extract Jira credentials from headers and dispatch to session manager."""
         headers = extract_headers(scope)
 
-        # Extract Jira configuration from headers
         server_url = headers.get("x-jira-server-url")
         token = headers.get("x-jira-token")
         verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
         verify_ssl = verify_ssl_str.lower() in ("true", "1", "yes")
 
-        # Create and set Jira client
         try:
             client = create_jira_client(
                 server_url=server_url,
@@ -2816,19 +2819,14 @@ async def run_sse(host: str, port: int) -> None:
                 verify_ssl=verify_ssl,
             )
             _jira_client_ctx.set(client)
-            logger.info(f"Jira SSE connection: {client.server_url}")
+            logger.debug(f"Jira request: {client.server_url}")
         except ValueError as e:
             logger.warning(f"Jira client config error: {e}")
 
-        async with jira_sse_transport.connect_sse(scope, receive, send) as streams:
-            await ghost_server.run(
-                streams[0],
-                streams[1],
-                ghost_server.create_initialization_options(),
-            )
+        await jira_session_mgr.handle_request(scope, receive, send)
 
-    async def handle_github_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle GitHub SSE connection.
+    async def github_handler(scope: Scope, receive: Receive, send: Send) -> None:
+        """Extract GitHub tokens from headers and dispatch to session manager.
 
         Token resolution priority:
         1. Named headers (X-GitHub-Token-{name}) with DB-stored patterns (requires Bearer PAT auth)
@@ -2839,8 +2837,6 @@ async def run_sse(host: str, port: int) -> None:
         api_url = headers.get("x-github-api-url")
         manager = None
 
-        # Priority 1: Named headers with DB-stored patterns
-        # Requires Bearer PAT to identify the user and load their config
         user_email = authenticate_via_pat(headers)
         if user_email:
             named_tokens = _extract_named_token_headers(headers)
@@ -2864,72 +2860,62 @@ async def run_sse(host: str, port: int) -> None:
                                     api_url=api_url,
                                 )
                                 logger.info(
-                                    f"GitHub SSE connection: user={user_email}, "
+                                    f"GitHub request: user={user_email}, "
                                     f"{len(named_tokens)} named token(s) matched against "
                                     f"{len(configs)} DB config(s)"
                                 )
                 except Exception as e:
                     logger.warning(f"GitHub named token resolution failed: {e}")
 
-        # Priority 2: JSON header (X-GitHub-Tokens)
         if manager is None:
             tokens_json = headers.get("x-github-tokens")
             if tokens_json:
                 try:
                     manager = GitHubTokenManager.from_header(tokens_json, api_url)
                     token_count = len(manager.get_token_info())
-                    logger.info(f"GitHub SSE connection: {token_count} token(s) via JSON header")
+                    logger.info(f"GitHub request: {token_count} token(s) via JSON header")
                 except ValueError as e:
                     logger.warning(f"GitHub JSON token header error: {e}")
 
-        # Priority 3: Single header (X-GitHub-Token)
         if manager is None:
             token = headers.get("x-github-token")
             if token:
                 try:
                     manager = GitHubTokenManager.from_single_token(token, api_url)
-                    logger.info("GitHub SSE connection: single token configured")
+                    logger.debug("GitHub request: single token configured")
                 except ValueError as e:
                     logger.warning(f"GitHub single token error: {e}")
 
         if manager is None:
-            logger.warning("GitHub SSE connection: no tokens configured")
+            logger.warning("GitHub request: no tokens configured")
         else:
             _github_token_manager_ctx.set(manager)
 
-        async with github_sse_transport.connect_sse(scope, receive, send) as streams:
-            await github_mcp_server.run(
-                streams[0],
-                streams[1],
-                github_mcp_server.create_initialization_options(),
-            )
+        await github_session_mgr.handle_request(scope, receive, send)
 
-    async def handle_reports_sse_raw(scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle Reports SSE connection."""
+    async def reports_handler(scope: Scope, receive: Receive, send: Send) -> None:
+        """Authenticate and set up context for Reports requests."""
         headers = extract_headers(scope)
 
-        # Authenticate the request
-        # Priority 1: Personal Access Token (Bearer token)
         username = authenticate_via_pat(headers)
 
-        # Priority 2: OAuth proxy headers (X-Forwarded-Email > X-Forwarded-User > X-Username)
         if not username:
             username = (
-                headers.get("x-forwarded-email") or 
-                headers.get("x-forwarded-user") or 
-                headers.get("x-username")
+                headers.get("x-forwarded-email")
+                or headers.get("x-forwarded-user")
+                or headers.get("x-username")
             )
 
-        # Reject unauthenticated connections
         if not username:
-            logger.warning("Reports SSE connection rejected: no valid authentication")
-            await send_unauthorized(send, "Authentication required. Provide a Bearer token or valid proxy headers.")
+            logger.warning("Reports request rejected: no valid authentication")
+            await send_unauthorized(
+                send, "Authentication required. Provide a Bearer token or valid proxy headers."
+            )
             return
 
         _username_ctx.set(username)
-        logger.info(f"Reports SSE connection: user={username}")
+        logger.debug(f"Reports request: user={username}")
 
-        # Extract optional Jira configuration from headers for auto-fetching ticket details
         jira_server_url = headers.get("x-jira-server-url")
         jira_token = headers.get("x-jira-token")
         jira_verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
@@ -2943,71 +2929,50 @@ async def run_sse(host: str, port: int) -> None:
                     verify_ssl=jira_verify_ssl,
                 )
                 _reports_jira_client_ctx.set(jira_client)
-                logger.info(f"Reports SSE connection: Jira client configured for {jira_server_url}")
+                logger.debug(f"Reports request: Jira client configured for {jira_server_url}")
             except Exception as e:
-                logger.warning(f"Reports SSE connection: Failed to create Jira client: {e}")
+                logger.warning(f"Reports request: Failed to create Jira client: {e}")
 
-        async with reports_sse_transport.connect_sse(scope, receive, send) as streams:
-            await reports_mcp_server.run(
-                streams[0],
-                streams[1],
-                reports_mcp_server.create_initialization_options(),
-            )
+        await reports_session_mgr.handle_request(scope, receive, send)
 
-    async def handle_jira_sse(request: Request) -> Response:
-        """Handle Jira SSE connection - Starlette wrapper."""
-        await handle_jira_sse_raw(request.scope, request.receive, request._send)
-        return Response()
+    # ── Lifespan: start/stop all session managers ──────────────────────────
 
-    async def handle_github_sse(request: Request) -> Response:
-        """Handle GitHub SSE connection - Starlette wrapper."""
-        await handle_github_sse_raw(request.scope, request.receive, request._send)
-        return Response()
+    @asynccontextmanager
+    async def lifespan(app: Starlette):  # noqa: ARG001
+        async with AsyncExitStack() as stack:
+            await stack.enter_async_context(jira_session_mgr.run())
+            await stack.enter_async_context(github_session_mgr.run())
+            await stack.enter_async_context(reports_session_mgr.run())
+            logger.info("All Streamable HTTP session managers started")
+            yield
+        logger.info("All Streamable HTTP session managers stopped")
 
-    async def handle_reports_sse(request: Request) -> Response:
-        """Handle Reports SSE connection - Starlette wrapper."""
-        await handle_reports_sse_raw(request.scope, request.receive, request._send)
-        return Response()
+    # ── Starlette app ─────────────────────────────────────────────────────
+    # Each Mount delegates to an auth wrapper → session manager pipeline.
+    # Clients POST (and optionally GET/DELETE) directly to the mount path.
+    _mcp_mount_paths = frozenset({"/mcp/jira", "/mcp/github", "/mcp/reports"})
 
-    async def authenticated_reports_messages(scope: Scope, receive: Receive, send: Send) -> None:
-        """Wrap reports messages POST with PAT / proxy header auth check."""
-        headers = extract_headers(scope)
-
-        # Check PAT first, then proxy headers
-        username = authenticate_via_pat(headers)
-        if not username:
-            username = (
-                headers.get("x-forwarded-email") or
-                headers.get("x-forwarded-user") or
-                headers.get("x-username")
-            )
-
-        if not username:
-            await send_unauthorized(send, "Authentication required for Reports MCP messages.")
-            return
-
-        # Delegate to the real handler
-        await reports_sse_transport.handle_post_message(scope, receive, send)
-
-    # Create Starlette app with separate routes for Jira, GitHub, and Reports
-    # All MCP routes use /mcp/ prefix to work with nginx proxy
-    app = Starlette(
+    starlette_app = Starlette(
         debug=False,
         routes=[
             Route("/health", endpoint=health_check, methods=["GET"]),
-            # Also support /mcp/health for consistency
             Route("/mcp/health", endpoint=health_check, methods=["GET"]),
-            # Jira endpoints
-            Route("/mcp/jira", endpoint=handle_jira_sse, methods=["GET"]),
-            Mount("/mcp/jira/messages/", app=jira_sse_transport.handle_post_message),
-            # GitHub endpoints
-            Route("/mcp/github", endpoint=handle_github_sse, methods=["GET"]),
-            Mount("/mcp/github/messages/", app=github_sse_transport.handle_post_message),
-            # Reports endpoints (protected with PAT / proxy auth)
-            Route("/mcp/reports", endpoint=handle_reports_sse, methods=["GET"]),
-            Mount("/mcp/reports/messages/", app=authenticated_reports_messages),
+            Mount("/mcp/jira", app=jira_handler),
+            Mount("/mcp/github", app=github_handler),
+            Mount("/mcp/reports", app=reports_handler),
         ],
+        lifespan=lifespan,
     )
+
+    # Starlette's Mount issues a 307 redirect from /mcp/jira to /mcp/jira/
+    # which breaks MCP clients (POST becomes GET, auth headers are lost).
+    # This wrapper adds the trailing slash internally so Mount handles it
+    # directly without a redirect.
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") in _mcp_mount_paths:
+            scope = dict(scope)
+            scope["path"] += "/"
+        await starlette_app(scope, receive, send)
 
     config = uvicorn.Config(
         app,
@@ -3015,13 +2980,12 @@ async def run_sse(host: str, port: int) -> None:
         port=port,
         log_level="info",
     )
-    server = uvicorn.Server(config)
-    await server.serve()
+    uvi_server = uvicorn.Server(config)
+    await uvi_server.serve()
 
 
 def main() -> None:
     """Run the MCP server."""
-    # Initialize database on startup
     init_db()
     logger.info("Database initialized")
 
@@ -3029,10 +2993,12 @@ def main() -> None:
         description="Jira/GitHub/Reports MCP Server - Model Context Protocol server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Endpoints:
-  /jira     Jira tools (tickets, comments, metadata)
-  /github   GitHub tools (PRs, reviews, comments)
-  /reports  Activity logging & reporting tools
+Transport: Streamable HTTP (stateless)
+
+Endpoints (all via POST to the mount path):
+  /mcp/jira      Jira tools (tickets, comments, metadata)
+  /mcp/github    GitHub tools (PRs, reviews, comments)
+  /mcp/reports   Activity logging & reporting tools
 
 Jira Headers:
   X-Jira-Server-URL    Jira server URL (required)
@@ -3050,11 +3016,13 @@ GitHub Headers (multi-token via UI - recommended):
 
 GitHub Headers (multi-token via JSON - alternative):
   X-GitHub-Tokens      JSON array of token-to-pattern mappings (overrides X-GitHub-Token)
-                       Format: [{"token":"ghp_...","patterns":["org/*"]},{"token":"ghp_...","patterns":["*"]}]
+                       Format: [{{"token":"ghp_...","patterns":["org/*"]}},{{"token":"ghp_...","patterns":["*"]}}]
   X-GitHub-API-URL     Default API URL for Enterprise (optional, can be overridden per token entry)
 
 Reports Headers:
-  X-Username           Username for activity tracking (required)
+  Authorization        Bearer <PAT> (preferred) or proxy headers below
+  X-Forwarded-Email    User email from OAuth proxy
+  X-Username           Username for activity tracking
 
 Example:
   ghost --host 0.0.0.0 --port 8080
@@ -3073,7 +3041,7 @@ Example:
     )
 
     args = parser.parse_args()
-    asyncio.run(run_sse(args.host, args.port))
+    asyncio.run(run_streamable_http(args.host, args.port))
 
 
 if __name__ == "__main__":

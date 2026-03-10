@@ -128,7 +128,7 @@ spec:
               cpu: 100m
               memory: 256Mi
 
-        # MCP Server container - MCP SSE server for AI tool integration
+        # MCP Server container - MCP Streamable HTTP server for AI tool integration
         - name: mcp
           image: ghost-backend:latest
           imagePullPolicy: Always
