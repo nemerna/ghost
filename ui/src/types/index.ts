@@ -166,6 +166,7 @@ export interface GeneratedReport {
 export interface ReportEntry {
   text: string;
   private: boolean;
+  ticket_key?: string | null;
 }
 
 export interface ReportEntryInput {
