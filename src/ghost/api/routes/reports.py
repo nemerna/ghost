@@ -142,6 +142,38 @@ class GeneratedReportResponse(BaseModel):
     statistics: dict
 
 
+class MemberReportingStatusResponse(BaseModel):
+    """Status of a single team member's reporting for a given week."""
+
+    user_id: int
+    email: str
+    display_name: str | None
+    status: str  # "done", "in_progress", "missing"
+    report_count: int
+    latest_report_title: str | None = None
+    latest_report_updated_at: str | None = None
+
+
+class TeamReportingProgressSummary(BaseModel):
+    """Summary counts of team reporting progress."""
+
+    done: int
+    in_progress: int
+    missing: int
+    total: int
+
+
+class TeamReportingProgressResponse(BaseModel):
+    """Full team reporting progress for a given week."""
+
+    team_id: int
+    team_name: str
+    week_start: str
+    week_end: str
+    members: list[MemberReportingStatusResponse]
+    summary: TeamReportingProgressSummary
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -622,6 +654,123 @@ async def create_management_report(
 
 # NOTE: Team routes must be defined BEFORE individual report routes
 # to avoid FastAPI matching "/management/team/1" as "/management/{report_id}"
+
+
+@router.get("/management/team/{team_id}/progress", response_model=TeamReportingProgressResponse)
+async def get_team_reporting_progress(
+    team_id: int,
+    user: Annotated[User, Depends(require_manager_or_admin)],
+    week_offset: int = Query(0, ge=-52, le=0, description="Week offset (0=current, -1=last week)"),
+):
+    """Get reporting progress for each team member for a given week.
+
+    Shows whether each member's management report is done (visible),
+    in progress (private), or missing for the target week.
+    """
+    db = get_db()
+
+    today = datetime.utcnow().date()
+    current_monday = today - timedelta(days=today.weekday())
+    target_monday = current_monday + timedelta(weeks=week_offset)
+    target_sunday = target_monday + timedelta(days=6)
+    week_start = datetime.combine(target_monday, datetime.min.time())
+    week_end = datetime.combine(target_sunday, datetime.max.time())
+
+    with db.session() as session:
+        team = session.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if user.role != UserRole.ADMIN and team.manager_id != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
+        member_ids = [m.user_id for m in memberships]
+        if team.manager_id:
+            member_ids.append(team.manager_id)
+
+        members = session.query(User).filter(User.id.in_(member_ids)).all()
+        email_to_user = {m.email: m for m in members}
+        email_to_visibility = {
+            m.email: _get_user_visibility_defaults(m)
+            for m in members
+        }
+
+        reports = (
+            session.query(ManagementReport)
+            .filter(
+                ManagementReport.username.in_(list(email_to_user.keys())),
+                ManagementReport.created_at >= week_start,
+                ManagementReport.created_at <= week_end,
+            )
+            .order_by(ManagementReport.created_at.desc())
+            .all()
+        )
+
+        reports_by_user: dict[str, list[ManagementReport]] = {}
+        for report in reports:
+            reports_by_user.setdefault(report.username, []).append(report)
+
+        member_statuses: list[MemberReportingStatusResponse] = []
+        done_count = 0
+        in_progress_count = 0
+        missing_count = 0
+
+        for email, u in email_to_user.items():
+            user_reports = reports_by_user.get(email, [])
+            if not user_reports:
+                status = "missing"
+                missing_count += 1
+                member_statuses.append(MemberReportingStatusResponse(
+                    user_id=u.id,
+                    email=email,
+                    display_name=u.display_name,
+                    status=status,
+                    report_count=0,
+                ))
+            else:
+                vis_defaults = email_to_visibility.get(email, {})
+                has_visible = any(
+                    _is_management_report_visible_to_manager(r, vis_defaults)
+                    for r in user_reports
+                )
+                latest = user_reports[0]
+                updated = latest.updated_at or latest.created_at
+                if has_visible:
+                    status = "done"
+                    done_count += 1
+                else:
+                    status = "in_progress"
+                    in_progress_count += 1
+
+                member_statuses.append(MemberReportingStatusResponse(
+                    user_id=u.id,
+                    email=email,
+                    display_name=u.display_name,
+                    status=status,
+                    report_count=len(user_reports),
+                    latest_report_title=latest.title,
+                    latest_report_updated_at=updated.isoformat() if updated else None,
+                ))
+
+        status_order = {"missing": 0, "in_progress": 1, "done": 2}
+        member_statuses.sort(key=lambda m: status_order.get(m.status, 3))
+
+        return TeamReportingProgressResponse(
+            team_id=team_id,
+            team_name=team.name,
+            week_start=target_monday.isoformat(),
+            week_end=target_sunday.isoformat(),
+            members=member_statuses,
+            summary=TeamReportingProgressSummary(
+                done=done_count,
+                in_progress=in_progress_count,
+                missing=missing_count,
+                total=len(members),
+            ),
+        )
+
+
 @router.get("/management/team/{team_id}", response_model=ManagementReportListResponse)
 async def get_team_management_reports(
     team_id: int,

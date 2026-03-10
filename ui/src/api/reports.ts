@@ -17,6 +17,7 @@ import type {
   SnapshotCreateRequest,
   SnapshotListResponse,
   TeamReportAggregate,
+  TeamReportingProgress,
   WeeklyReport,
   WeeklyReportListResponse,
 } from '@/types';
@@ -128,6 +129,13 @@ export async function getTeamManagementReports(teamId: number, params?: {
 
 export async function getTeamReportAggregate(teamId: number, weekOffset: number = 0): Promise<TeamReportAggregate> {
   const response = await apiClient.get<TeamReportAggregate>(`/reports/management/aggregate/${teamId}`, {
+    params: { week_offset: weekOffset },
+  });
+  return response.data;
+}
+
+export async function getTeamReportingProgress(teamId: number, weekOffset: number = 0): Promise<TeamReportingProgress> {
+  const response = await apiClient.get<TeamReportingProgress>(`/reports/management/team/${teamId}/progress`, {
     params: { week_offset: weekOffset },
   });
   return response.data;

@@ -220,6 +220,34 @@ export interface TeamReportAggregate {
   }>;
 }
 
+export type MemberReportingStatusValue = 'done' | 'in_progress' | 'missing';
+
+export interface MemberReportingStatus {
+  user_id: number;
+  email: string;
+  display_name: string | null;
+  status: MemberReportingStatusValue;
+  report_count: number;
+  latest_report_title: string | null;
+  latest_report_updated_at: string | null;
+}
+
+export interface TeamReportingProgressSummary {
+  done: number;
+  in_progress: number;
+  missing: number;
+  total: number;
+}
+
+export interface TeamReportingProgress {
+  team_id: number;
+  team_name: string;
+  week_start: string;
+  week_end: string;
+  members: MemberReportingStatus[];
+  summary: TeamReportingProgressSummary;
+}
+
 // =============================================================================
 // Report Field & Project Types
 // =============================================================================
