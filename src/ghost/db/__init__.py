@@ -19,7 +19,6 @@ from ghost.db.models import (
     TicketSource,
     User,
     UserRole,
-    WeeklyReport,
 )
 
 __all__ = [
@@ -40,7 +39,6 @@ __all__ = [
     "GitHubTokenConfig",
     # Activity & Report Models
     "ActivityLog",
-    "WeeklyReport",
     "ManagementReport",
     "ConsolidatedReportDraft",
     "ConsolidatedReportSnapshot",

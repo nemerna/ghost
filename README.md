@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io/)
 
-Ghost connects Jira and GitHub to AI-powered IDEs through [MCP](https://modelcontextprotocol.io/). It gives your IDE tools to search tickets, browse PRs, log work, and generate weekly reports — all from real data, no copy-pasting.
+Ghost connects Jira and GitHub to AI-powered IDEs through [MCP](https://modelcontextprotocol.io/). It gives your IDE tools to search tickets, browse PRs, log work, and generate management reports — all from real data, no copy-pasting.
 
 ## Get Started
 
@@ -98,7 +98,7 @@ Ask your IDE:
 
 - *"List my in-progress Jira tickets"*
 - *"Show open PRs for my-org/my-repo"*
-- *"Generate my weekly report"*
+- *"Create a management report"*
 
 ---
 
@@ -109,7 +109,7 @@ Ask your IDE:
 | [Getting Started](docs/getting-started.md) | PAT creation walkthrough and first steps |
 | [Configuration](docs/configuration.md) | All headers, env vars, GitHub Enterprise, multi-token, SSL options |
 | [Tools Reference](docs/tools-reference.md) | Complete list of 50+ MCP tools |
-| [Cursor Commands](docs/cursor-commands/) | Pre-built `/slash` commands for weekly reporting |
+| [Cursor Commands](docs/cursor-commands/) | Pre-built `/slash` commands for management reporting |
 | [Architecture](docs/architecture.md) | System design, containers, data flows |
 | [Deployment](docs/deployment.md) | Podman Compose, OpenShift, production setup |
 | [Web UI](docs/web-ui.md) | Dashboard features and authentication |

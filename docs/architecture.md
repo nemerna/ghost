@@ -94,7 +94,7 @@ sequenceDiagram
     Reports-->>IDE: Activity logged
 
     Note over Dev,JiraAPI: End of week
-    Dev->>IDE: Generate my weekly report
+    Dev->>IDE: Create management report
     IDE->>Reports: get_weekly_activity
     Reports->>DB: Query week's activity
     Reports-->>IDE: Activity summary

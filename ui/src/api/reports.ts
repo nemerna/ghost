@@ -10,70 +10,13 @@ import type {
   ConsolidatedDraftUpdateRequest,
   ConsolidatedReportResponse,
   ConsolidatedReportSnapshot,
-  GeneratedReport,
   ManagementReport,
   ManagementReportCreateRequest,
   ManagementReportListResponse,
   SnapshotCreateRequest,
   SnapshotListResponse,
-  TeamReportAggregate,
   TeamReportingProgress,
-  WeeklyReport,
-  WeeklyReportListResponse,
 } from '@/types';
-
-// =============================================================================
-// Weekly Reports
-// =============================================================================
-
-export async function getMyWeeklyReports(params?: {
-  limit?: number;
-  offset?: number;
-}): Promise<WeeklyReportListResponse> {
-  const response = await apiClient.get<WeeklyReportListResponse>('/reports/weekly/my', { params });
-  return response.data;
-}
-
-export async function generateWeeklyReport(weekOffset: number = 0): Promise<GeneratedReport> {
-  const response = await apiClient.get<GeneratedReport>('/reports/weekly/generate', {
-    params: { week_offset: weekOffset },
-  });
-  return response.data;
-}
-
-export async function saveWeeklyReport(data: {
-  week_offset?: number;
-  custom_title?: string;
-  custom_summary?: string;
-}): Promise<{ success: boolean; report_id: number; created: boolean; message: string }> {
-  const response = await apiClient.post('/reports/weekly', data);
-  return response.data;
-}
-
-export async function getWeeklyReport(reportId: number): Promise<WeeklyReport> {
-  const response = await apiClient.get<WeeklyReport>(`/reports/weekly/${reportId}`);
-  return response.data;
-}
-
-export async function deleteWeeklyReport(reportId: number): Promise<void> {
-  await apiClient.delete(`/reports/weekly/${reportId}`);
-}
-
-export async function updateWeeklyReportVisibility(reportId: number, visibleToManager: boolean | null): Promise<WeeklyReport> {
-  const response = await apiClient.patch<WeeklyReport>(`/reports/weekly/${reportId}/visibility`, {
-    visible_to_manager: visibleToManager,
-  });
-  return response.data;
-}
-
-export async function getTeamWeeklyReports(teamId: number, params?: {
-  week_start?: string;
-  limit?: number;
-  offset?: number;
-}): Promise<WeeklyReportListResponse> {
-  const response = await apiClient.get<WeeklyReportListResponse>(`/reports/weekly/team/${teamId}`, { params });
-  return response.data;
-}
 
 // =============================================================================
 // Management Reports
@@ -124,13 +67,6 @@ export async function getTeamManagementReports(teamId: number, params?: {
   offset?: number;
 }): Promise<ManagementReportListResponse> {
   const response = await apiClient.get<ManagementReportListResponse>(`/reports/management/team/${teamId}`, { params });
-  return response.data;
-}
-
-export async function getTeamReportAggregate(teamId: number, weekOffset: number = 0): Promise<TeamReportAggregate> {
-  const response = await apiClient.get<TeamReportAggregate>(`/reports/management/aggregate/${teamId}`, {
-    params: { week_offset: weekOffset },
-  });
   return response.data;
 }
 

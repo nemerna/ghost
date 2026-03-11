@@ -15,19 +15,13 @@ from ghost.tools.discovery import (
 )
 from ghost.tools.reports import (
     delete_management_report,
-    delete_saved_report,
     detect_project_for_activity,
-    generate_weekly_report,
     get_management_report,
-    get_saved_report,
     get_weekly_activity,
     list_management_reports,
-    list_saved_reports,
     log_activity,
     redetect_project_assignments,
-    # Management Reports
     save_management_report,
-    save_weekly_report,
     update_management_report,
 )
 from ghost.tools.tickets import (
@@ -54,14 +48,9 @@ __all__ = [
     "jira_list_statuses",
     "jira_get_transitions",
     "jira_get_current_user",
-    # Activity tracking & Reports
+    # Activity tracking
     "log_activity",
     "get_weekly_activity",
-    "generate_weekly_report",
-    "save_weekly_report",
-    "list_saved_reports",
-    "get_saved_report",
-    "delete_saved_report",
     # Management Reports
     "save_management_report",
     "list_management_reports",

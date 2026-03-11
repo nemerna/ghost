@@ -18,7 +18,6 @@ from ghost.db import (
     TeamMembership,
     User,
     UserRole,
-    WeeklyReport,
     get_db,
 )
 from ghost.tools import reports as report_tools
@@ -29,38 +28,6 @@ router = APIRouter()
 # =============================================================================
 # Pydantic Models
 # =============================================================================
-
-
-class WeeklyReportResponse(BaseModel):
-    """Weekly report response model."""
-    
-    id: int
-    username: str
-    week_start: str
-    week_end: str
-    title: str
-    summary: str
-    content: str
-    tickets_count: int
-    projects: list[str]
-    created_at: str | None
-    updated_at: str | None
-    visible_to_manager: bool | None = None
-
-
-class WeeklyReportCreateRequest(BaseModel):
-    """Request model for creating/updating a weekly report."""
-    
-    week_offset: int = 0
-    custom_title: str | None = None
-    custom_summary: str | None = None
-
-
-class WeeklyReportListResponse(BaseModel):
-    """Response model for weekly report list."""
-    
-    reports: list[WeeklyReportResponse]
-    total: int
 
 
 class ReportEntry(BaseModel):
@@ -129,19 +96,6 @@ class ManagementReportListResponse(BaseModel):
     total: int
 
 
-class GeneratedReportResponse(BaseModel):
-    """Response for a generated (not yet saved) report."""
-    
-    title: str
-    summary: str
-    content: str
-    week_start: str
-    week_end: str
-    tickets_count: int
-    projects: list[str]
-    statistics: dict
-
-
 class MemberReportingStatusResponse(BaseModel):
     """Status of a single team member's reporting for a given week."""
 
@@ -179,24 +133,6 @@ class TeamReportingProgressResponse(BaseModel):
 # =============================================================================
 
 
-def weekly_report_to_response(report: WeeklyReport) -> WeeklyReportResponse:
-    """Convert WeeklyReport model to response."""
-    return WeeklyReportResponse(
-        id=report.id,
-        username=report.username,
-        week_start=report.week_start.isoformat() if report.week_start else None,
-        week_end=report.week_end.isoformat() if report.week_end else None,
-        title=report.title,
-        summary=report.summary,
-        content=report.content,
-        tickets_count=report.tickets_count,
-        projects=report.projects.split(",") if report.projects else [],
-        created_at=report.created_at.isoformat() if report.created_at else None,
-        updated_at=report.updated_at.isoformat() if report.updated_at else None,
-        visible_to_manager=report.visible_to_manager,
-    )
-
-
 def management_report_to_response(report: ManagementReport) -> ManagementReportResponse:
     """Convert ManagementReport model to response with parsed entries."""
     return management_report_to_response_with_entries(report, filter_private=False)
@@ -207,16 +143,8 @@ def _get_user_visibility_defaults(user: User) -> dict:
     preferences = json.loads(user.preferences) if user.preferences else {}
     return preferences.get("visibility_defaults", {
         "activity_logs": "shared",
-        "weekly_reports": "shared",
         "management_reports": "private",
     })
-
-
-def _is_weekly_report_visible_to_manager(report: WeeklyReport, user_visibility_defaults: dict) -> bool:
-    """Check if a weekly report is visible to manager based on item override or user defaults."""
-    if report.visible_to_manager is not None:
-        return report.visible_to_manager
-    return user_visibility_defaults.get("weekly_reports", "shared") == "shared"
 
 
 def _is_management_report_visible_to_manager(report: ManagementReport, user_visibility_defaults: dict) -> bool:
@@ -345,212 +273,6 @@ def management_report_to_response_with_entries(
         updated_at=report.updated_at.isoformat() if report.updated_at else None,
         visible_to_manager=report.visible_to_manager,
     )
-
-
-# =============================================================================
-# Weekly Report Endpoints
-# =============================================================================
-
-
-@router.get("/weekly/my", response_model=WeeklyReportListResponse)
-async def get_my_weekly_reports(
-    user: CurrentUser,
-    limit: int = Query(10, ge=1, le=50),
-    offset: int = Query(0, ge=0),
-):
-    """Get the current user's weekly reports."""
-    db = get_db()
-    
-    with db.session() as session:
-        query = session.query(WeeklyReport).filter(WeeklyReport.username == user.email)
-        
-        total = query.count()
-        
-        reports = (
-            query.order_by(WeeklyReport.week_start.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-        
-        return WeeklyReportListResponse(
-            reports=[weekly_report_to_response(r) for r in reports],
-            total=total,
-        )
-
-
-@router.get("/weekly/generate", response_model=GeneratedReportResponse)
-async def generate_weekly_report(
-    user: CurrentUser,
-    week_offset: int = Query(0, ge=-52, le=0, description="Week offset (0=current, -1=last week)"),
-):
-    """Generate a weekly report preview without saving."""
-    result = report_tools.generate_weekly_report(
-        username=user.email,
-        week_offset=week_offset,
-        include_details=True,
-    )
-    
-    return GeneratedReportResponse(
-        title=result["title"],
-        summary=result["summary"],
-        content=result["content"],
-        week_start=result["week_start"],
-        week_end=result["week_end"],
-        tickets_count=result["tickets_count"],
-        projects=result["projects"],
-        statistics=result["statistics"],
-    )
-
-
-@router.post("/weekly", response_model=dict)
-async def save_weekly_report(
-    request: WeeklyReportCreateRequest,
-    user: CurrentUser,
-):
-    """Save a weekly report."""
-    result = report_tools.save_weekly_report(
-        username=user.email,
-        week_offset=request.week_offset,
-        custom_title=request.custom_title,
-        custom_summary=request.custom_summary,
-    )
-    
-    return result
-
-
-@router.get("/weekly/{report_id}", response_model=WeeklyReportResponse)
-async def get_weekly_report(
-    report_id: int,
-    user: CurrentUser,
-):
-    """Get a specific weekly report."""
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(WeeklyReport).filter(WeeklyReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        # Check access (own report, manager of team, or admin)
-        if report.username != user.email and user.role != UserRole.ADMIN:
-            # Check if user is manager of a team that includes the report author
-            # This is a simplified check - in production you might want more robust logic
-            if user.role != UserRole.MANAGER:
-                raise HTTPException(status_code=403, detail="Access denied")
-        
-        return weekly_report_to_response(report)
-
-
-@router.delete("/weekly/{report_id}")
-async def delete_weekly_report(
-    report_id: int,
-    user: CurrentUser,
-):
-    """Delete a weekly report (own reports only)."""
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(WeeklyReport).filter(WeeklyReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        if report.username != user.email and user.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Can only delete your own reports")
-        
-        session.delete(report)
-    
-    return {"message": "Report deleted successfully"}
-
-
-@router.patch("/weekly/{report_id}/visibility", response_model=WeeklyReportResponse)
-async def update_weekly_report_visibility(
-    report_id: int,
-    request: VisibilityUpdateRequest,
-    user: CurrentUser,
-):
-    """Update visibility of a weekly report to manager (own reports only).
-    
-    - visible_to_manager=true: Always visible to manager
-    - visible_to_manager=false: Always hidden from manager
-    - visible_to_manager=null: Inherit from user's visibility preferences
-    """
-    db = get_db()
-    
-    with db.session() as session:
-        report = session.query(WeeklyReport).filter(WeeklyReport.id == report_id).first()
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        
-        if report.username != user.email and user.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Can only update visibility of your own reports")
-        
-        report.visible_to_manager = request.visible_to_manager
-        session.flush()
-        
-        return weekly_report_to_response(report)
-
-
-@router.get("/weekly/team/{team_id}", response_model=WeeklyReportListResponse)
-async def get_team_weekly_reports(
-    team_id: int,
-    user: Annotated[User, Depends(require_manager_or_admin)],
-    week_start: datetime | None = Query(None, description="Filter by week start date"),
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-):
-    """Get weekly reports for all team members (manager or admin only).
-    
-    Only returns reports that users have made visible to their manager.
-    """
-    db = get_db()
-    
-    with db.session() as session:
-        # Verify team and access
-        team = session.query(Team).filter(Team.id == team_id).first()
-        if not team:
-            raise HTTPException(status_code=404, detail="Team not found")
-        
-        if user.role != UserRole.ADMIN and team.manager_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get team member emails
-        memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
-        member_ids = [m.user_id for m in memberships]
-        if team.manager_id:
-            member_ids.append(team.manager_id)
-        
-        members = session.query(User).filter(User.id.in_(member_ids)).all()
-        member_emails = [m.email for m in members]
-        
-        # Build a map of email -> visibility defaults
-        email_to_visibility = {
-            m.email: _get_user_visibility_defaults(m)
-            for m in members
-        }
-        
-        # Query reports
-        query = session.query(WeeklyReport).filter(WeeklyReport.username.in_(member_emails))
-        
-        if week_start:
-            query = query.filter(WeeklyReport.week_start == week_start)
-        
-        all_reports = query.order_by(WeeklyReport.week_start.desc(), WeeklyReport.username).all()
-        
-        # Filter by visibility
-        visible_reports = [
-            r for r in all_reports
-            if _is_weekly_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
-        ]
-        
-        # Apply pagination manually after visibility filtering
-        total = len(visible_reports)
-        paginated_reports = visible_reports[offset:offset + limit]
-        
-        return WeeklyReportListResponse(
-            reports=[weekly_report_to_response(r) for r in paginated_reports],
-            total=total,
-        )
 
 
 # =============================================================================
@@ -832,98 +554,6 @@ async def get_team_management_reports(
             reports=[management_report_to_response_with_entries(r, filter_private=True) for r in paginated_reports],
             total=total,
         )
-
-
-@router.get("/management/aggregate/{team_id}", response_model=dict)
-async def get_team_report_aggregate(
-    team_id: int,
-    user: Annotated[User, Depends(require_manager_or_admin)],
-    week_offset: int = Query(0, ge=-52, le=0, description="Week offset"),
-):
-    """Get aggregated data from team members' weekly reports for management report creation.
-    
-    Only includes reports that users have made visible to their manager.
-    """
-    db = get_db()
-    
-    # Calculate week boundaries
-    today = datetime.utcnow().date()
-    current_monday = today - timedelta(days=today.weekday())
-    target_monday = current_monday + timedelta(weeks=week_offset)
-    target_sunday = target_monday + timedelta(days=6)
-    
-    week_start = datetime.combine(target_monday, datetime.min.time())
-    week_end = datetime.combine(target_sunday, datetime.max.time())
-    
-    with db.session() as session:
-        # Verify team and access
-        team = session.query(Team).filter(Team.id == team_id).first()
-        if not team:
-            raise HTTPException(status_code=404, detail="Team not found")
-        
-        if user.role != UserRole.ADMIN and team.manager_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get team member emails
-        memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
-        member_ids = [m.user_id for m in memberships]
-        if team.manager_id:
-            member_ids.append(team.manager_id)
-        
-        members = session.query(User).filter(User.id.in_(member_ids)).all()
-        member_emails = [m.email for m in members]
-        
-        # Build a map of email -> visibility defaults
-        email_to_visibility = {
-            m.email: _get_user_visibility_defaults(m)
-            for m in members
-        }
-        
-        # Get weekly reports for this period
-        all_reports = (
-            session.query(WeeklyReport)
-            .filter(
-                WeeklyReport.username.in_(member_emails),
-                WeeklyReport.week_start >= week_start,
-                WeeklyReport.week_start <= week_end,
-            )
-            .all()
-        )
-        
-        # Filter by visibility
-        reports = [
-            r for r in all_reports
-            if _is_weekly_report_visible_to_manager(r, email_to_visibility.get(r.username, {}))
-        ]
-        
-        # Aggregate data
-        total_tickets = 0
-        all_projects = set()
-        member_summaries = []
-        
-        for report in reports:
-            total_tickets += report.tickets_count
-            if report.projects:
-                all_projects.update(report.projects.split(","))
-            
-            member_summaries.append({
-                "username": report.username,
-                "title": report.title,
-                "summary": report.summary,
-                "tickets_count": report.tickets_count,
-            })
-        
-        return {
-            "team_id": team_id,
-            "team_name": team.name,
-            "week_start": week_start.date().isoformat(),
-            "week_end": week_end.date().isoformat(),
-            "total_members": len(member_emails),
-            "reports_submitted": len(reports),
-            "total_tickets": total_tickets,
-            "all_projects": list(all_projects),
-            "member_summaries": member_summaries,
-        }
 
 
 # Individual management report routes (must be after team routes)

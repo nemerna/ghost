@@ -108,7 +108,7 @@ Once configured, Claude Code will have access to:
 
 - **Jira tools**: Search issues, create tickets, add comments, transition workflow states
 - **GitHub tools**: Search PRs and issues, get PR details, repository information
-- **Work Reports tools**: Log activities, create reports, retrieve team summaries
+- **Work Reports tools**: Log activities, create management reports
 
 **Important:** MCP servers are configured per-project. You must start Claude Code from the ghost project directory to use these tools.
 

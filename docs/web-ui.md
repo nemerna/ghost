@@ -16,14 +16,6 @@ View and search logged activities:
 - Clickable ticket links to Jira/GitHub
 - Activity type indicators (created, updated, commented, etc.)
 
-### My Reports
-
-Personal weekly and management reports:
-
-- View generated reports
-- Edit report content
-- Control visibility of individual entries
-
 ### Management Reports
 
 Create and edit reports for stakeholders:
@@ -39,14 +31,6 @@ Team activity overview (manager/admin only):
 - Aggregate view of team member activities
 - Project-level summaries
 - Activity trends
-
-### Team Reports
-
-Team report management (manager/admin only):
-
-- View team members' management reports
-- Filter by project or time period
-- Export capabilities
 
 ### Admin
 
