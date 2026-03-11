@@ -100,21 +100,53 @@ Ask your IDE:
 - *"Show open PRs for my-org/my-repo"*
 - *"Create a management report"*
 
+### Prompts (slash-commands)
+
+The **Reports** MCP server exposes prompts that appear as `/slash` commands in
+IDEs like Cursor. Each prompt orchestrates a multi-step workflow using the
+available MCP tools.
+
+| Prompt | What it does |
+|--------|-------------|
+| `gather-activities` | Scans Jira and GitHub for work you did during a given week and compares it against what's already logged, surfacing untracked items. |
+| `log-activities` | Logs untracked items into the system. Shows you the list first and waits for confirmation before writing anything. |
+| `create-management-report` | Builds a management report from your logged activities with properly formatted links, then saves it via the Reports API. |
+| `unghost` | Creates a tracking ticket (Jira issue or GitHub issue) for work that was submitted without one, adds a progress comment linking the actual commits/PRs, and optionally logs the activity. |
+
+All prompts accept an optional `week_offset` argument (`0` = current week,
+`1` = last week, etc.) except `unghost`, which operates on the current branch.
+
 ---
 
-## Further Reading
+## Configuration
 
-| | |
-|---|---|
-| [Getting Started](docs/getting-started.md) | PAT creation walkthrough and first steps |
-| [Configuration](docs/configuration.md) | All headers, env vars, GitHub Enterprise, multi-token, SSL options |
-| [Tools Reference](docs/tools-reference.md) | Complete list of 50+ MCP tools |
-| [Cursor Commands](docs/cursor-commands/) | Pre-built `/slash` commands for management reporting |
-| [Architecture](docs/architecture.md) | System design, containers, data flows |
-| [Deployment](docs/deployment.md) | Podman Compose, OpenShift, production setup |
-| [Web UI](docs/web-ui.md) | Dashboard features and authentication |
-| [Development](docs/development.md) | Local dev setup, testing, project structure |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | — | PostgreSQL connection string (empty = SQLite) |
+| `GHOST_DATA_DIR` | `./data` | SQLite storage directory |
+| `DEV_MODE` | `false` | Bypass OAuth, enable API docs |
+
+### Optional headers
+
+| Header | Endpoint | Description |
+|--------|----------|-------------|
+| `X-GitHub-API-URL` | `/mcp/github` | GitHub Enterprise API URL (e.g. `https://github.yourcompany.com/api/v3`) |
+| `X-Jira-Verify-SSL` | `/mcp/jira` | Set to `false` for self-signed certificates |
+
+---
+
+## Local Development
+
+```bash
+pip install -e ".[dev]"
+
+python -m ghost.server --host 0.0.0.0 --port 8001          # MCP server
+DEV_MODE=true uvicorn ghost.api.main:app --port 8000 --reload  # REST API
+
+cd ui && npm install && npm run dev                         # Frontend (localhost:5173)
+```
 
 ## License
 
