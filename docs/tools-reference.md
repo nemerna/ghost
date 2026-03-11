@@ -99,16 +99,6 @@ Complete reference for all MCP tools available through Ghost.
 | `get_activity_details` | Get detailed info about a specific activity (useful for debugging detection) |
 | `redetect_project_assignments` | Re-run project detection on existing activities (auto-fetches Jira components) |
 
-### Weekly Reports
-
-| Tool | Description |
-|------|-------------|
-| `generate_weekly_report` | Generate Markdown report from logged activity |
-| `save_weekly_report` | Persist report to database |
-| `list_saved_reports` | List saved reports |
-| `get_saved_report` | Retrieve a report by ID |
-| `delete_saved_report` | Delete a report |
-
 ### Management Reports
 
 | Tool | Description |
@@ -167,7 +157,6 @@ Management reports use structured entries with per-item visibility control:
 
 - "Log that I worked on PROJ-123 today."
 - "Log activity on github.com/org/repo#456."
-- "Generate my weekly report and save it."
 - "Write a management report for PROJ using this week's activity."
 
 ## See Also

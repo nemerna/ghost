@@ -59,7 +59,6 @@ export function SettingsPage() {
   // Visibility settings state
   const [visibilitySettings, setVisibilitySettings] = useState<VisibilitySettings>({
     activity_logs: 'shared',
-    weekly_reports: 'shared',
     management_reports: 'private',
   });
 
@@ -517,22 +516,6 @@ export function SettingsPage() {
                     {visibilitySettings.activity_logs === 'shared'
                       ? 'Your activity logs are visible to your manager by default'
                       : 'Your activity logs are hidden from your manager by default'}
-                  </HelperTextItem>
-                </HelperText>
-              </FormGroup>
-              <FormGroup fieldId="visibility-weekly">
-                <Switch
-                  id="visibility-weekly"
-                  label="Weekly Reports"
-                  isChecked={visibilitySettings.weekly_reports === 'shared'}
-                  onChange={() => handleVisibilityToggle('weekly_reports')}
-                  isDisabled={visibilityLoading}
-                />
-                <HelperText>
-                  <HelperTextItem>
-                    {visibilitySettings.weekly_reports === 'shared'
-                      ? 'Your weekly reports are visible to your manager by default'
-                      : 'Your weekly reports are hidden from your manager by default'}
                   </HelperTextItem>
                 </HelperText>
               </FormGroup>

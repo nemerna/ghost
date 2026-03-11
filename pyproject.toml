@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ghost"
 version = "0.1.0"
-description = "MCP Server for Jira, GitHub, and report management"
+description = "MCP Server for Jira, GitHub, and management reports"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

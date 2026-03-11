@@ -134,7 +134,6 @@ def _get_user_visibility_defaults(user: User) -> dict:
     preferences = json.loads(user.preferences) if user.preferences else {}
     return preferences.get("visibility_defaults", {
         "activity_logs": "shared",
-        "weekly_reports": "shared",
         "management_reports": "private",
     })
 

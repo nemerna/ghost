@@ -9,9 +9,7 @@ import { AppLayout } from '@/components/layout';
 // Pages
 import DashboardPage from '@/pages/DashboardPage';
 import ActivitiesPage from '@/pages/ActivitiesPage';
-import MyReportsPage from '@/pages/MyReportsPage';
 import TeamDashboardPage from '@/pages/TeamDashboardPage';
-import TeamReportsPage from '@/pages/TeamReportsPage';
 import ManagementReportsPage from '@/pages/ManagementReportsPage';
 import AdminUsersPage from '@/pages/AdminUsersPage';
 import AdminTeamsPage from '@/pages/AdminTeamsPage';
@@ -28,7 +26,7 @@ function App() {
           
           {/* User routes */}
           <Route path="activities" element={<ActivitiesPage />} />
-          <Route path="reports" element={<MyReportsPage />} />
+          <Route path="management-reports" element={<ManagementReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           
           {/* Manager routes */}
@@ -40,15 +38,6 @@ function App() {
               </RequireRole>
             }
           />
-          <Route
-            path="team/reports"
-            element={
-              <RequireRole roles={['manager', 'admin']}>
-                <TeamReportsPage />
-              </RequireRole>
-            }
-          />
-          <Route path="management-reports" element={<ManagementReportsPage />} />
           
           {/* Admin routes */}
           <Route

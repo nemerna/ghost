@@ -36,11 +36,8 @@ from ghost.tools.schemas import (
     CreateTicketInput,
     DeleteCommentInput,
     DeleteManagementReportInput,
-    DeleteSavedReportInput,
-    GenerateWeeklyReportInput,
     GetCommentsInput,
     GetManagementReportInput,
-    GetSavedReportInput,
     GetTicketInput,
     GetTransitionsInput,
     GetWeeklyActivityInput,
@@ -77,14 +74,12 @@ from ghost.tools.schemas import (
     ListComponentsInput,
     ListIssueTypesInput,
     ListManagementReportsInput,
-    ListSavedReportsInput,
     ListStatusesInput,
     ListTicketsInput,
     # Activity & Reports
     LogActivityInput,
     # Management Reports
     SaveManagementReportInput,
-    SaveWeeklyReportInput,
     SetEpicInput,
     UpdateCommentInput,
     UpdateManagementReportInput,
@@ -1558,10 +1553,10 @@ REPORTS_TOOLS: list[Tool] = [
             "properties": {},
         },
     ),
-    # --- Activity Tracking & Weekly Reports ---
+    # --- Activity Tracking ---
     Tool(
         name="log_activity",
-        description="Log a work activity for weekly report tracking. Supports both Jira tickets (PROJ-123) and GitHub issues (owner/repo#123). Call this when working on tickets to track your work. For Jira tickets, provide jira_components for project detection.",
+        description="Log a work activity for tracking. Supports both Jira tickets (PROJ-123) and GitHub issues (owner/repo#123). Call this when working on tickets to track your work. For Jira tickets, provide jira_components for project detection.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1614,95 +1609,6 @@ REPORTS_TOOLS: list[Tool] = [
                     "description": "Optional project key to filter by.",
                 },
             },
-        },
-    ),
-    Tool(
-        name="generate_weekly_report",
-        description="Generate an executive weekly report for management. Creates a formatted Markdown report with metrics and ticket details.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "week_offset": {
-                    "type": "integer",
-                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
-                    "default": 0,
-                    "minimum": -52,
-                    "maximum": 0,
-                },
-                "include_details": {
-                    "type": "boolean",
-                    "description": "Whether to include detailed ticket list in the report.",
-                    "default": True,
-                },
-            },
-        },
-    ),
-    Tool(
-        name="save_weekly_report",
-        description="Generate and save a weekly report to the database for future reference.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "week_offset": {
-                    "type": "integer",
-                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
-                    "default": 0,
-                    "minimum": -52,
-                    "maximum": 0,
-                },
-                "custom_title": {
-                    "type": "string",
-                    "description": "Optional custom title override.",
-                },
-                "custom_summary": {
-                    "type": "string",
-                    "description": "Optional custom executive summary override.",
-                },
-            },
-        },
-    ),
-    Tool(
-        name="list_saved_reports",
-        description="List previously saved weekly reports.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of reports to return (1-50).",
-                    "default": 10,
-                    "minimum": 1,
-                    "maximum": 50,
-                },
-            },
-        },
-    ),
-    Tool(
-        name="get_saved_report",
-        description="Get a saved weekly report by its ID. Returns full report content.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "report_id": {
-                    "type": "integer",
-                    "description": "The report ID to retrieve.",
-                },
-            },
-            "required": ["report_id"],
-        },
-    ),
-    Tool(
-        name="delete_saved_report",
-        description="Delete a saved weekly report.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "report_id": {
-                    "type": "integer",
-                    "description": "The report ID to delete.",
-                },
-            },
-            "required": ["report_id"],
         },
     ),
     # --- Management Reports (AI-generated for stakeholders) ---
@@ -2562,42 +2468,6 @@ async def _execute_reports_tool(
             username=username,
             week_offset=input_data.week_offset,
             project=input_data.project,
-        )
-
-    elif name == "generate_weekly_report":
-        input_data = GenerateWeeklyReportInput(**arguments)
-        return report_tools.generate_weekly_report(
-            username=username,
-            week_offset=input_data.week_offset,
-            include_details=input_data.include_details,
-        )
-
-    elif name == "save_weekly_report":
-        input_data = SaveWeeklyReportInput(**arguments)
-        return report_tools.save_weekly_report(
-            username=username,
-            week_offset=input_data.week_offset,
-            custom_title=input_data.custom_title,
-            custom_summary=input_data.custom_summary,
-        )
-
-    elif name == "list_saved_reports":
-        input_data = ListSavedReportsInput(**arguments)
-        return report_tools.list_saved_reports(
-            username=username,
-            limit=input_data.limit,
-        )
-
-    elif name == "get_saved_report":
-        input_data = GetSavedReportInput(**arguments)
-        return report_tools.get_saved_report(
-            report_id=input_data.report_id,
-        )
-
-    elif name == "delete_saved_report":
-        input_data = DeleteSavedReportInput(**arguments)
-        return report_tools.delete_saved_report(
-            report_id=input_data.report_id,
         )
 
     # --- Management Reports (AI-generated) ---

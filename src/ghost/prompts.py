@@ -52,21 +52,6 @@ PROMPTS: list[Prompt] = [
         ],
     ),
     Prompt(
-        name="weekly-report",
-        title="Weekly Report (Full Workflow)",
-        description=(
-            "Run the full weekly report workflow end-to-end: "
-            "gather activities, log anything missing, then create the management report."
-        ),
-        arguments=[
-            PromptArgument(
-                name="week_offset",
-                description="Which week to process (0 = current week, 1 = last week)",
-                required=False,
-            ),
-        ],
-    ),
-    Prompt(
         name="unghost",
         title="Unghost (Track Untracked Work)",
         description=(
@@ -254,53 +239,6 @@ ALWAYS use the `entries` parameter (NOT `content`) with `save_management_report`
 Use `update_management_report` for changes.
 """
 
-_WEEKLY_REPORT = """\
-Run the full weekly report workflow end-to-end for {period}: \
-gather my activities, log anything missing, then create the management report.
-
-**ALWAYS use MCP server tools** for all Jira, GitHub, and work-reports operations. \
-Never use CLI tools, direct API calls, `curl`, or custom HTTP clients. \
-If an MCP tool is unavailable or fails with a connection error, **STOP immediately** — \
-do not fall back to alternatives.
-
-## Phase 0: Verify MCP Availability
-
-1. Call `github_get_current_user` as a connectivity check
-2. If the tool is **not available**, returns a **connection error**, or **times out**: \
-**STOP immediately**. Do not proceed. Tell the user the MCP server appears to be unavailable.
-
-## Phase 1: Gather Activities
-
-1. Identify me on both platforms (parallel): `jira_get_current_user` + `github_get_current_user`
-2. Check already-logged activities: `get_weekly_activity(week_offset={week_offset})`
-3. Search Jira: `jira_list_tickets(assignee="currentUser")` with statuses \
-"In Progress", "Done", "Review" — filter by `updated` date within the target week
-4. Search GitHub: `github_search_prs(query="author:USERNAME updated:>=YYYY-MM-DD")` \
-and `github_search_issues(query="author:USERNAME updated:>=YYYY-MM-DD")`
-5. Present what's already tracked vs what's not yet logged
-
-## Phase 2: Log Missing Activities
-
-1. Show me unlogged items and **ask for confirmation** before logging anything
-2. For Jira tickets, fetch components via `jira_get_ticket` before logging — \
-needed for project detection
-3. Log each confirmed item with `log_activity` \
-(include `jira_components` for Jira, `github_repo` for GitHub)
-4. Verify with `get_weekly_activity`
-
-## Phase 3: Create the Management Report
-
-1. Get all logged activities: `get_weekly_activity(week_offset={week_offset})`
-2. For each ticket, gather PR/issue URLs for link formatting
-3. Format each entry as: `[Action Verb](PR-URL) [brief description](ISSUE-URL) plus context`
-   - Embed links naturally — NO raw ticket numbers
-   - The report is ONLY work items — no sections, headers, summaries, or plans
-4. Save with `save_management_report` using **`entries`** (not `content`):
-   - Each entry must include `text` and `ticket_key`
-   - Include `referenced_tickets` array
-5. Show me the result and ask if adjustments are needed
-"""
-
 _UNGHOST = """\
 Make untracked work visible. Create a tracking ticket (Jira or GitHub Issue) for work \
 that was already submitted without proper tracking (commits, PRs), then add a progress \
@@ -411,7 +349,7 @@ h2. Progress
 
 ## Phase 5: Optionally Log Activity
 
-Ask the user: "Do you want to log this activity for your weekly report?"
+Ask the user: "Do you want to log this activity for your management report?"
 
 If yes, call `log_activity` with:
 - **ticket_key**: the created ticket key (`PROJ-123` or `owner/repo#123`)
@@ -425,7 +363,6 @@ _CONTENT: dict[str, str] = {
     "gather-activities": _GATHER_ACTIVITIES,
     "log-activities": _LOG_ACTIVITIES,
     "create-management-report": _CREATE_MANAGEMENT_REPORT,
-    "weekly-report": _WEEKLY_REPORT,
     "unghost": _UNGHOST,
 }
 

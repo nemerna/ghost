@@ -29,7 +29,6 @@ import {
 } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
 import { getMyActivitySummary, getMyActivities } from '@/api/activities';
-import { getMyWeeklyReports } from '@/api/reports';
 import { format } from 'date-fns';
 
 export function DashboardPage() {
@@ -47,13 +46,7 @@ export function DashboardPage() {
     queryFn: () => getMyActivities({ limit: 5 }),
   });
 
-  // Fetch recent reports
-  const { data: recentReports, isLoading: reportsLoading } = useQuery({
-    queryKey: ['recentReports'],
-    queryFn: () => getMyWeeklyReports({ limit: 3 }),
-  });
-
-  const isLoading = summaryLoading || activitiesLoading || reportsLoading;
+  const isLoading = summaryLoading || activitiesLoading;
 
   const statCards = [
     {
@@ -173,26 +166,6 @@ export function DashboardPage() {
               </Card>
             )}
 
-            {/* Recent Reports */}
-            <Card style={{ marginTop: '1rem' }}>
-              <CardTitle>Recent Weekly Reports</CardTitle>
-              <CardBody>
-                {recentReports?.reports.length ? (
-                  <DescriptionList>
-                    {recentReports.reports.map((report) => (
-                      <DescriptionListGroup key={report.id}>
-                        <DescriptionListTerm>{report.title}</DescriptionListTerm>
-                        <DescriptionListDescription>
-                          {report.tickets_count} tickets | {report.projects.join(', ') || 'No projects'}
-                        </DescriptionListDescription>
-                      </DescriptionListGroup>
-                    ))}
-                  </DescriptionList>
-                ) : (
-                  <p>No reports yet</p>
-                )}
-              </CardBody>
-            </Card>
           </>
         )}
       </PageSection>

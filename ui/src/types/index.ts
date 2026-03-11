@@ -31,7 +31,6 @@ export type VisibilityValue = 'shared' | 'private';
 
 export interface VisibilitySettings {
   activity_logs: VisibilityValue;
-  weekly_reports: VisibilityValue;
   management_reports: VisibilityValue;
 }
 
@@ -127,42 +126,6 @@ export interface ActivityCreateRequest {
 // Report Types
 // =============================================================================
 
-export interface WeeklyReport {
-  id: number;
-  username: string;
-  week_start: string;
-  week_end: string;
-  title: string;
-  summary: string;
-  content: string;
-  tickets_count: number;
-  projects: string[];
-  created_at: string | null;
-  updated_at: string | null;
-  visible_to_manager: boolean | null;
-}
-
-export interface WeeklyReportListResponse {
-  reports: WeeklyReport[];
-  total: number;
-}
-
-export interface GeneratedReport {
-  title: string;
-  summary: string;
-  content: string;
-  week_start: string;
-  week_end: string;
-  tickets_count: number;
-  projects: string[];
-  statistics: {
-    created: number;
-    updated: number;
-    commented: number;
-    transitioned: number;
-  };
-}
-
 export interface ReportEntry {
   text: string;
   private: boolean;
@@ -201,23 +164,6 @@ export interface ManagementReportCreateRequest {
   project_key?: string;
   report_period?: string;
   referenced_tickets?: string[];
-}
-
-export interface TeamReportAggregate {
-  team_id: number;
-  team_name: string;
-  week_start: string;
-  week_end: string;
-  total_members: number;
-  reports_submitted: number;
-  total_tickets: number;
-  all_projects: string[];
-  member_summaries: Array<{
-    username: string;
-    title: string;
-    summary: string;
-    tickets_count: number;
-  }>;
 }
 
 export type MemberReportingStatusValue = 'done' | 'in_progress' | 'missing';
