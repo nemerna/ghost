@@ -416,6 +416,7 @@ def log_activity(
     project_key: str | None = None,
     github_repo: str | None = None,
     jira_components: list[str] | None = None,
+    ticket_url: str | None = None,
     action_details: dict | None = None,
 ) -> dict[str, Any]:
     """
@@ -429,6 +430,7 @@ def log_activity(
         project_key: Optional Jira project key (extracted from ticket_key if not provided).
         github_repo: Optional GitHub repo in 'owner/repo' format. Required for short '#123' format.
         jira_components: Optional list of Jira component names for auto-detection.
+        ticket_url: Optional canonical browse URL for the ticket.
         action_details: Optional dict with additional context.
 
     Returns:
@@ -451,6 +453,12 @@ def log_activity(
     except ValueError:
         action_enum = ActionType.OTHER
 
+    if not ticket_summary:
+        logger.warning(
+            f"log_activity called without ticket_summary for {ticket_key} — "
+            "report quality will be degraded"
+        )
+
     # Convert jira_components list to comma-separated string
     jira_components_str = None
     if jira_components:
@@ -469,6 +477,7 @@ def log_activity(
             username=username,
             ticket_key=normalized_key,
             ticket_summary=ticket_summary,
+            ticket_url=ticket_url,
             project_key=final_project_key,
             ticket_source=source,
             github_repo=final_github_repo,
@@ -508,15 +517,23 @@ def log_activity(
 def get_weekly_activity(
     username: str,
     week_offset: int = 0,
+    days: int | None = None,
     project: str | None = None,
     ticket_source: str | None = None,
 ) -> dict[str, Any]:
     """
-    Get activity summary for a specific week.
+    Get activity summary for a time period.
+
+    Supports two modes:
+    - **days** (preferred): Rolling window — activities from the last N days.
+    - **week_offset** (legacy): Monday-to-Sunday week boundaries.
+
+    If both are provided, `days` takes precedence.
 
     Args:
         username: The username to get activity for.
         week_offset: Week offset from current week (0 = current, -1 = last week, etc.).
+        days: Number of days to look back from today (e.g. 7 = last 7 days).
         project: Optional project key to filter by (Jira only).
         ticket_source: Optional filter by source ('jira' or 'github').
 
@@ -525,14 +542,18 @@ def get_weekly_activity(
     """
     db = get_db()
 
-    # Calculate week boundaries (Monday to Sunday)
     today = datetime.utcnow().date()
-    current_monday = today - timedelta(days=today.weekday())
-    target_monday = current_monday + timedelta(weeks=week_offset)
-    target_sunday = target_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
-    week_start = datetime.combine(target_monday, datetime.min.time())
-    week_end = datetime.combine(target_sunday, datetime.max.time())
+    if days is not None and days > 0:
+        start_date = today - timedelta(days=days - 1)
+        end_date = today
+    else:
+        current_monday = today - timedelta(days=today.weekday())
+        start_date = current_monday + timedelta(weeks=week_offset)
+        end_date = start_date + timedelta(days=6)
+
+    week_start = datetime.combine(start_date, datetime.min.time())
+    week_end = datetime.combine(end_date, datetime.max.time())
 
     with db.session() as session:
         query = session.query(ActivityLog).filter(
@@ -560,6 +581,7 @@ def get_weekly_activity(
             ActivityLog.project_key,
             ActivityLog.ticket_source,
             ActivityLog.github_repo,
+            func.max(ActivityLog.ticket_url).label("ticket_url"),
             func.count(ActivityLog.id).label("action_count"),
         ).filter(
             ActivityLog.username == username,
@@ -599,6 +621,7 @@ def get_weekly_activity(
                 {
                     "ticket_key": activity.ticket_key,
                     "ticket_summary": activity.ticket_summary,
+                    "ticket_url": activity.ticket_url,
                     "ticket_source": (
                         activity.ticket_source.value if activity.ticket_source else "jira"
                     ),
@@ -627,6 +650,7 @@ def get_weekly_activity(
             {
                 "ticket_key": t.ticket_key,
                 "ticket_summary": t.ticket_summary,
+                "ticket_url": t.ticket_url,
                 "ticket_source": t.ticket_source.value if t.ticket_source else "jira",
                 "project_key": t.project_key,
                 "github_repo": t.github_repo,

@@ -243,10 +243,16 @@ export function ManagementReportsPage() {
   });
 
   // Fetch report fields/projects for per-entry project badges
-  const { data: fieldsData } = useQuery({
+  const { data: fieldsData, isError: fieldsError } = useQuery({
     queryKey: ['fields'],
     queryFn: listFields,
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
+
+  if (fieldsError) {
+    console.warn('Failed to load report fields — ProjectBadge will be unavailable');
+  }
 
   // Fetch email templates
   const { data: emailTemplatesData } = useQuery({

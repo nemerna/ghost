@@ -1,15 +1,19 @@
 import type { Activity } from '@/types';
 
 /**
- * Build a browsable URL for a ticket from its source, key, and (for Jira) the
- * user's configured Jira server URL.
- *
- * Returns null when a URL cannot be constructed (e.g. Jira server URL missing).
+ * Build a browsable URL for a ticket. Prefers the stored `ticket_url` from the
+ * backend (set at log time from jira_get_issue / GitHub API). Falls back to
+ * constructing a URL from the ticket key and source for older activities that
+ * don't have a stored URL.
  */
 export function getTicketUrl(
-  activity: Pick<Activity, 'ticket_source' | 'ticket_key' | 'project_key' | 'github_repo'>,
+  activity: Pick<Activity, 'ticket_source' | 'ticket_key' | 'ticket_url' | 'project_key' | 'github_repo'>,
   jiraServerUrl?: string,
 ): string | null {
+  if (activity.ticket_url) {
+    return activity.ticket_url;
+  }
+
   if (activity.ticket_source === 'github') {
     const match = activity.ticket_key.match(/^([^#]+)#(\d+)$/);
     if (match) {

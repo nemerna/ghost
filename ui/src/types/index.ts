@@ -89,6 +89,7 @@ export interface Activity {
   user_id: number | null;
   ticket_key: string;
   ticket_summary: string | null;
+  ticket_url: string | null;
   ticket_source: TicketSource;
   project_key: string | null;
   github_repo: string | null;

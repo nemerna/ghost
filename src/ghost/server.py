@@ -1152,6 +1152,10 @@ REPORTS_TOOLS: list[Tool] = [
                     "items": {"type": "string"},
                     "description": "For Jira tickets: list of component names for project detection (e.g., ['FSI-Lab']).",
                 },
+                "ticket_url": {
+                    "type": "string",
+                    "description": "Canonical browse URL for the ticket (e.g. from jira_get_issue 'url' field or GitHub issue URL). Stored for reports and UI links.",
+                },
                 "action_details": {
                     "type": "string",
                     "description": "Optional JSON string with additional context.",
@@ -1162,13 +1166,19 @@ REPORTS_TOOLS: list[Tool] = [
     ),
     Tool(
         name="get_weekly_activity",
-        description="Get activity summary for a specific week. Shows tickets worked on and actions performed.",
+        description="Get activity summary for a time period. Use 'days' to specify how many days back to look (e.g. 7 for last week).",
         inputSchema={
             "type": "object",
             "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days to look back (e.g. 7 for last week, 14 for last two weeks). Preferred over week_offset.",
+                    "minimum": 1,
+                    "maximum": 365,
+                },
                 "week_offset": {
                     "type": "integer",
-                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
+                    "description": "(Legacy) Week offset from current week (0 = current, -1 = last week). Use 'days' instead.",
                     "default": 0,
                     "minimum": -52,
                     "maximum": 0,
@@ -1859,6 +1869,8 @@ async def _execute_reports_tool(
             action_type=input_data.action_type,
             ticket_summary=input_data.ticket_summary,
             github_repo=input_data.github_repo,
+            jira_components=input_data.jira_components,
+            ticket_url=input_data.ticket_url,
             action_details=action_details,
         )
 
@@ -1867,6 +1879,7 @@ async def _execute_reports_tool(
         return report_tools.get_weekly_activity(
             username=username,
             week_offset=input_data.week_offset,
+            days=input_data.days,
             project=input_data.project,
         )
 

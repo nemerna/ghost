@@ -204,6 +204,9 @@ class ActivityLog(Base):
     # Jira components (comma-separated for auto-detection)
     jira_components = Column(String(500), nullable=True)  # e.g., "component1,component2"
 
+    # Canonical browse URL for the ticket (stored at log time to avoid re-fetching)
+    ticket_url = Column(String(1000), nullable=True)
+
     # Auto-detected project for report consolidation
     detected_project_id = Column(
         Integer, ForeignKey("report_projects.id"), nullable=True, index=True
@@ -237,6 +240,7 @@ class ActivityLog(Base):
             "username": self.username,
             "ticket_key": self.ticket_key,
             "ticket_summary": self.ticket_summary,
+            "ticket_url": self.ticket_url,
             "project_key": self.project_key,
             "ticket_source": self.ticket_source.value if self.ticket_source else "jira",
             "github_repo": self.github_repo,

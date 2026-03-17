@@ -22,12 +22,13 @@ router = APIRouter()
 
 class ActivityResponse(BaseModel):
     """Activity response model."""
-    
+
     id: int
     username: str
     user_id: int | None
     ticket_key: str
     ticket_summary: str | None
+    ticket_url: str | None = None
     ticket_source: str
     project_key: str | None
     github_repo: str | None
@@ -119,6 +120,7 @@ def activity_to_response(activity: ActivityLog) -> ActivityResponse:
         user_id=activity.user_id,
         ticket_key=activity.ticket_key,
         ticket_summary=activity.ticket_summary,
+        ticket_url=activity.ticket_url,
         ticket_source=activity.ticket_source.value if activity.ticket_source else "jira",
         project_key=activity.project_key,
         github_repo=activity.github_repo,

@@ -28,6 +28,10 @@ class LogActivityInput(BaseModel):
         default=None,
         description="Optional list of Jira component names for auto-detection of report project.",
     )
+    ticket_url: str | None = Field(
+        default=None,
+        description="Canonical browse URL for the ticket (e.g. from jira_get_issue 'url' field). Stored for later use in reports and UI.",
+    )
     action_details: str | None = Field(
         default=None,
         description="Optional JSON string with additional context.",
@@ -52,11 +56,17 @@ class RedetectProjectAssignmentsInput(BaseModel):
 class GetWeeklyActivityInput(BaseModel):
     """Input schema for get_weekly_activity tool."""
 
+    days: int | None = Field(
+        default=None,
+        ge=1,
+        le=365,
+        description="Number of days to look back (e.g. 7 for last week, 14 for last two weeks). Takes precedence over week_offset.",
+    )
     week_offset: int = Field(
         default=0,
         ge=-52,
         le=0,
-        description="Week offset from current week (0 = current, -1 = last week, etc.).",
+        description="(Legacy) Week offset from current week (0 = current, -1 = last week). Use 'days' instead.",
     )
     project: str | None = Field(
         default=None,
