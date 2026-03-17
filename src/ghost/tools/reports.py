@@ -695,13 +695,13 @@ def _extract_ticket_key_from_text(text: str) -> str | None:
     Extract a ticket key from text containing Jira or GitHub URLs.
     
     Supports:
-    - Jira URLs: https://issues.redhat.com/browse/PROJ-123 -> PROJ-123
+    - Jira URLs: https://redhat.atlassian.net/browse/PROJ-123 -> PROJ-123
     - GitHub issue URLs: https://github.com/owner/repo/issues/123 -> owner/repo#123
     - GitHub PR URLs: https://github.com/owner/repo/pull/123 -> owner/repo#123
     
     Returns the first ticket key found, or None if no ticket key is detected.
     """
-    # Try Jira URL pattern first (e.g., https://issues.redhat.com/browse/APPENG-4347)
+    # Try Jira URL pattern first (e.g., https://redhat.atlassian.net/browse/APPENG-4347)
     jira_pattern = r'https?://[^/]+/browse/([A-Z][A-Z0-9]+-\d+)'
     jira_match = re.search(jira_pattern, text)
     if jira_match:

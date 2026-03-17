@@ -127,7 +127,7 @@ This workflow requires MCP tools — there is no fallback.
 
 4. **Enrich every Jira ticket** — for each Jira ticket found (both logged and unlogged), \
 call `getJiraIssue` (Atlassian MCP) with the issue key to retrieve:
-   - **`url`** — the canonical browse URL (e.g. `https://issues.redhat.com/browse/PROJ-123`)
+   - **`url`** — the canonical browse URL (e.g. `https://redhat.atlassian.net/browse/PROJ-123`)
    - **`summary`** — the ticket title/description
    - **`components`** — component names (needed later for project detection when logging)
    - **NEVER fabricate or guess a Jira URL.** Always use the URL from `getJiraIssue`.
@@ -239,16 +239,16 @@ Fixed the login bug. (JIRA: PROJ-123, PR: #456)
 
 **WRONG — links only, no description of the actual work:**
 ```
-[Fixed](https://github.com/org/repo/pull/42) [PROJ-123](https://issues.redhat.com/browse/PROJ-123)
-[Updated](https://github.com/org/repo/pull/15) [PROJ-456](https://issues.redhat.com/browse/PROJ-456)
+[Fixed](https://github.com/org/repo/pull/42) [PROJ-123](https://redhat.atlassian.net/browse/PROJ-123)
+[Updated](https://github.com/org/repo/pull/15) [PROJ-456](https://redhat.atlassian.net/browse/PROJ-456)
 ```
 
 **RIGHT — links embedded in a human-readable sentence describing what was done:**
 ```
 [Fixed](https://github.com/org/repo/pull/42) the \
-[login timeout bug](https://issues.redhat.com/browse/PROJ-123) affecting production users
+[login timeout bug](https://redhat.atlassian.net/browse/PROJ-123) affecting production users
 [Implemented](https://github.com/org/repo/pull/15) \
-[role-based access control](https://issues.redhat.com/browse/PROJ-456) for the admin panel
+[role-based access control](https://redhat.atlassian.net/browse/PROJ-456) for the admin panel
 ```
 
 Every entry MUST read as a complete, meaningful sentence. The link text should describe \
@@ -321,7 +321,7 @@ URL and summary
      "report_period": "Week N, Mon Year",
      "entries": [
        {{
-         "text": "[Fixed](https://github.com/org/repo/pull/42) the [login timeout bug](https://issues.redhat.com/browse/PROJ-123) affecting production users",
+         "text": "[Fixed](https://github.com/org/repo/pull/42) the [login timeout bug](https://redhat.atlassian.net/browse/PROJ-123) affecting production users",
          "ticket_key": "PROJ-123"
        }}
      ],
@@ -590,18 +590,18 @@ Fixed the login bug. (JIRA: PROJ-123, PR: #456)
 
 **WRONG — links only, no description of the actual work:**
 ```
-[Fixed](https://github.com/org/repo/pull/42) [PROJ-123](https://issues.redhat.com/browse/PROJ-123)
+[Fixed](https://github.com/org/repo/pull/42) [PROJ-123](https://redhat.atlassian.net/browse/PROJ-123)
 ```
 
 **RIGHT — links embedded in a human-readable sentence describing what was done:**
 ```
 [Fixed](https://github.com/org/repo/pull/42) the \
-[login timeout bug](https://issues.redhat.com/browse/PROJ-123) affecting production users
+[login timeout bug](https://redhat.atlassian.net/browse/PROJ-123) affecting production users
 ```
 
 - If a ticket has no associated PR, use just the issue URL:
 ```
-[Updated](https://issues.redhat.com/browse/PROJ-456) deployment configuration for staging environment
+[Updated](https://redhat.atlassian.net/browse/PROJ-456) deployment configuration for staging environment
 ```
 
 Every entry MUST read as a complete, meaningful sentence. The link text should describe \
@@ -620,7 +620,7 @@ parameter (NOT `content`):
      "report_period": "Week N, Mon Year",
      "entries": [
        {{
-         "text": "[Fixed](https://github.com/org/repo/pull/42) the [login timeout bug](https://issues.redhat.com/browse/PROJ-123) affecting production users",
+         "text": "[Fixed](https://github.com/org/repo/pull/42) the [login timeout bug](https://redhat.atlassian.net/browse/PROJ-123) affecting production users",
          "ticket_key": "PROJ-123"
        }},
        {{
