@@ -77,35 +77,35 @@ If an MCP tool is unavailable or fails with a connection error, **STOP immediate
 do not fall back to alternatives. Inform the user that the MCP server appears to be down \
 and suggest checking the server status.
 
-**Jira operations** use the external Atlassian MCP (separate from Ghost). \
-Use whatever Jira tools are available from your configured Jira MCP server \
-(e.g., search issues, get issue details, get current user).
+**Tool servers**: Jira tools (`jira_search`, `jira_get_issue`, etc.) come from the \
+**Atlassian MCP** server. GitHub tools (`github_*`) and Reports tools (`log_activity`, \
+`get_weekly_activity`, etc.) come from the **Ghost MCP** server.
 
 ## Step 0: Verify MCP Availability
 
 Before doing anything else, verify that the MCP servers are reachable:
 
-1. Call `github_get_current_user` as a GitHub connectivity check
-2. Call the Jira MCP's get-current-user or equivalent as a Jira connectivity check
+1. Call `github_get_current_user` (Ghost) as a GitHub connectivity check
+2. Call `jira_get_myself` (Atlassian) as a Jira connectivity check
 3. If either tool is **not available**, returns a **connection error**, or **times out**: \
 **STOP immediately**. Tell the user:
-   > "The MCP server appears to be unavailable. Please check that the Ghost and Jira MCP \
-servers are running and that your MCP configuration is correct."
+   > "An MCP server appears to be unavailable. Please check that the Ghost and Atlassian \
+MCP servers are running and that your MCP configuration is correct."
 4. **Do NOT attempt to use CLI tools, direct API calls, or any alternative.** \
 This workflow requires MCP tools — there is no fallback.
 
 ## Steps
 
 1. **Identify me** on both platforms (run in parallel):
-   - Jira: use the Jira MCP to get the current user
-   - GitHub: `github_get_current_user`
+   - `jira_get_myself` (Atlassian MCP)
+   - `github_get_current_user` (Ghost MCP)
 
 2. **Check what's already logged**:
    - `get_weekly_activity(week_offset={week_offset})`
    - Note the `unique_tickets` list — these are already tracked
 
-3. **Search Jira** for my tickets using the Jira MCP:
-   - Search for my tickets with status "In Progress", "Done", "Review"
+3. **Search Jira** for my tickets:
+   - `jira_search(jql="assignee = currentUser() AND status IN ('In Progress', 'Done', 'In Review') ORDER BY updated DESC")`
    - Filter results by the `updated` field to only include tickets updated within the target week
    - Compare against already-logged tickets to find gaps
 
@@ -130,6 +130,9 @@ Present the items first and wait for my confirmation before logging anything.
 `curl`, or custom HTTP clients. If an MCP tool is unavailable or fails with a connection \
 error, **STOP immediately** — do not fall back to alternatives.
 
+**Tool servers**: Jira tools (`jira_get_issue`, etc.) come from the **Atlassian MCP**. \
+Reports tools (`log_activity`, `get_weekly_activity`) come from the **Ghost MCP**.
+
 ## Step 0: Verify MCP Availability
 
 1. Call `get_weekly_activity(week_offset={week_offset})` as a connectivity check
@@ -143,16 +146,17 @@ run the gather-activities workflow first
 
 2. **Ask for confirmation** — never log without my approval
 
-3. **Enrich ticket data** before logging:
-   - Jira tickets: use the Jira MCP to get issue details (components and summary)
+3. **Enrich ticket data** before logging — this is critical for project detection:
+   - Jira tickets: call `jira_get_issue(issue_key="PROJ-123")` (Atlassian MCP) to get \
+the issue's **components** and **summary**
    - GitHub items: `github_get_issue` or `github_get_pr` for summary and repo info
 
-4. **Log each confirmed item** using `log_activity`:
+4. **Log each confirmed item** using `log_activity` (Ghost MCP):
    - **ticket_key**: `PROJ-123` (Jira) or `owner/repo#123` (GitHub)
-   - **ticket_summary**: brief description
+   - **ticket_summary**: brief description from the ticket
    - **github_repo**: required for GitHub items (format: `owner/repo`)
-   - **jira_components**: required for Jira tickets — always fetch components from Jira MCP first, \
-needed for project detection
+   - **jira_components**: **REQUIRED** for Jira tickets — pass the component names from \
+`jira_get_issue` response (needed for automatic project/field detection)
 
 5. **Verify** by calling `get_weekly_activity` to confirm everything is tracked
 """
@@ -164,6 +168,9 @@ Follow the formatting rules exactly.
 **ALWAYS use MCP server tools** for all operations. Never use CLI tools, direct API calls, \
 `curl`, or custom HTTP clients. If an MCP tool is unavailable or fails with a connection \
 error, **STOP immediately** — do not fall back to alternatives.
+
+**Tool servers**: Jira tools (`jira_get_issue`) come from the **Atlassian MCP**. \
+GitHub tools (`github_*`) and Reports tools come from the **Ghost MCP**.
 
 ## Step 0: Verify MCP Availability
 
@@ -201,6 +208,12 @@ Fixed the login bug. (JIRA: PROJ-123, PR: #456)
 [role-based access control](https://issues.redhat.com/browse/PROJ-456) for the admin panel
 ```
 
+### Building Jira URLs
+
+To build Jira issue URLs, use `jira_get_issue(issue_key="PROJ-123")` from the Atlassian MCP. \
+The response includes a `url` field with the full browse URL. \
+Alternatively, the Jira base URL follows the pattern: `https://YOUR-INSTANCE.atlassian.net/browse/PROJ-123`.
+
 ### Content Rules
 
 - The report is ONLY a list of work items
@@ -218,7 +231,8 @@ ALWAYS use the `entries` parameter (NOT `content`) with `save_management_report`
 1. **Get activity data**: `get_weekly_activity(week_offset={week_offset})`
 
 2. **Gather URLs** for each ticket:
-   - Jira issues: `https://issues.redhat.com/browse/PROJ-123`
+   - Jira issues: call `jira_get_issue(issue_key="PROJ-123")` to get the `url` field, \
+or construct: `https://YOUR-JIRA-INSTANCE/browse/PROJ-123`
    - GitHub issues: `github_get_issue` or `https://github.com/owner/repo/issues/NUMBER`
    - GitHub PRs: use `github_search_prs` or `github_list_prs` to find associated PRs
    - If no PR exists, use the commit URL: `https://github.com/owner/repo/commit/SHA`
@@ -252,9 +266,13 @@ Never use CLI tools, direct API calls, `curl`, or custom HTTP clients. \
 If an MCP tool is unavailable or fails with a connection error, **STOP immediately** — \
 do not fall back to alternatives.
 
+**Tool servers**: Jira tools (`jira_create_issue`, `jira_add_comment`, etc.) come from \
+the **Atlassian MCP**. GitHub tools (`github_*`) and Reports tools (`log_activity`) come \
+from the **Ghost MCP**.
+
 ## Phase 0: Verify MCP Availability
 
-1. Call `github_get_current_user` as a connectivity check
+1. Call `github_get_current_user` (Ghost MCP) as a connectivity check
 2. If the tool is **not available**, returns a **connection error**, or **times out**: \
 **STOP immediately**. Tell the user the MCP server appears to be unavailable.
 
@@ -267,7 +285,7 @@ Gather as much context as possible about what the user worked on:
    - `git log --oneline -10` — recent commits on this branch
    - `git remote get-url origin` — identify the repo
 
-2. **GitHub context** (MCP tools):
+2. **GitHub context** (Ghost MCP):
    - `github_get_current_user` — get the user's GitHub login
    - `github_search_prs(query="author:USERNAME head:BRANCH_NAME")` — find PRs for this branch
    - If a PR is found, get its details: `github_get_pr` for full info
@@ -288,8 +306,9 @@ Ask the user:
 1. **Where to create the ticket?** — Jira or GitHub Issues
 
 2. **If Jira:**
-   - Which project (use the Jira MCP to list available projects)
-   - Which components (use the Jira MCP to list components for the project)
+   - Which project — call `jira_get_all_projects` (Atlassian MCP) to list options
+   - Which components — call `jira_get_issue` on an existing ticket in that project to \
+see available components, or ask the user
    - Issue type (Task, Story, Bug) — default to Task
 
 3. **If GitHub Issues:**
@@ -313,14 +332,15 @@ requesting the work.
 
 Do NOT mention that the work is already done in the ticket body.
 
-Use the Jira MCP's create-issue tool or `github_create_issue` depending on user's choice.
+Use `jira_create_issue` (Atlassian MCP) or `github_create_issue` (Ghost MCP) \
+depending on user's choice.
 
 ## Phase 4: Add Progress Comment
 
 Immediately add a comment to the newly created ticket documenting the progress. \
 This comment SHOULD reference the actual work:
 
-**For GitHub issues**, use `github_add_issue_comment` with a body like:
+**For GitHub issues**, use `github_add_issue_comment` (Ghost MCP) with a body like:
 
 ```markdown
 ## Progress
@@ -335,30 +355,31 @@ This comment SHOULD reference the actual work:
 **Pull Request:** [#NUMBER](PR-URL) — PR title
 ```
 
-**For Jira tickets**, use the Jira MCP's add-comment tool with equivalent content (Jira wiki markup):
+**For Jira tickets**, use `jira_add_comment` (Atlassian MCP) with Markdown content:
 
-```
-h2. Progress
+```markdown
+## Progress
 
-[Implemented|PR-URL] this in commit [SHORT_SHA|COMMIT-URL].
+[Implemented](PR-URL) this in commit [`SHORT_SHA`](COMMIT-URL).
 
-*Status:* Merged / Open / In Review
+**Status:** Merged / Open / In Review
 
-*Commits:*
-- [abc1234|COMMIT-URL] — commit message summary
+**Commits:**
+- [`abc1234`](COMMIT-URL) — commit message summary
 
-*Pull Request:* [#NUMBER|PR-URL] — PR title
+**Pull Request:** [#NUMBER](PR-URL) — PR title
 ```
 
 ## Phase 5: Optionally Log Activity
 
 Ask the user: "Do you want to log this activity for your management report?"
 
-If yes, call `log_activity` with:
+If yes, first call `jira_get_issue(issue_key="PROJ-123")` (Atlassian MCP) to get the \
+components, then call `log_activity` (Ghost MCP) with:
 - **ticket_key**: the created ticket key (`PROJ-123` or `owner/repo#123`)
 - **ticket_summary**: the ticket title
 - **action_type**: `create`
-- **jira_components**: include if Jira
+- **jira_components**: component names from `jira_get_issue` response (required for Jira)
 - **github_repo**: include if GitHub (format: `owner/repo`)
 """
 
