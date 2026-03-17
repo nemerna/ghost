@@ -10,26 +10,17 @@ Jira integration is handled via an external Atlassian MCP server — configure i
 
 ## Get Started
 
-### 1. Run the server
-
-```bash
-git clone <repository-url> && cd ghost
-podman-compose up -d
-```
-
-Open `http://localhost:8080` to access the web UI.
-
-### 2. Gather your credentials
+### 1. Gather your credentials
 
 | Value | Where to get it | Used by |
 |-------|----------------|---------|
-| `GHOST_URL` | `http://localhost:8080` for local, or your hosted instance URL | All endpoints |
+| `GHOST_URL` | Your Ghost instance URL (provided by your team) | All endpoints |
 | `GITHUB_PAT` | [GitHub → Settings → Developer settings → Personal access tokens](https://github.com/settings/tokens) | GitHub |
 | `GHOST_PAT` | Ghost web UI → Settings → Personal Access Tokens → Generate | Reports |
 
-### 3. Configure your IDE
+### 2. Configure your IDE
 
-Replace the `ALL_CAPS` placeholders below with the values from step 2.
+Replace the `ALL_CAPS` placeholders below with the values from step 1.
 
 <details>
 <summary><strong>Cursor</strong></summary>
@@ -50,14 +41,19 @@ Create or edit `.cursor/mcp.json` in your project root (or `~/.cursor/mcp.json` 
       "headers": {
         "Authorization": "Bearer GHOST_PAT"
       }
+    },
+    "jira": {
+      "type": "streamable-http",
+      "url": "https://mcp.atlassian.com/v1/mcp",
+      "auth": {
+        "type": "oauth"
+      }
     }
   }
 }
 ```
 
-For Jira, add the [Atlassian MCP](https://www.npmjs.com/package/@anthropic/mcp-atlassian) or equivalent as a separate server entry.
-
-Restart Cursor after saving.
+Restart Cursor after saving. The Jira server uses OAuth — you'll be prompted to authenticate on first use.
 
 </details>
 
@@ -72,13 +68,16 @@ claude mcp add --transport streamable-http github \
 claude mcp add --transport streamable-http reports \
   GHOST_URL/mcp/reports \
   --header "Authorization: Bearer GHOST_PAT"
+
+claude mcp add --transport streamable-http jira \
+  https://mcp.atlassian.com/v1/mcp
 ```
 
-Verify with `claude mcp list` — both should show `✓ Connected`.
+Verify with `claude mcp list` — all three should show `✓ Connected`.
 
 </details>
 
-### 4. Try it
+### 3. Try it
 
 Ask your IDE:
 
@@ -93,44 +92,17 @@ available MCP tools.
 
 | Prompt | What it does |
 |--------|-------------|
-| `gather-activities` | Scans Jira (via external MCP) and GitHub for work you did during a given week and compares it against what's already logged, surfacing untracked items. |
+| `gather-activities` | Scans Jira (via external MCP) and GitHub for work you did during a given period and compares it against what's already logged, surfacing untracked items. |
 | `log-activities` | Logs untracked items into the system. Shows you the list first and waits for confirmation before writing anything. |
 | `create-management-report` | Builds a management report from your logged activities with properly formatted links, then saves it via the Reports API. |
 | `unghost` | Creates a tracking ticket (via Jira MCP or GitHub issue) for work that was submitted without one, adds a progress comment linking the actual commits/PRs, and optionally logs the activity. |
+| `weekly-report` | End-to-end workflow: gathers activities from Jira and GitHub, logs untracked items, and creates a formatted management report — all in one go. |
 
-All prompts accept an optional `week_offset` argument (`0` = current week,
-`1` = last week, etc.) except `unghost`, which operates on the current branch.
-
----
-
-## Configuration
-
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | — | PostgreSQL connection string (empty = SQLite) |
-| `GHOST_DATA_DIR` | `./data` | SQLite storage directory |
-| `DEV_MODE` | `false` | Bypass OAuth, enable API docs |
-
-### Optional headers
-
-| Header | Endpoint | Description |
-|--------|----------|-------------|
-| `X-GitHub-API-URL` | `/mcp/github` | GitHub Enterprise API URL (e.g. `https://github.yourcompany.com/api/v3`) |
+All prompts (except `unghost`) will prompt you to enter the number of days to
+collect data from (e.g. `7` for the last week, `14` for the last two weeks).
+`unghost` operates on the current branch and does not require a time range.
 
 ---
-
-## Local Development
-
-```bash
-pip install -e ".[dev]"
-
-python -m ghost.server --host 0.0.0.0 --port 8001          # MCP server
-DEV_MODE=true uvicorn ghost.api.main:app --port 8000 --reload  # REST API
-
-cd ui && npm install && npm run dev                         # Frontend (localhost:5173)
-```
 
 ## License
 
