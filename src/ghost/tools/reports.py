@@ -740,6 +740,105 @@ def _extract_ticket_key_from_text(text: str) -> str | None:
     return None
 
 
+def _resolve_entry_projects(
+    entries: list[dict[str, Any]],
+    username: str,
+    session,
+) -> list[dict[str, Any]]:
+    """
+    Resolve detected_project_id for each entry from existing ActivityLog data.
+
+    This runs during report creation/update so entries carry their own project
+    assignment and the consolidated view never needs to query ActivityLog or
+    reach out to Jira MCP at read time.
+
+    For each entry with a ticket_key:
+    1. Look up the most recent ActivityLog for that ticket to get its
+       already-stored detected_project_id.
+    2. If no activity exists, fall back to basic detection using only the
+       ticket key format (Jira project key or GitHub repo pattern).
+    """
+    ticket_keys = {e.get("ticket_key") for e in entries if e.get("ticket_key")}
+    if not ticket_keys:
+        return entries
+
+    # Batch-query ActivityLog for all ticket keys at once
+    ticket_to_project: dict[str, int | None] = {}
+    ticket_to_meta: dict[str, tuple[str | None, str | None, str | None]] = {}
+
+    activities = (
+        session.query(
+            ActivityLog.ticket_key,
+            ActivityLog.detected_project_id,
+            ActivityLog.project_key,
+            ActivityLog.github_repo,
+            ActivityLog.jira_components,
+        )
+        .filter(
+            ActivityLog.username == username,
+            ActivityLog.ticket_key.in_(ticket_keys),
+        )
+        .order_by(ActivityLog.timestamp.desc())
+        .all()
+    )
+
+    for tk, proj_id, proj_key, gh_repo, jira_comps in activities:
+        if tk not in ticket_to_project:
+            ticket_to_project[tk] = proj_id
+            ticket_to_meta[tk] = (proj_key, gh_repo, jira_comps)
+
+    # For ticket keys with no activity, try basic detection from ticket key format
+    for tk in ticket_keys:
+        if tk in ticket_to_project:
+            continue
+        source, normalized, proj_key, gh_repo = _parse_ticket_key(tk)
+        detected = detect_project_for_activity(
+            github_repo=gh_repo,
+            jira_project_key=proj_key,
+            jira_components=None,
+            session=session,
+        )
+        ticket_to_project[tk] = detected
+
+    # For entries whose activity had no detected_project_id, attempt detection
+    # using the metadata we already have (no Jira MCP call)
+    for tk, proj_id in list(ticket_to_project.items()):
+        if proj_id is not None:
+            continue
+        meta = ticket_to_meta.get(tk)
+        if not meta:
+            continue
+        proj_key, gh_repo, jira_comps = meta
+        comps_list = (
+            [c.strip() for c in jira_comps.split(",") if c.strip()]
+            if jira_comps
+            else None
+        )
+        detected = detect_project_for_activity(
+            github_repo=gh_repo,
+            jira_project_key=proj_key,
+            jira_components=comps_list,
+            session=session,
+        )
+        if detected:
+            ticket_to_project[tk] = detected
+
+    # Stamp detected_project_id onto each entry, preserving manual overrides
+    result = []
+    for e in entries:
+        entry = dict(e)
+        if entry.get("detected_project_id") is not None:
+            # Manual override — keep as-is
+            result.append(entry)
+            continue
+        tk = entry.get("ticket_key")
+        if tk and tk in ticket_to_project:
+            entry["detected_project_id"] = ticket_to_project[tk]
+        result.append(entry)
+
+    return result
+
+
 def _serialize_entries_to_content(entries: list[dict[str, Any]]) -> str:
     """Serialize structured entries to JSON content for storage."""
     serialized_entries = []
@@ -747,6 +846,8 @@ def _serialize_entries_to_content(entries: list[dict[str, Any]]) -> str:
         entry_dict = {"text": e.get("text", ""), "private": e.get("private", False)}
         if e.get("ticket_key"):
             entry_dict["ticket_key"] = e.get("ticket_key")
+        if e.get("detected_project_id") is not None:
+            entry_dict["detected_project_id"] = e.get("detected_project_id")
         serialized_entries.append(entry_dict)
     return json.dumps({
         "format": "structured",
@@ -805,10 +906,15 @@ def save_management_report(
                 if ticket_key and not private:
                     activity_visibility = _get_activity_visibility(ticket_key, username, session)
                     if activity_visibility is False:
-                        # Activity is explicitly hidden, so mark entry as private
                         private = True
                 
-                processed_entries.append({"text": text, "private": private, "ticket_key": ticket_key})
+                processed_entries.append({
+                    "text": text, "private": private, "ticket_key": ticket_key,
+                    "detected_project_id": entry.get("detected_project_id"),
+                })
+            
+            # Resolve field/project assignments (preserves manual overrides)
+            processed_entries = _resolve_entry_projects(processed_entries, username, session)
             
             final_content = _serialize_entries_to_content(processed_entries)
         elif content is not None:
@@ -975,7 +1081,13 @@ def update_management_report(
                     if activity_visibility is False:
                         private = True
                 
-                processed_entries.append({"text": text, "private": private, "ticket_key": ticket_key})
+                processed_entries.append({
+                    "text": text, "private": private, "ticket_key": ticket_key,
+                    "detected_project_id": entry.get("detected_project_id"),
+                })
+            
+            # Resolve field/project assignments (preserves manual overrides)
+            processed_entries = _resolve_entry_projects(processed_entries, report.username, session)
             
             report.content = _serialize_entries_to_content(processed_entries)
         elif content is not None:

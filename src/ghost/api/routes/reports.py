@@ -36,6 +36,7 @@ class ReportEntry(BaseModel):
     text: str
     private: bool = False
     ticket_key: str | None = None  # Associated ticket key for project/component tracking
+    detected_project_id: int | None = None  # Resolved during report creation from ActivityLog
 
 
 class ManagementReportResponse(BaseModel):
@@ -65,7 +66,8 @@ class ReportEntryInput(BaseModel):
     
     text: str
     private: bool = False
-    ticket_key: str | None = None  # Optional ticket key for auto-detecting visibility
+    ticket_key: str | None = None
+    detected_project_id: int | None = None  # Manual override or auto-detected
 
 
 class ManagementReportCreateRequest(BaseModel):
@@ -183,6 +185,7 @@ def _parse_structured_content(content: str) -> list[ReportEntry]:
                 text=e.get("text", ""),
                 private=e.get("private", False),
                 ticket_key=e.get("ticket_key"),
+                detected_project_id=e.get("detected_project_id"),
             )
             for e in data.get("entries", [])
         ]
@@ -197,6 +200,8 @@ def _serialize_structured_content(entries: list[ReportEntry]) -> str:
         entry_dict = {"text": e.text, "private": e.private}
         if e.ticket_key:
             entry_dict["ticket_key"] = e.ticket_key
+        if e.detected_project_id is not None:
+            entry_dict["detected_project_id"] = e.detected_project_id
         serialized_entries.append(entry_dict)
     return json.dumps({
         "format": "structured",
@@ -340,25 +345,46 @@ async def create_management_report(
     
     Supports both legacy plain text content and structured entries format.
     If entries are provided, they are serialized to JSON for storage.
+    Field/project linking is resolved at creation time from existing ActivityLog data.
     """
     db = get_db()
     
-    # Determine content to store
-    if request.entries is not None:
-        # Convert structured entries to JSON content, auto-detecting ticket_key if not provided
-        entries = []
-        for e in request.entries:
-            ticket_key = e.ticket_key
-            if not ticket_key and e.text:
-                ticket_key = report_tools._extract_ticket_key_from_text(e.text)
-            entries.append(ReportEntry(text=e.text, private=e.private, ticket_key=ticket_key))
-        content = _serialize_structured_content(entries)
-    elif request.content is not None:
-        content = request.content
-    else:
-        content = ""
-    
     with db.session() as session:
+        # Determine content to store
+        if request.entries is not None:
+            entries = []
+            for e in request.entries:
+                ticket_key = e.ticket_key
+                if not ticket_key and e.text:
+                    ticket_key = report_tools._extract_ticket_key_from_text(e.text)
+                entries.append(ReportEntry(
+                    text=e.text, private=e.private, ticket_key=ticket_key,
+                    detected_project_id=getattr(e, 'detected_project_id', None),
+                ))
+            
+            # Resolve field/project assignments (preserves manual overrides)
+            entry_dicts = [
+                {"text": e.text, "private": e.private, "ticket_key": e.ticket_key,
+                 "detected_project_id": e.detected_project_id}
+                for e in entries
+            ]
+            resolved = report_tools._resolve_entry_projects(entry_dicts, user.email, session)
+            entries = [
+                ReportEntry(
+                    text=r["text"],
+                    private=r["private"],
+                    ticket_key=r.get("ticket_key"),
+                    detected_project_id=r.get("detected_project_id"),
+                )
+                for r in resolved
+            ]
+            
+            content = _serialize_structured_content(entries)
+        elif request.content is not None:
+            content = request.content
+        else:
+            content = ""
+        
         report = ManagementReport(
             username=user.email,
             title=request.title,
@@ -588,6 +614,7 @@ async def update_management_report(
     
     Supports both legacy plain text content and structured entries format.
     If entries are provided, they are serialized to JSON for storage.
+    Field/project linking is re-resolved at update time from existing ActivityLog data.
     """
     db = get_db()
     
@@ -605,13 +632,33 @@ async def update_management_report(
         
         # Handle content update - prefer entries over plain content
         if request.entries is not None:
-            # Auto-detect ticket_key if not provided
             entries = []
             for e in request.entries:
                 ticket_key = e.ticket_key
                 if not ticket_key and e.text:
                     ticket_key = report_tools._extract_ticket_key_from_text(e.text)
-                entries.append(ReportEntry(text=e.text, private=e.private, ticket_key=ticket_key))
+                entries.append(ReportEntry(
+                    text=e.text, private=e.private, ticket_key=ticket_key,
+                    detected_project_id=getattr(e, 'detected_project_id', None),
+                ))
+            
+            # Resolve field/project assignments (preserves manual overrides)
+            entry_dicts = [
+                {"text": e.text, "private": e.private, "ticket_key": e.ticket_key,
+                 "detected_project_id": e.detected_project_id}
+                for e in entries
+            ]
+            resolved = report_tools._resolve_entry_projects(entry_dicts, report.username, session)
+            entries = [
+                ReportEntry(
+                    text=r["text"],
+                    private=r["private"],
+                    ticket_key=r.get("ticket_key"),
+                    detected_project_id=r.get("detected_project_id"),
+                )
+                for r in resolved
+            ]
+            
             report.content = _serialize_structured_content(entries)
         elif request.content is not None:
             report.content = request.content
@@ -831,56 +878,28 @@ async def get_consolidated_report(
             for project in field.projects:
                 project_to_field[project.id] = (field, project)
 
-        # Group individual report entries by detected project
-        # Each entry is assigned to its ticket's detected_project_id
-        from ghost.db import ActivityLog
-
+        # Group individual report entries by detected project.
+        # Project assignments are read directly from entries (resolved at report
+        # creation time) so no ActivityLog lookup or Jira MCP is needed here.
         entries_by_project: dict[int, list[ConsolidatedEntry]] = {}
         uncategorized_entries: list[ConsolidatedEntry] = []
 
         for username, report in latest_by_user.items():
-            # Parse structured content to get entries with ticket_keys
             parsed_entries = _parse_structured_content(report.content)
             
-            # Build a map of ticket_key -> detected_project_id
-            ticket_to_project: dict[str, int | None] = {}
-            all_ticket_keys = set()
-            
-            for entry in parsed_entries:
-                if entry.ticket_key:
-                    all_ticket_keys.add(entry.ticket_key)
-            
-            if all_ticket_keys:
-                # Query activities to get detected_project_id for each ticket
-                activities = (
-                    session.query(ActivityLog.ticket_key, ActivityLog.detected_project_id)
-                    .filter(
-                        ActivityLog.ticket_key.in_(all_ticket_keys),
-                    )
-                    .order_by(ActivityLog.timestamp.desc())
-                    .all()
-                )
-                
-                # Use the most recent activity for each ticket
-                for ticket_key, proj_id in activities:
-                    if ticket_key not in ticket_to_project:
-                        ticket_to_project[ticket_key] = proj_id
-            
-            # Group entries by project
+            # Group entries by their stored detected_project_id
             entries_grouped_by_project: dict[int | None, list[tuple[int, str]]] = {}
             
             for idx, entry in enumerate(parsed_entries):
-                # Skip private entries for manager view
                 if entry.private:
                     continue
                     
-                proj_id = ticket_to_project.get(entry.ticket_key) if entry.ticket_key else None
+                proj_id = entry.detected_project_id
                 
                 if proj_id not in entries_grouped_by_project:
                     entries_grouped_by_project[proj_id] = []
                 entries_grouped_by_project[proj_id].append((idx, entry.text))
             
-            # Create ConsolidatedEntry for each project group
             for proj_id, proj_entries in entries_grouped_by_project.items():
                 consolidated_entry = ConsolidatedEntry(
                     username=username,
@@ -1380,9 +1399,9 @@ async def _get_consolidated_as_draft_content(session, team_id: int, user: User) 
     """Get current consolidated report data formatted as draft content.
     
     This converts the live consolidated data into editable draft format.
+    Project assignments are read directly from entries (resolved at report
+    creation time) so no ActivityLog lookup or Jira MCP is needed here.
     """
-    from ghost.db import ActivityLog
-    
     # Get team member emails
     memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()
     member_ids = [m.user_id for m in memberships]
@@ -1438,53 +1457,26 @@ async def _get_consolidated_as_draft_content(session, team_id: int, user: User) 
         for project in field.projects:
             project_to_field[project.id] = (field, project)
 
-    # Group individual report entries by detected project
+    # Group individual report entries by their stored detected_project_id
     entries_by_project: dict[int, list[dict]] = {}
     uncategorized_entries: list[dict] = []
 
     for username, report in latest_by_user.items():
-        # Parse structured content to get entries with ticket_keys
         parsed_entries = _parse_structured_content(report.content)
         
-        # Build a map of ticket_key -> detected_project_id
-        ticket_to_project: dict[str, int | None] = {}
-        all_ticket_keys = set()
-        
-        for entry in parsed_entries:
-            if entry.ticket_key:
-                all_ticket_keys.add(entry.ticket_key)
-        
-        if all_ticket_keys:
-            # Query activities to get detected_project_id for each ticket
-            activities = (
-                session.query(ActivityLog.ticket_key, ActivityLog.detected_project_id)
-                .filter(
-                    ActivityLog.ticket_key.in_(all_ticket_keys),
-                )
-                .order_by(ActivityLog.timestamp.desc())
-                .all()
-            )
-            
-            # Use the most recent activity for each ticket
-            for ticket_key, proj_id in activities:
-                if ticket_key not in ticket_to_project:
-                    ticket_to_project[ticket_key] = proj_id
-        
-        # Group entries by project
+        # Group entries by project using stored detected_project_id
         entries_grouped_by_project: dict[int | None, list[str]] = {}
         
         for entry in parsed_entries:
-            # Skip private entries for manager view
             if entry.private:
                 continue
                 
-            proj_id = ticket_to_project.get(entry.ticket_key) if entry.ticket_key else None
+            proj_id = entry.detected_project_id
             
             if proj_id not in entries_grouped_by_project:
                 entries_grouped_by_project[proj_id] = []
             entries_grouped_by_project[proj_id].append(entry.text)
         
-        # Create draft entry for each project group
         for proj_id, proj_entry_texts in entries_grouped_by_project.items():
             draft_entry = {
                 "text": "\n".join(f"- {text}" for text in proj_entry_texts),

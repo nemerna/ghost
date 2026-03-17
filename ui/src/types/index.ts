@@ -130,12 +130,14 @@ export interface ReportEntry {
   text: string;
   private: boolean;
   ticket_key?: string | null;
+  detected_project_id?: number | null;
 }
 
 export interface ReportEntryInput {
   text: string;
   private?: boolean;
-  ticket_key?: string;  // For auto-detecting visibility from activity
+  ticket_key?: string;
+  detected_project_id?: number | null;
 }
 
 export interface ManagementReport {

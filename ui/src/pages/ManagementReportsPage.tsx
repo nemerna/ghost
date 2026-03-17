@@ -88,6 +88,7 @@ import {
   deleteConsolidatedSnapshot,
   getTeamReportingProgress,
 } from '@/api/reports';
+import { listFields } from '@/api/fields';
 import { listTeams } from '@/api/teams';
 import { listEmailTemplates } from '@/api/users';
 import { useAuth } from '@/auth';
@@ -239,6 +240,12 @@ export function ManagementReportsPage() {
     queryKey: ['teamReportingProgress', selectedTeamId, progressWeekOffset],
     queryFn: () => getTeamReportingProgress(selectedTeamId!, progressWeekOffset),
     enabled: !!selectedTeamId && canViewTeams,
+  });
+
+  // Fetch report fields/projects for per-entry project badges
+  const { data: fieldsData } = useQuery({
+    queryKey: ['fields'],
+    queryFn: listFields,
   });
 
   // Fetch email templates
@@ -1699,6 +1706,7 @@ export function ManagementReportsPage() {
               entries={displayEntries.length > 0 ? displayEntries : [{ text: '', private: false }]}
               onChange={(entries) => handleEntryChange(report.id, entries)}
               placeholder="Work item description with links..."
+              fields={fieldsData?.fields}
             />
 
             {/* Save/Cancel buttons when there are unsaved changes */}
@@ -1850,6 +1858,7 @@ export function ManagementReportsPage() {
                 entries={newReportEntries}
                 onChange={setNewReportEntries}
                 placeholder="Work item description with links..."
+                fields={fieldsData?.fields}
               />
             </FormGroup>
 

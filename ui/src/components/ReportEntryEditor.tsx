@@ -21,7 +21,8 @@ import {
   TrashIcon,
 } from '@patternfly/react-icons';
 import { InlineMarkdown } from '@/components/StyledMarkdown';
-import type { ReportEntry, ReportEntryInput } from '@/types';
+import { ProjectBadge } from '@/components/ProjectBadge';
+import type { ReportEntry, ReportEntryInput, ReportField } from '@/types';
 
 export interface ReportEntryEditorProps {
   /** Current entries */
@@ -32,6 +33,8 @@ export interface ReportEntryEditorProps {
   placeholder?: string;
   /** Whether the editor is disabled */
   disabled?: boolean;
+  /** Available fields/projects for per-entry assignment */
+  fields?: ReportField[];
 }
 
 /**
@@ -39,7 +42,12 @@ export interface ReportEntryEditorProps {
  */
 export function reportEntriesToInputs(entries: ReportEntry[] | null | undefined): ReportEntryInput[] {
   if (!entries) return [];
-  return entries.map((e) => ({ text: e.text, private: e.private, ticket_key: e.ticket_key ?? undefined }));
+  return entries.map((e) => ({
+    text: e.text,
+    private: e.private,
+    ticket_key: e.ticket_key ?? undefined,
+    detected_project_id: e.detected_project_id ?? undefined,
+  }));
 }
 
 export function ReportEntryEditor({
@@ -47,6 +55,7 @@ export function ReportEntryEditor({
   onChange,
   placeholder = 'Work item description with links...',
   disabled = false,
+  fields,
 }: ReportEntryEditorProps) {
   // Track which entry index is being edited (-1 = none)
   const [editingIndex, setEditingIndex] = useState<number>(-1);
@@ -134,6 +143,19 @@ export function ReportEntryEditor({
     [entries, onChange, editingIndex]
   );
 
+  // Change the project assignment for an entry
+  const handleProjectChange = useCallback(
+    (index: number, projectId: number | null) => {
+      const newEntries = [...entries];
+      newEntries[index] = {
+        ...newEntries[index],
+        detected_project_id: projectId,
+      };
+      onChange(newEntries);
+    },
+    [entries, onChange]
+  );
+
   return (
     <Flex direction={{ default: 'column' }} style={{ gap: '0.5rem' }}>
       {entries.map((entry, index) => (
@@ -141,7 +163,6 @@ export function ReportEntryEditor({
           <Flex alignItems={{ default: 'alignItemsCenter' }}>
             <FlexItem grow={{ default: 'grow' }}>
               {editingIndex === index ? (
-                // Edit mode - show text input
                 <TextInput
                   ref={inputRef}
                   value={editText}
@@ -155,7 +176,6 @@ export function ReportEntryEditor({
                   }}
                 />
               ) : (
-                // View mode - show formatted markdown
                 <div
                   style={{
                     padding: '0.375rem 0.5rem',
@@ -176,9 +196,7 @@ export function ReportEntryEditor({
               )}
             </FlexItem>
             
-            {/* Action buttons */}
             {editingIndex === index ? (
-              // Edit mode buttons: Save and Cancel
               <>
                 <FlexItem>
                   <Tooltip content="Save">
@@ -206,7 +224,6 @@ export function ReportEntryEditor({
                 </FlexItem>
               </>
             ) : (
-              // View mode buttons: Edit, Visibility, Delete
               <>
                 <FlexItem>
                   <Tooltip content="Edit entry">
@@ -256,6 +273,14 @@ export function ReportEntryEditor({
               </>
             )}
           </Flex>
+          {fields && fields.length > 0 && (
+            <ProjectBadge
+              projectId={entry.detected_project_id ?? null}
+              fields={fields}
+              onChange={(projectId) => handleProjectChange(index, projectId)}
+              disabled={disabled}
+            />
+          )}
         </FlexItem>
       ))}
       <FlexItem>
