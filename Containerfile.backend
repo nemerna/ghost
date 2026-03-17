@@ -8,7 +8,7 @@ FROM registry.access.redhat.com/ubi9/python-311:latest
 LABEL name="ghost-backend" \
       version="1.0.0" \
       summary="Backend API for Ghost" \
-      description="FastAPI REST API for Jira, GitHub integration, activity tracking, and report generation" \
+      description="FastAPI REST API for GitHub integration, activity tracking, and report generation" \
       maintainer="Your Name <your.email@example.com>"
 
 # Set working directory
@@ -33,10 +33,7 @@ USER 1001
 ENV PYTHONPATH=/app/src
 
 # Environment variables for configuration (override at runtime)
-ENV JIRA_SERVER_URL="" \
-    JIRA_PERSONAL_ACCESS_TOKEN="" \
-    JIRA_VERIFY_SSL="true" \
-    DATABASE_URL="" \
+ENV DATABASE_URL="" \
     GHOST_DATA_DIR="/app/data" \
     DEV_MODE="false" \
     CORS_ORIGINS="*"

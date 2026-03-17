@@ -1,4 +1,4 @@
-"""MCP Server for Jira and GitHub with Streamable HTTP transport."""
+"""MCP Server for GitHub and Reports with Streamable HTTP transport."""
 
 import argparse
 import asyncio
@@ -24,22 +24,14 @@ from mcp.types import (
 from ghost.config import get_management_report_instructions
 from ghost.db import GitHubTokenConfig, PersonalAccessToken, User, get_db, init_db
 from ghost.github_client import GitHubClient, GitHubClientError, GitHubTokenManager
-from ghost.jira_client import JiraClient, JiraClientError
 from ghost.prompts import get_prompt as resolve_prompt
 from ghost.prompts import list_prompts as get_all_prompts
 
 # Import activity tracking and report functions
 from ghost.tools import reports as report_tools
 from ghost.tools.schemas import (
-    AddCommentInput,
-    CreateSubtaskInput,
-    CreateTicketInput,
-    DeleteCommentInput,
     DeleteManagementReportInput,
-    GetCommentsInput,
     GetManagementReportInput,
-    GetTicketInput,
-    GetTransitionsInput,
     GetWeeklyActivityInput,
     # GitHub Pull Requests
     GitHubAddPRCommentInput,
@@ -69,65 +61,25 @@ from ghost.tools.schemas import (
     GitHubReopenIssueInput,
     GitHubSearchIssuesInput,
     GitHubUpdateIssueInput,
-    # Jira
-    LinkIssuesInput,
-    ListComponentsInput,
-    ListIssueTypesInput,
     ListManagementReportsInput,
-    ListStatusesInput,
-    ListTicketsInput,
     # Activity & Reports
     LogActivityInput,
     # Management Reports
     SaveManagementReportInput,
-    SetEpicInput,
-    UpdateCommentInput,
     UpdateManagementReportInput,
-    UpdateTicketInput,
 )
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
-# Create separate MCP Servers for Jira, GitHub, and Reports
-ghost_server = Server("ghost")
+# Create MCP Servers for GitHub and Reports
 github_mcp_server = Server("github-mcp")
 reports_mcp_server = Server("reports-mcp")
 
 # Context variables for per-request clients (set by auth wrappers before each request)
-_jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("jira_client", default=None)
 _github_token_manager_ctx: ContextVar[GitHubTokenManager | None] = ContextVar("github_token_manager", default=None)
 _username_ctx: ContextVar[str | None] = ContextVar("username", default=None)
-_reports_jira_client_ctx: ContextVar[JiraClient | None] = ContextVar("reports_jira_client", default=None)
-
-
-def create_jira_client(
-    server_url: str | None = None,
-    token: str | None = None,
-    verify_ssl: bool = True,
-) -> JiraClient:
-    """Create a Jira client with the given configuration."""
-    if not server_url:
-        raise ValueError("Jira server URL is required. Set X-Jira-Server-URL header.")
-    if not token:
-        raise ValueError("Jira token is required. Set X-Jira-Token header.")
-
-    return JiraClient(
-        server_url=server_url,
-        token=token,
-        verify_ssl=verify_ssl,
-    )
-
-
-def get_jira_client() -> JiraClient:
-    """Get Jira client from context."""
-    client = _jira_client_ctx.get()
-    if client is None:
-        raise ValueError(
-            "Jira client not configured. Ensure X-Jira-Server-URL and X-Jira-Token headers are set."
-        )
-    return client
 
 
 def create_github_token_manager(
@@ -196,389 +148,6 @@ def get_username() -> str:
     if username is None:
         raise ValueError("Username not configured. Ensure X-Username header is set.")
     return username
-
-
-def get_reports_jira_client() -> JiraClient | None:
-    """Get optional Jira client from reports context for auto-fetching ticket details."""
-    return _reports_jira_client_ctx.get()
-
-
-# =============================================================================
-# Jira Tools
-# =============================================================================
-
-JIRA_TOOLS: list[Tool] = [
-    Tool(
-        name="jira_list_tickets",
-        description="List Jira tickets with optional filters. Returns ticket summaries including key, summary, status, assignee, and priority.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "assignee": {
-                    "type": "string",
-                    "description": "Filter by assignee username. Use 'currentUser' for the authenticated user.",
-                },
-                "project": {
-                    "type": "string",
-                    "description": "Filter by project key (e.g., 'PROJ').",
-                },
-                "component": {
-                    "type": "string",
-                    "description": "Filter by component name.",
-                },
-                "epic_key": {
-                    "type": "string",
-                    "description": "Filter by epic issue key (e.g., 'PROJ-100').",
-                },
-                "status": {
-                    "type": "string",
-                    "description": "Filter by issue status (e.g., 'Open', 'In Progress', 'Done').",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (1-100). Default: 50.",
-                    "default": 50,
-                    "minimum": 1,
-                    "maximum": 100,
-                },
-            },
-        },
-    ),
-    Tool(
-        name="jira_get_ticket",
-        description="Get full details of a specific Jira ticket including description, components, labels, comments count, and epic link.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-            },
-            "required": ["ticket_key"],
-        },
-    ),
-    Tool(
-        name="jira_create_ticket",
-        description="Create a new Jira ticket with specified fields. Returns the created ticket key and URL.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "project": {
-                    "type": "string",
-                    "description": "Project key (e.g., 'PROJ').",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "Issue title/summary.",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Issue description (supports Jira wiki markup).",
-                },
-                "issue_type": {
-                    "type": "string",
-                    "description": "Issue type (e.g., 'Task', 'Bug', 'Story', 'Epic'). Default: 'Task'.",
-                    "default": "Task",
-                },
-                "assignee": {
-                    "type": "string",
-                    "description": "Assignee username.",
-                },
-                "components": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of component names.",
-                },
-                "epic_key": {
-                    "type": "string",
-                    "description": "Parent epic issue key.",
-                },
-                "priority": {
-                    "type": "string",
-                    "description": "Priority name (e.g., 'High', 'Medium', 'Low').",
-                },
-                "labels": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of labels.",
-                },
-            },
-            "required": ["project", "summary"],
-        },
-    ),
-    Tool(
-        name="jira_update_ticket",
-        description="Update an existing Jira ticket's fields including title, description, assignee, status, components, and priority.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "New issue title/summary.",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "New issue description (supports Jira wiki markup).",
-                },
-                "assignee": {
-                    "type": "string",
-                    "description": "New assignee username. Use empty string to unassign.",
-                },
-                "status": {
-                    "type": "string",
-                    "description": "Transition to this status (e.g., 'In Progress', 'Done').",
-                },
-                "components": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "New list of component names (replaces existing).",
-                },
-                "priority": {
-                    "type": "string",
-                    "description": "New priority name.",
-                },
-            },
-            "required": ["ticket_key"],
-        },
-    ),
-    Tool(
-        name="jira_add_comment",
-        description="Add a comment to a Jira ticket. Supports Jira wiki markup in the comment body.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Comment body (supports Jira wiki markup).",
-                },
-            },
-            "required": ["ticket_key", "body"],
-        },
-    ),
-    Tool(
-        name="jira_get_comments",
-        description="Get comments from a Jira ticket. Returns comment ID, author, body, and timestamps.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of comments to return (1-100). Default: 20.",
-                    "default": 20,
-                    "minimum": 1,
-                    "maximum": 100,
-                },
-            },
-            "required": ["ticket_key"],
-        },
-    ),
-    Tool(
-        name="jira_update_comment",
-        description="Update an existing comment on a Jira ticket. Only comments authored by the current user can be updated.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-                "comment_id": {
-                    "type": "string",
-                    "description": "The comment ID to update (get this from jira_get_comments).",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "New comment body (supports Jira wiki markup).",
-                },
-            },
-            "required": ["ticket_key", "comment_id", "body"],
-        },
-    ),
-    Tool(
-        name="jira_delete_comment",
-        description="Delete a comment from a Jira ticket. Only comments authored by the current user can be deleted.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-                "comment_id": {
-                    "type": "string",
-                    "description": "The comment ID to delete (get this from jira_get_comments).",
-                },
-            },
-            "required": ["ticket_key", "comment_id"],
-        },
-    ),
-    # --- Discovery/Metadata Tools ---
-    Tool(
-        name="jira_list_projects",
-        description="List all accessible Jira projects. Returns project key, name, lead, and URL for each project.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
-    ),
-    Tool(
-        name="jira_list_components",
-        description="List components available in a Jira project. Useful for knowing valid component names when creating or filtering tickets.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "project": {
-                    "type": "string",
-                    "description": "Project key (e.g., 'PROJ').",
-                },
-            },
-            "required": ["project"],
-        },
-    ),
-    Tool(
-        name="jira_list_issue_types",
-        description="List issue types available in a Jira project. Returns types like Task, Bug, Story, Epic, etc.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "project": {
-                    "type": "string",
-                    "description": "Project key (e.g., 'PROJ').",
-                },
-            },
-            "required": ["project"],
-        },
-    ),
-    Tool(
-        name="jira_list_priorities",
-        description="List all available priority levels in Jira. Returns priority names like High, Medium, Low, etc.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
-    ),
-    Tool(
-        name="jira_list_statuses",
-        description="List available statuses for a Jira project. Returns status names and their categories (To Do, In Progress, Done).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "project": {
-                    "type": "string",
-                    "description": "Project key (e.g., 'PROJ').",
-                },
-            },
-            "required": ["project"],
-        },
-    ),
-    Tool(
-        name="jira_get_transitions",
-        description="Get available workflow transitions for a specific ticket. Shows what status changes are possible from the current state.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The issue key (e.g., 'PROJ-123').",
-                },
-            },
-            "required": ["ticket_key"],
-        },
-    ),
-    Tool(
-        name="jira_get_current_user",
-        description="Get information about the currently authenticated user. Returns username, display name, email, and timezone.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
-    ),
-    # --- Issue Linking & Hierarchy Tools ---
-    Tool(
-        name="jira_link_issues",
-        description="Create a link between two Jira issues. Common link types include 'relates to', 'blocks', 'is blocked by', 'is part of', 'duplicates', 'clones'.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "from_key": {
-                    "type": "string",
-                    "description": "The source issue key (e.g., 'PROJ-123').",
-                },
-                "to_key": {
-                    "type": "string",
-                    "description": "The target issue key (e.g., 'PROJ-456').",
-                },
-                "link_type": {
-                    "type": "string",
-                    "description": "The type of link (e.g., 'relates to', 'blocks', 'is blocked by', 'is part of', 'duplicates'). Default: 'relates to'.",
-                    "default": "relates to",
-                },
-            },
-            "required": ["from_key", "to_key"],
-        },
-    ),
-    Tool(
-        name="jira_create_subtask",
-        description="Create a sub-task under a parent Jira issue. The sub-task inherits the project from the parent.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "parent_key": {
-                    "type": "string",
-                    "description": "The parent issue key (e.g., 'PROJ-123').",
-                },
-                "summary": {
-                    "type": "string",
-                    "description": "Sub-task title/summary.",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Sub-task description (supports Jira wiki markup).",
-                },
-                "assignee": {
-                    "type": "string",
-                    "description": "Assignee username.",
-                },
-                "priority": {
-                    "type": "string",
-                    "description": "Priority name (e.g., 'High', 'Medium', 'Low').",
-                },
-            },
-            "required": ["parent_key", "summary"],
-        },
-    ),
-    Tool(
-        name="jira_set_epic",
-        description="Set or change the epic for a Jira issue. Associates the issue with the specified epic.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "issue_key": {
-                    "type": "string",
-                    "description": "The issue key to update (e.g., 'PROJ-123').",
-                },
-                "epic_key": {
-                    "type": "string",
-                    "description": "The epic issue key to set as parent (e.g., 'PROJ-100').",
-                },
-            },
-            "required": ["issue_key", "epic_key"],
-        },
-    ),
-]
 
 
 # =============================================================================
@@ -1583,6 +1152,10 @@ REPORTS_TOOLS: list[Tool] = [
                     "items": {"type": "string"},
                     "description": "For Jira tickets: list of component names for project detection (e.g., ['FSI-Lab']).",
                 },
+                "ticket_url": {
+                    "type": "string",
+                    "description": "Canonical browse URL for the ticket (e.g. from jira_get_issue 'url' field or GitHub issue URL). Stored for reports and UI links.",
+                },
                 "action_details": {
                     "type": "string",
                     "description": "Optional JSON string with additional context.",
@@ -1593,13 +1166,19 @@ REPORTS_TOOLS: list[Tool] = [
     ),
     Tool(
         name="get_weekly_activity",
-        description="Get activity summary for a specific week. Shows tickets worked on and actions performed.",
+        description="Get activity summary for a time period. Use 'days' to specify how many days back to look (e.g. 7 for last week).",
         inputSchema={
             "type": "object",
             "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days to look back (e.g. 7 for last week, 14 for last two weeks). Preferred over week_offset.",
+                    "minimum": 1,
+                    "maximum": 365,
+                },
                 "week_offset": {
                     "type": "integer",
-                    "description": "Week offset from current week (0 = current, -1 = last week). Range: -52 to 0.",
+                    "description": "(Legacy) Week offset from current week (0 = current, -1 = last week). Use 'days' instead.",
                     "default": 0,
                     "minimum": -52,
                     "maximum": 0,
@@ -1816,40 +1395,6 @@ Items from activities marked as private will be automatically hidden from manage
 
 
 # =============================================================================
-# Jira MCP Server Handlers
-# =============================================================================
-
-
-@ghost_server.list_tools()
-async def list_jira_tools() -> list[Tool]:
-    """List available Jira MCP tools."""
-    return JIRA_TOOLS
-
-
-@ghost_server.call_tool()
-async def call_jira_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle Jira tool calls from MCP clients."""
-    try:
-        jira_client = get_jira_client()
-        result = await _execute_jira_tool(name, arguments, jira_client)
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-    except JiraClientError as e:
-        error_response = {
-            "error": True,
-            "message": e.message,
-            "status_code": e.status_code,
-        }
-        return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
-    except Exception as e:
-        logger.exception(f"Error executing Jira tool {name}")
-        error_response = {
-            "error": True,
-            "message": str(e),
-        }
-        return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
-
-
-# =============================================================================
 # GitHub MCP Server Handlers
 # =============================================================================
 
@@ -1899,8 +1444,7 @@ async def call_reports_tool(name: str, arguments: dict[str, Any]) -> list[TextCo
     """Handle Reports tool calls from MCP clients."""
     try:
         username = get_username()
-        jira_client = get_reports_jira_client()  # Get Jira client from context (works here)
-        result = await _execute_reports_tool(name, arguments, username, jira_client)
+        result = await _execute_reports_tool(name, arguments, username)
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
     except Exception as e:
         logger.exception(f"Error executing Reports tool {name}")
@@ -1965,139 +1509,6 @@ async def get_reports_prompt(name: str, arguments: dict[str, str] | None = None)
 # =============================================================================
 # Tool Execution
 # =============================================================================
-
-
-async def _execute_jira_tool(
-    name: str, arguments: dict[str, Any], jira_client: JiraClient
-) -> dict[str, Any] | list[dict[str, Any]]:
-    """Execute a Jira tool and return the result."""
-
-    if name == "jira_list_tickets":
-        input_data = ListTicketsInput(**arguments)
-        jql = jira_client.build_jql(
-            assignee=input_data.assignee,
-            project=input_data.project,
-            component=input_data.component,
-            epic_key=input_data.epic_key,
-            status=input_data.status,
-        )
-        return jira_client.search_issues(jql, max_results=input_data.max_results)
-
-    elif name == "jira_get_ticket":
-        input_data = GetTicketInput(**arguments)
-        return jira_client.get_issue(input_data.ticket_key)
-
-    elif name == "jira_create_ticket":
-        input_data = CreateTicketInput(**arguments)
-        return jira_client.create_issue(
-            project=input_data.project,
-            summary=input_data.summary,
-            description=input_data.description,
-            issue_type=input_data.issue_type,
-            assignee=input_data.assignee,
-            components=input_data.components,
-            epic_key=input_data.epic_key,
-            priority=input_data.priority,
-            labels=input_data.labels,
-        )
-
-    elif name == "jira_update_ticket":
-        input_data = UpdateTicketInput(**arguments)
-        return jira_client.update_issue(
-            issue_key=input_data.ticket_key,
-            summary=input_data.summary,
-            description=input_data.description,
-            assignee=input_data.assignee,
-            status=input_data.status,
-            components=input_data.components,
-            priority=input_data.priority,
-        )
-
-    elif name == "jira_add_comment":
-        input_data = AddCommentInput(**arguments)
-        return jira_client.add_comment(
-            issue_key=input_data.ticket_key,
-            body=input_data.body,
-        )
-
-    elif name == "jira_get_comments":
-        input_data = GetCommentsInput(**arguments)
-        return jira_client.get_comments(
-            issue_key=input_data.ticket_key,
-            max_results=input_data.max_results,
-        )
-
-    elif name == "jira_update_comment":
-        input_data = UpdateCommentInput(**arguments)
-        return jira_client.update_comment(
-            issue_key=input_data.ticket_key,
-            comment_id=input_data.comment_id,
-            body=input_data.body,
-        )
-
-    elif name == "jira_delete_comment":
-        input_data = DeleteCommentInput(**arguments)
-        return jira_client.delete_comment(
-            issue_key=input_data.ticket_key,
-            comment_id=input_data.comment_id,
-        )
-
-    # --- Discovery/Metadata Tools ---
-
-    elif name == "jira_list_projects":
-        return jira_client.get_projects()
-
-    elif name == "jira_list_components":
-        input_data = ListComponentsInput(**arguments)
-        return jira_client.get_components(input_data.project)
-
-    elif name == "jira_list_issue_types":
-        input_data = ListIssueTypesInput(**arguments)
-        return jira_client.get_issue_types(input_data.project)
-
-    elif name == "jira_list_priorities":
-        return jira_client.get_priorities()
-
-    elif name == "jira_list_statuses":
-        input_data = ListStatusesInput(**arguments)
-        return jira_client.get_statuses(input_data.project)
-
-    elif name == "jira_get_transitions":
-        input_data = GetTransitionsInput(**arguments)
-        return jira_client.get_transitions(input_data.ticket_key)
-
-    elif name == "jira_get_current_user":
-        return jira_client.get_current_user()
-
-    # --- Issue Linking & Hierarchy Tools ---
-
-    elif name == "jira_link_issues":
-        input_data = LinkIssuesInput(**arguments)
-        return jira_client.link_issues(
-            from_key=input_data.from_key,
-            to_key=input_data.to_key,
-            link_type=input_data.link_type,
-        )
-
-    elif name == "jira_create_subtask":
-        input_data = CreateSubtaskInput(**arguments)
-        return jira_client.create_subtask(
-            parent_key=input_data.parent_key,
-            summary=input_data.summary,
-            description=input_data.description,
-            assignee=input_data.assignee,
-            priority=input_data.priority,
-        )
-
-    elif name == "jira_set_epic":
-        input_data = SetEpicInput(**arguments)
-        return jira_client.set_epic(
-            issue_key=input_data.issue_key,
-            epic_key=input_data.epic_key,
-        )
-
-    else:
-        raise ValueError(f"Unknown Jira tool: {name}")
 
 
 async def _execute_github_tool(
@@ -2427,7 +1838,7 @@ async def _execute_github_tool(
 
 
 async def _execute_reports_tool(
-    name: str, arguments: dict[str, Any], username: str, jira_client: JiraClient | None = None
+    name: str, arguments: dict[str, Any], username: str
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Execute a Reports tool and return the result."""
 
@@ -2458,8 +1869,9 @@ async def _execute_reports_tool(
             action_type=input_data.action_type,
             ticket_summary=input_data.ticket_summary,
             github_repo=input_data.github_repo,
+            jira_components=input_data.jira_components,
+            ticket_url=input_data.ticket_url,
             action_details=action_details,
-            jira_client=jira_client,
         )
 
     elif name == "get_weekly_activity":
@@ -2467,6 +1879,7 @@ async def _execute_reports_tool(
         return report_tools.get_weekly_activity(
             username=username,
             week_offset=input_data.week_offset,
+            days=input_data.days,
             project=input_data.project,
         )
 
@@ -2534,7 +1947,6 @@ async def _execute_reports_tool(
         return report_tools.redetect_project_assignments(
             username=username,
             limit=limit,
-            jira_client=jira_client,
         )
 
     elif name == "list_report_fields":
@@ -2566,11 +1978,10 @@ async def run_streamable_http(host: str, port: int) -> None:
 
     logger.info(f"Starting MCP server with Streamable HTTP transport on {host}:{port}")
     logger.info(
-        "Endpoints: /mcp/jira (Jira tools), /mcp/github (GitHub tools), /mcp/reports (Activity & Reports)"
+        "Endpoints: /mcp/github (GitHub tools), /mcp/reports (Activity & Reports)"
     )
 
     # Stateless session managers — each request is independent with its own context
-    jira_session_mgr = StreamableHTTPSessionManager(app=ghost_server, stateless=True)
     github_session_mgr = StreamableHTTPSessionManager(app=github_mcp_server, stateless=True)
     reports_session_mgr = StreamableHTTPSessionManager(app=reports_mcp_server, stateless=True)
 
@@ -2581,7 +1992,6 @@ async def run_streamable_http(host: str, port: int) -> None:
                 "status": "healthy",
                 "transport": "streamable-http",
                 "endpoints": {
-                    "jira": "/mcp/jira",
                     "github": "/mcp/github",
                     "reports": "/mcp/reports",
                 },
@@ -2672,28 +2082,6 @@ async def run_streamable_http(host: str, port: int) -> None:
     # credentials, then delegates to the session manager. Because Streamable
     # HTTP stateless mode spawns a new async task per request that inherits
     # the current context, tool handlers see the correct per-user values.
-
-    async def jira_handler(scope: Scope, receive: Receive, send: Send) -> None:
-        """Extract Jira credentials from headers and dispatch to session manager."""
-        headers = extract_headers(scope)
-
-        server_url = headers.get("x-jira-server-url")
-        token = headers.get("x-jira-token")
-        verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
-        verify_ssl = verify_ssl_str.lower() in ("true", "1", "yes")
-
-        try:
-            client = create_jira_client(
-                server_url=server_url,
-                token=token,
-                verify_ssl=verify_ssl,
-            )
-            _jira_client_ctx.set(client)
-            logger.debug(f"Jira request: {client.server_url}")
-        except ValueError as e:
-            logger.warning(f"Jira client config error: {e}")
-
-        await jira_session_mgr.handle_request(scope, receive, send)
 
     async def github_handler(scope: Scope, receive: Receive, send: Send) -> None:
         """Extract GitHub tokens from headers and dispatch to session manager.
@@ -2786,23 +2174,6 @@ async def run_streamable_http(host: str, port: int) -> None:
         _username_ctx.set(username)
         logger.debug(f"Reports request: user={username}")
 
-        jira_server_url = headers.get("x-jira-server-url")
-        jira_token = headers.get("x-jira-token")
-        jira_verify_ssl_str = headers.get("x-jira-verify-ssl", "true")
-        jira_verify_ssl = jira_verify_ssl_str.lower() in ("true", "1", "yes")
-
-        if jira_server_url and jira_token:
-            try:
-                jira_client = JiraClient(
-                    server_url=jira_server_url,
-                    token=jira_token,
-                    verify_ssl=jira_verify_ssl,
-                )
-                _reports_jira_client_ctx.set(jira_client)
-                logger.debug(f"Reports request: Jira client configured for {jira_server_url}")
-            except Exception as e:
-                logger.warning(f"Reports request: Failed to create Jira client: {e}")
-
         await reports_session_mgr.handle_request(scope, receive, send)
 
     # ── Lifespan: start/stop all session managers ──────────────────────────
@@ -2810,7 +2181,6 @@ async def run_streamable_http(host: str, port: int) -> None:
     @asynccontextmanager
     async def lifespan(app: Starlette):  # noqa: ARG001
         async with AsyncExitStack() as stack:
-            await stack.enter_async_context(jira_session_mgr.run())
             await stack.enter_async_context(github_session_mgr.run())
             await stack.enter_async_context(reports_session_mgr.run())
             logger.info("All Streamable HTTP session managers started")
@@ -2820,21 +2190,20 @@ async def run_streamable_http(host: str, port: int) -> None:
     # ── Starlette app ─────────────────────────────────────────────────────
     # Each Mount delegates to an auth wrapper → session manager pipeline.
     # Clients POST (and optionally GET/DELETE) directly to the mount path.
-    _mcp_mount_paths = frozenset({"/mcp/jira", "/mcp/github", "/mcp/reports"})
+    _mcp_mount_paths = frozenset({"/mcp/github", "/mcp/reports"})
 
     starlette_app = Starlette(
         debug=False,
         routes=[
             Route("/health", endpoint=health_check, methods=["GET"]),
             Route("/mcp/health", endpoint=health_check, methods=["GET"]),
-            Mount("/mcp/jira", app=jira_handler),
             Mount("/mcp/github", app=github_handler),
             Mount("/mcp/reports", app=reports_handler),
         ],
         lifespan=lifespan,
     )
 
-    # Starlette's Mount issues a 307 redirect from /mcp/jira to /mcp/jira/
+    # Starlette's Mount issues a 307 redirect from /mcp/github to /mcp/github/
     # which breaks MCP clients (POST becomes GET, auth headers are lost).
     # This wrapper adds the trailing slash internally so Mount handles it
     # directly without a redirect.
@@ -2860,20 +2229,14 @@ def main() -> None:
     logger.info("Database initialized")
 
     parser = argparse.ArgumentParser(
-        description="Jira/GitHub/Reports MCP Server - Model Context Protocol server",
+        description="Ghost MCP Server - GitHub integration and activity reporting",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Transport: Streamable HTTP (stateless)
 
 Endpoints (all via POST to the mount path):
-  /mcp/jira      Jira tools (tickets, comments, metadata)
   /mcp/github    GitHub tools (PRs, reviews, comments)
   /mcp/reports   Activity logging & reporting tools
-
-Jira Headers:
-  X-Jira-Server-URL    Jira server URL (required)
-  X-Jira-Token         Personal Access Token (required)
-  X-Jira-Verify-SSL    Verify SSL (default: true)
 
 GitHub Headers (single token - simple):
   X-GitHub-Token       Personal Access Token (required if multi-token not used)
@@ -2893,6 +2256,9 @@ Reports Headers:
   Authorization        Bearer <PAT> (preferred) or proxy headers below
   X-Forwarded-Email    User email from OAuth proxy
   X-Username           Username for activity tracking
+
+Note: Jira integration is handled via external Atlassian MCP. Configure it separately
+      in your AI agent's MCP settings.
 
 Example:
   ghost --host 0.0.0.0 --port 8080

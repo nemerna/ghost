@@ -27,12 +27,15 @@ import {
   CodeIcon,
   GithubIcon,
 } from '@patternfly/react-icons';
+import { ExternalLinkAltIcon } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
 import { getMyActivitySummary, getMyActivities } from '@/api/activities';
+import { getTicketUrl } from '@/utils/tickets';
 import { format } from 'date-fns';
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const jiraServerUrl = (user?.preferences?.jira_server_url as string) || '';
 
   // Fetch activity summary for last 7 days
   const { data: activitySummary, isLoading: summaryLoading } = useQuery({
@@ -130,7 +133,18 @@ export function DashboardPage() {
                           >
                             {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
                           </Label>
-                          <strong>{activity.ticket_key}</strong>
+                          {(() => {
+                            const url = getTicketUrl(activity, jiraServerUrl);
+                            return url ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <strong>{activity.ticket_key}</strong>
+                                <ExternalLinkAltIcon style={{ fontSize: '0.75em' }} />
+                              </a>
+                            ) : (
+                              <strong>{activity.ticket_key}</strong>
+                            );
+                          })()}
                         </DescriptionListTerm>
                         <DescriptionListDescription>
                           {activity.ticket_summary || 'No summary'}

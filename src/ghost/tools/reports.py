@@ -26,28 +26,6 @@ from ghost.db.models import ActionType
 logger = logging.getLogger(__name__)
 
 
-def _get_jira_ticket_details(ticket_key: str, jira_client=None) -> dict | None:
-    """
-    Get Jira ticket details using the provided Jira client.
-    
-    Args:
-        ticket_key: The Jira ticket key (e.g., 'PROJ-123')
-        jira_client: Optional JiraClient instance for fetching ticket details
-    
-    Returns ticket details dict or None if not available.
-    """
-    if not jira_client:
-        logger.debug(f"No Jira client available for auto-fetching {ticket_key}")
-        return None
-    
-    try:
-        result = jira_client.get_issue(ticket_key)
-        logger.debug(f"Auto-fetched Jira ticket {ticket_key}, components: {result.get('components')}")
-        return result
-    except Exception as e:
-        logger.warning(f"Failed to fetch Jira ticket {ticket_key}: {e}")
-        return None
-
 
 def _parse_ticket_key(
     ticket_key: str, github_repo: str | None = None
@@ -371,7 +349,6 @@ def detect_project_for_activity(
 def redetect_project_assignments(
     username: str | None = None,
     limit: int = 1000,
-    jira_client=None,
 ) -> dict[str, Any]:
     """
     Re-run project detection on existing activities.
@@ -382,7 +359,6 @@ def redetect_project_assignments(
     Args:
         username: Optional filter to only redetect for a specific user
         limit: Maximum number of activities to process
-        jira_client: Optional JiraClient for auto-fetching ticket components
     
     Returns:
         Summary of redetection results
@@ -408,16 +384,7 @@ def redetect_project_assignments(
             components_list = None
             if activity.jira_components:
                 components_list = [c.strip() for c in activity.jira_components.split(",") if c.strip()]
-            
-            # Auto-fetch Jira components if missing for Jira tickets
-            if activity.ticket_source == TicketSource.JIRA and not components_list:
-                ticket_details = _get_jira_ticket_details(activity.ticket_key, jira_client)
-                if ticket_details and ticket_details.get("components"):
-                    components_list = ticket_details["components"]
-                    # Also update the stored components
-                    activity.jira_components = ",".join(components_list)
-                    logger.info(f"Auto-fetched and stored Jira components for {activity.ticket_key}: {components_list}")
-            
+
             # Detect project
             new_project_id = detect_project_for_activity(
                 github_repo=activity.github_repo,
@@ -449,8 +416,8 @@ def log_activity(
     project_key: str | None = None,
     github_repo: str | None = None,
     jira_components: list[str] | None = None,
+    ticket_url: str | None = None,
     action_details: dict | None = None,
-    jira_client=None,
 ) -> dict[str, Any]:
     """
     Log a Jira or GitHub activity for tracking.
@@ -463,8 +430,8 @@ def log_activity(
         project_key: Optional Jira project key (extracted from ticket_key if not provided).
         github_repo: Optional GitHub repo in 'owner/repo' format. Required for short '#123' format.
         jira_components: Optional list of Jira component names for auto-detection.
+        ticket_url: Optional canonical browse URL for the ticket.
         action_details: Optional dict with additional context.
-        jira_client: Optional JiraClient for auto-fetching ticket components.
 
     Returns:
         Confirmation with activity ID, detected source, and detected project.
@@ -486,12 +453,11 @@ def log_activity(
     except ValueError:
         action_enum = ActionType.OTHER
 
-    # Auto-fetch Jira components if this is a Jira ticket and components not provided
-    if source == TicketSource.JIRA and not jira_components:
-        ticket_details = _get_jira_ticket_details(normalized_key, jira_client)
-        if ticket_details and ticket_details.get("components"):
-            jira_components = ticket_details["components"]
-            logger.info(f"Auto-fetched Jira components for {normalized_key}: {jira_components}")
+    if not ticket_summary:
+        logger.warning(
+            f"log_activity called without ticket_summary for {ticket_key} — "
+            "report quality will be degraded"
+        )
 
     # Convert jira_components list to comma-separated string
     jira_components_str = None
@@ -511,6 +477,7 @@ def log_activity(
             username=username,
             ticket_key=normalized_key,
             ticket_summary=ticket_summary,
+            ticket_url=ticket_url,
             project_key=final_project_key,
             ticket_source=source,
             github_repo=final_github_repo,
@@ -550,15 +517,23 @@ def log_activity(
 def get_weekly_activity(
     username: str,
     week_offset: int = 0,
+    days: int | None = None,
     project: str | None = None,
     ticket_source: str | None = None,
 ) -> dict[str, Any]:
     """
-    Get activity summary for a specific week.
+    Get activity summary for a time period.
+
+    Supports two modes:
+    - **days** (preferred): Rolling window — activities from the last N days.
+    - **week_offset** (legacy): Monday-to-Sunday week boundaries.
+
+    If both are provided, `days` takes precedence.
 
     Args:
         username: The username to get activity for.
         week_offset: Week offset from current week (0 = current, -1 = last week, etc.).
+        days: Number of days to look back from today (e.g. 7 = last 7 days).
         project: Optional project key to filter by (Jira only).
         ticket_source: Optional filter by source ('jira' or 'github').
 
@@ -567,14 +542,18 @@ def get_weekly_activity(
     """
     db = get_db()
 
-    # Calculate week boundaries (Monday to Sunday)
     today = datetime.utcnow().date()
-    current_monday = today - timedelta(days=today.weekday())
-    target_monday = current_monday + timedelta(weeks=week_offset)
-    target_sunday = target_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
-    week_start = datetime.combine(target_monday, datetime.min.time())
-    week_end = datetime.combine(target_sunday, datetime.max.time())
+    if days is not None and days > 0:
+        start_date = today - timedelta(days=days - 1)
+        end_date = today
+    else:
+        current_monday = today - timedelta(days=today.weekday())
+        start_date = current_monday + timedelta(weeks=week_offset)
+        end_date = start_date + timedelta(days=6)
+
+    week_start = datetime.combine(start_date, datetime.min.time())
+    week_end = datetime.combine(end_date, datetime.max.time())
 
     with db.session() as session:
         query = session.query(ActivityLog).filter(
@@ -602,6 +581,7 @@ def get_weekly_activity(
             ActivityLog.project_key,
             ActivityLog.ticket_source,
             ActivityLog.github_repo,
+            func.max(ActivityLog.ticket_url).label("ticket_url"),
             func.count(ActivityLog.id).label("action_count"),
         ).filter(
             ActivityLog.username == username,
@@ -641,6 +621,7 @@ def get_weekly_activity(
                 {
                     "ticket_key": activity.ticket_key,
                     "ticket_summary": activity.ticket_summary,
+                    "ticket_url": activity.ticket_url,
                     "ticket_source": (
                         activity.ticket_source.value if activity.ticket_source else "jira"
                     ),
@@ -669,6 +650,7 @@ def get_weekly_activity(
             {
                 "ticket_key": t.ticket_key,
                 "ticket_summary": t.ticket_summary,
+                "ticket_url": t.ticket_url,
                 "ticket_source": t.ticket_source.value if t.ticket_source else "jira",
                 "project_key": t.project_key,
                 "github_repo": t.github_repo,
@@ -713,13 +695,13 @@ def _extract_ticket_key_from_text(text: str) -> str | None:
     Extract a ticket key from text containing Jira or GitHub URLs.
     
     Supports:
-    - Jira URLs: https://issues.redhat.com/browse/PROJ-123 -> PROJ-123
+    - Jira URLs: https://redhat.atlassian.net/browse/PROJ-123 -> PROJ-123
     - GitHub issue URLs: https://github.com/owner/repo/issues/123 -> owner/repo#123
     - GitHub PR URLs: https://github.com/owner/repo/pull/123 -> owner/repo#123
     
     Returns the first ticket key found, or None if no ticket key is detected.
     """
-    # Try Jira URL pattern first (e.g., https://issues.redhat.com/browse/APPENG-4347)
+    # Try Jira URL pattern first (e.g., https://redhat.atlassian.net/browse/APPENG-4347)
     jira_pattern = r'https?://[^/]+/browse/([A-Z][A-Z0-9]+-\d+)'
     jira_match = re.search(jira_pattern, text)
     if jira_match:
@@ -740,6 +722,105 @@ def _extract_ticket_key_from_text(text: str) -> str | None:
     return None
 
 
+def _resolve_entry_projects(
+    entries: list[dict[str, Any]],
+    username: str,
+    session,
+) -> list[dict[str, Any]]:
+    """
+    Resolve detected_project_id for each entry from existing ActivityLog data.
+
+    This runs during report creation/update so entries carry their own project
+    assignment and the consolidated view never needs to query ActivityLog or
+    reach out to Jira MCP at read time.
+
+    For each entry with a ticket_key:
+    1. Look up the most recent ActivityLog for that ticket to get its
+       already-stored detected_project_id.
+    2. If no activity exists, fall back to basic detection using only the
+       ticket key format (Jira project key or GitHub repo pattern).
+    """
+    ticket_keys = {e.get("ticket_key") for e in entries if e.get("ticket_key")}
+    if not ticket_keys:
+        return entries
+
+    # Batch-query ActivityLog for all ticket keys at once
+    ticket_to_project: dict[str, int | None] = {}
+    ticket_to_meta: dict[str, tuple[str | None, str | None, str | None]] = {}
+
+    activities = (
+        session.query(
+            ActivityLog.ticket_key,
+            ActivityLog.detected_project_id,
+            ActivityLog.project_key,
+            ActivityLog.github_repo,
+            ActivityLog.jira_components,
+        )
+        .filter(
+            ActivityLog.username == username,
+            ActivityLog.ticket_key.in_(ticket_keys),
+        )
+        .order_by(ActivityLog.timestamp.desc())
+        .all()
+    )
+
+    for tk, proj_id, proj_key, gh_repo, jira_comps in activities:
+        if tk not in ticket_to_project:
+            ticket_to_project[tk] = proj_id
+            ticket_to_meta[tk] = (proj_key, gh_repo, jira_comps)
+
+    # For ticket keys with no activity, try basic detection from ticket key format
+    for tk in ticket_keys:
+        if tk in ticket_to_project:
+            continue
+        source, normalized, proj_key, gh_repo = _parse_ticket_key(tk)
+        detected = detect_project_for_activity(
+            github_repo=gh_repo,
+            jira_project_key=proj_key,
+            jira_components=None,
+            session=session,
+        )
+        ticket_to_project[tk] = detected
+
+    # For entries whose activity had no detected_project_id, attempt detection
+    # using the metadata we already have (no Jira MCP call)
+    for tk, proj_id in list(ticket_to_project.items()):
+        if proj_id is not None:
+            continue
+        meta = ticket_to_meta.get(tk)
+        if not meta:
+            continue
+        proj_key, gh_repo, jira_comps = meta
+        comps_list = (
+            [c.strip() for c in jira_comps.split(",") if c.strip()]
+            if jira_comps
+            else None
+        )
+        detected = detect_project_for_activity(
+            github_repo=gh_repo,
+            jira_project_key=proj_key,
+            jira_components=comps_list,
+            session=session,
+        )
+        if detected:
+            ticket_to_project[tk] = detected
+
+    # Stamp detected_project_id onto each entry, preserving manual overrides
+    result = []
+    for e in entries:
+        entry = dict(e)
+        if entry.get("detected_project_id") is not None:
+            # Manual override — keep as-is
+            result.append(entry)
+            continue
+        tk = entry.get("ticket_key")
+        if tk and tk in ticket_to_project:
+            entry["detected_project_id"] = ticket_to_project[tk]
+        result.append(entry)
+
+    return result
+
+
 def _serialize_entries_to_content(entries: list[dict[str, Any]]) -> str:
     """Serialize structured entries to JSON content for storage."""
     serialized_entries = []
@@ -747,6 +828,8 @@ def _serialize_entries_to_content(entries: list[dict[str, Any]]) -> str:
         entry_dict = {"text": e.get("text", ""), "private": e.get("private", False)}
         if e.get("ticket_key"):
             entry_dict["ticket_key"] = e.get("ticket_key")
+        if e.get("detected_project_id") is not None:
+            entry_dict["detected_project_id"] = e.get("detected_project_id")
         serialized_entries.append(entry_dict)
     return json.dumps({
         "format": "structured",
@@ -805,10 +888,15 @@ def save_management_report(
                 if ticket_key and not private:
                     activity_visibility = _get_activity_visibility(ticket_key, username, session)
                     if activity_visibility is False:
-                        # Activity is explicitly hidden, so mark entry as private
                         private = True
                 
-                processed_entries.append({"text": text, "private": private, "ticket_key": ticket_key})
+                processed_entries.append({
+                    "text": text, "private": private, "ticket_key": ticket_key,
+                    "detected_project_id": entry.get("detected_project_id"),
+                })
+            
+            # Resolve field/project assignments (preserves manual overrides)
+            processed_entries = _resolve_entry_projects(processed_entries, username, session)
             
             final_content = _serialize_entries_to_content(processed_entries)
         elif content is not None:
@@ -975,7 +1063,13 @@ def update_management_report(
                     if activity_visibility is False:
                         private = True
                 
-                processed_entries.append({"text": text, "private": private, "ticket_key": ticket_key})
+                processed_entries.append({
+                    "text": text, "private": private, "ticket_key": ticket_key,
+                    "detected_project_id": entry.get("detected_project_id"),
+                })
+            
+            # Resolve field/project assignments (preserves manual overrides)
+            processed_entries = _resolve_entry_projects(processed_entries, report.username, session)
             
             report.content = _serialize_entries_to_content(processed_entries)
         elif content is not None:

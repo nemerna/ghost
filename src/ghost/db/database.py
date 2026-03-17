@@ -193,6 +193,17 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 11: Add ticket_url column to activity_log for storing canonical URLs
+    {
+        "id": "011_add_ticket_url",
+        "description": "Add ticket_url column to activity_log for storing canonical browse URLs at log time",
+        "check": lambda inspector: "activity_log" in inspector.get_table_names()
+        and "ticket_url" not in [c["name"] for c in inspector.get_columns("activity_log")],
+        "sql": [
+            "ALTER TABLE activity_log ADD COLUMN ticket_url VARCHAR(1000)",
+        ],
+        "optional": False,
+    },
 ]
 
 

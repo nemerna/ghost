@@ -1,4 +1,4 @@
-# Nginx configuration for Jira MCP
+# Nginx configuration for Ghost
 # Serves frontend static files and proxies API requests to FastAPI backend
 # Backend URL is configured via BACKEND_URL environment variable
 
