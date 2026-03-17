@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ghost"
 version = "0.1.0"
-description = "MCP Server for Jira, GitHub, and management reports"
+description = "MCP Server for GitHub integration and management reports"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -24,7 +24,6 @@ dependencies = [
     "mcp>=1.8.0",
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
-    "jira>=3.8.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "python-dotenv>=1.0.0",

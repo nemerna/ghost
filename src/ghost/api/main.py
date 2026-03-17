@@ -1,4 +1,4 @@
-"""Main FastAPI application for Jira MCP UI API.
+"""Main FastAPI application for Ghost UI API.
 
 Note: Static frontend files are served by nginx, not FastAPI.
 FastAPI only handles /api/* routes.
@@ -21,14 +21,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
     # Startup
-    logger.info("Starting Jira MCP API...")
+    logger.info("Starting Ghost API...")
     init_db()
     logger.info("Database initialized")
     
     yield
     
     # Shutdown
-    logger.info("Shutting down Jira MCP API...")
+    logger.info("Shutting down Ghost API...")
 
 
 def create_app(
@@ -53,8 +53,8 @@ def create_app(
         dev_email = os.environ.get("DEV_EMAIL", "dev@example.com")
     
     app = FastAPI(
-        title="Jira MCP API",
-        description="REST API for Jira MCP activity tracking and reporting UI",
+        title="Ghost API",
+        description="REST API for Ghost activity tracking and reporting UI",
         version="1.0.0",
         lifespan=lifespan,
         docs_url="/api/docs" if dev_mode else None,  # Only enable docs in dev mode
@@ -103,7 +103,7 @@ def create_app(
     # Note: Static frontend files are served by nginx, not FastAPI
     # FastAPI only handles /api/* routes
     
-    logger.info(f"Jira MCP API created (dev_mode={dev_mode})")
+    logger.info(f"Ghost API created (dev_mode={dev_mode})")
     return app
 
 

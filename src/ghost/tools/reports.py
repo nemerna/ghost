@@ -26,28 +26,6 @@ from ghost.db.models import ActionType
 logger = logging.getLogger(__name__)
 
 
-def _get_jira_ticket_details(ticket_key: str, jira_client=None) -> dict | None:
-    """
-    Get Jira ticket details using the provided Jira client.
-    
-    Args:
-        ticket_key: The Jira ticket key (e.g., 'PROJ-123')
-        jira_client: Optional JiraClient instance for fetching ticket details
-    
-    Returns ticket details dict or None if not available.
-    """
-    if not jira_client:
-        logger.debug(f"No Jira client available for auto-fetching {ticket_key}")
-        return None
-    
-    try:
-        result = jira_client.get_issue(ticket_key)
-        logger.debug(f"Auto-fetched Jira ticket {ticket_key}, components: {result.get('components')}")
-        return result
-    except Exception as e:
-        logger.warning(f"Failed to fetch Jira ticket {ticket_key}: {e}")
-        return None
-
 
 def _parse_ticket_key(
     ticket_key: str, github_repo: str | None = None
@@ -371,7 +349,6 @@ def detect_project_for_activity(
 def redetect_project_assignments(
     username: str | None = None,
     limit: int = 1000,
-    jira_client=None,
 ) -> dict[str, Any]:
     """
     Re-run project detection on existing activities.
@@ -382,7 +359,6 @@ def redetect_project_assignments(
     Args:
         username: Optional filter to only redetect for a specific user
         limit: Maximum number of activities to process
-        jira_client: Optional JiraClient for auto-fetching ticket components
     
     Returns:
         Summary of redetection results
@@ -408,16 +384,7 @@ def redetect_project_assignments(
             components_list = None
             if activity.jira_components:
                 components_list = [c.strip() for c in activity.jira_components.split(",") if c.strip()]
-            
-            # Auto-fetch Jira components if missing for Jira tickets
-            if activity.ticket_source == TicketSource.JIRA and not components_list:
-                ticket_details = _get_jira_ticket_details(activity.ticket_key, jira_client)
-                if ticket_details and ticket_details.get("components"):
-                    components_list = ticket_details["components"]
-                    # Also update the stored components
-                    activity.jira_components = ",".join(components_list)
-                    logger.info(f"Auto-fetched and stored Jira components for {activity.ticket_key}: {components_list}")
-            
+
             # Detect project
             new_project_id = detect_project_for_activity(
                 github_repo=activity.github_repo,
@@ -450,7 +417,6 @@ def log_activity(
     github_repo: str | None = None,
     jira_components: list[str] | None = None,
     action_details: dict | None = None,
-    jira_client=None,
 ) -> dict[str, Any]:
     """
     Log a Jira or GitHub activity for tracking.
@@ -464,7 +430,6 @@ def log_activity(
         github_repo: Optional GitHub repo in 'owner/repo' format. Required for short '#123' format.
         jira_components: Optional list of Jira component names for auto-detection.
         action_details: Optional dict with additional context.
-        jira_client: Optional JiraClient for auto-fetching ticket components.
 
     Returns:
         Confirmation with activity ID, detected source, and detected project.
@@ -485,13 +450,6 @@ def log_activity(
         action_enum = ActionType(action_type.lower())
     except ValueError:
         action_enum = ActionType.OTHER
-
-    # Auto-fetch Jira components if this is a Jira ticket and components not provided
-    if source == TicketSource.JIRA and not jira_components:
-        ticket_details = _get_jira_ticket_details(normalized_key, jira_client)
-        if ticket_details and ticket_details.get("components"):
-            jira_components = ticket_details["components"]
-            logger.info(f"Auto-fetched Jira components for {normalized_key}: {jira_components}")
 
     # Convert jira_components list to comma-separated string
     jira_components_str = None

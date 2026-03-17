@@ -14,7 +14,6 @@
 #   PostgreSQL:    podman-compose --profile postgres up
 #
 # MCP Endpoints (via nginx):
-#   - /mcp/jira     - Jira tools (requires X-Jira-Server-URL, X-Jira-Token headers)
 #   - /mcp/github   - GitHub tools (requires X-GitHub-Token header)
 #   - /mcp/reports  - Reports tools (requires X-Username header)
 #

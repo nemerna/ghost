@@ -4,7 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io/)
 
-Ghost connects Jira and GitHub to AI-powered IDEs through [MCP](https://modelcontextprotocol.io/). It gives your IDE tools to search tickets, browse PRs, log work, and generate management reports — all from real data, no copy-pasting.
+Ghost connects GitHub to AI-powered IDEs through [MCP](https://modelcontextprotocol.io/). It gives your IDE tools to browse PRs, log work, and generate management reports — all from real data, no copy-pasting.
+
+Jira integration is handled via an external Atlassian MCP server — configure it alongside Ghost in your IDE.
 
 ## Get Started
 
@@ -22,8 +24,6 @@ Open `http://localhost:8080` to access the web UI.
 | Value | Where to get it | Used by |
 |-------|----------------|---------|
 | `GHOST_URL` | `http://localhost:8080` for local, or your hosted instance URL | All endpoints |
-| `JIRA_SERVER_URL` | Your Jira base URL (e.g. `https://issues.redhat.com`) | Jira, Reports |
-| `JIRA_PAT` | Jira → Profile → Personal Access Tokens → Create token | Jira, Reports |
 | `GITHUB_PAT` | [GitHub → Settings → Developer settings → Personal access tokens](https://github.com/settings/tokens) | GitHub |
 | `GHOST_PAT` | Ghost web UI → Settings → Personal Access Tokens → Generate | Reports |
 
@@ -39,13 +39,6 @@ Create or edit `.cursor/mcp.json` in your project root (or `~/.cursor/mcp.json` 
 ```json
 {
   "mcpServers": {
-    "jira": {
-      "url": "GHOST_URL/mcp/jira",
-      "headers": {
-        "X-Jira-Server-URL": "JIRA_SERVER_URL",
-        "X-Jira-Token": "JIRA_PAT"
-      }
-    },
     "github": {
       "url": "GHOST_URL/mcp/github",
       "headers": {
@@ -55,14 +48,14 @@ Create or edit `.cursor/mcp.json` in your project root (or `~/.cursor/mcp.json` 
     "reports": {
       "url": "GHOST_URL/mcp/reports",
       "headers": {
-        "Authorization": "Bearer GHOST_PAT",
-        "X-Jira-Server-URL": "JIRA_SERVER_URL",
-        "X-Jira-Token": "JIRA_PAT"
+        "Authorization": "Bearer GHOST_PAT"
       }
     }
   }
 }
 ```
+
+For Jira, add the [Atlassian MCP](https://www.npmjs.com/package/@anthropic/mcp-atlassian) or equivalent as a separate server entry.
 
 Restart Cursor after saving.
 
@@ -72,23 +65,16 @@ Restart Cursor after saving.
 <summary><strong>Claude Code</strong></summary>
 
 ```bash
-claude mcp add --transport streamable-http jira \
-  GHOST_URL/mcp/jira \
-  --header "X-Jira-Server-URL: JIRA_SERVER_URL" \
-  --header "X-Jira-Token: JIRA_PAT"
-
 claude mcp add --transport streamable-http github \
   GHOST_URL/mcp/github \
   --header "X-GitHub-Token: GITHUB_PAT"
 
 claude mcp add --transport streamable-http reports \
   GHOST_URL/mcp/reports \
-  --header "Authorization: Bearer GHOST_PAT" \
-  --header "X-Jira-Server-URL: JIRA_SERVER_URL" \
-  --header "X-Jira-Token: JIRA_PAT"
+  --header "Authorization: Bearer GHOST_PAT"
 ```
 
-Verify with `claude mcp list` — all three should show `✓ Connected`.
+Verify with `claude mcp list` — both should show `✓ Connected`.
 
 </details>
 
@@ -96,7 +82,6 @@ Verify with `claude mcp list` — all three should show `✓ Connected`.
 
 Ask your IDE:
 
-- *"List my in-progress Jira tickets"*
 - *"Show open PRs for my-org/my-repo"*
 - *"Create a management report"*
 
@@ -108,10 +93,10 @@ available MCP tools.
 
 | Prompt | What it does |
 |--------|-------------|
-| `gather-activities` | Scans Jira and GitHub for work you did during a given week and compares it against what's already logged, surfacing untracked items. |
+| `gather-activities` | Scans Jira (via external MCP) and GitHub for work you did during a given week and compares it against what's already logged, surfacing untracked items. |
 | `log-activities` | Logs untracked items into the system. Shows you the list first and waits for confirmation before writing anything. |
 | `create-management-report` | Builds a management report from your logged activities with properly formatted links, then saves it via the Reports API. |
-| `unghost` | Creates a tracking ticket (Jira issue or GitHub issue) for work that was submitted without one, adds a progress comment linking the actual commits/PRs, and optionally logs the activity. |
+| `unghost` | Creates a tracking ticket (via Jira MCP or GitHub issue) for work that was submitted without one, adds a progress comment linking the actual commits/PRs, and optionally logs the activity. |
 
 All prompts accept an optional `week_offset` argument (`0` = current week,
 `1` = last week, etc.) except `unghost`, which operates on the current branch.
@@ -133,7 +118,6 @@ All prompts accept an optional `week_offset` argument (`0` = current week,
 | Header | Endpoint | Description |
 |--------|----------|-------------|
 | `X-GitHub-API-URL` | `/mcp/github` | GitHub Enterprise API URL (e.g. `https://github.yourcompany.com/api/v3`) |
-| `X-Jira-Verify-SSL` | `/mcp/jira` | Set to `false` for self-signed certificates |
 
 ---
 

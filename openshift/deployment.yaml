@@ -34,7 +34,7 @@ spec:
             - --cookie-secret-file=/etc/proxy/secrets/session-secret
             - --openshift-service-account=ghost
             - --openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-            - --skip-auth-regex=^/(api/health|mcp/|mcp/jira|mcp/github|mcp/reports)
+            - --skip-auth-regex=^/(api/health|mcp/|mcp/github|mcp/reports)
             - --pass-user-headers=true
             - --pass-access-token=true
             - --email-domain=*

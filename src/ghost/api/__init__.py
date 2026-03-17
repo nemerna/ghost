@@ -1,4 +1,4 @@
-"""REST API layer for Jira MCP UI."""
+"""REST API layer for Ghost UI."""
 
 from ghost.api.main import create_app
 
