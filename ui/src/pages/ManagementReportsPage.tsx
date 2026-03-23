@@ -59,6 +59,7 @@ import {
   TrashIcon,
   CubesIcon,
   EyeIcon,
+  EyeSlashIcon,
   FolderOpenIcon,
   OutlinedFileAltIcon,
   EnvelopeIcon,
@@ -179,6 +180,9 @@ export function ManagementReportsPage() {
 
   // Inline editing state for personal reports - tracks modified entries per report
   const [editedEntries, setEditedEntries] = useState<Record<number, ReportEntryInput[]>>({});
+
+  // Track which personal reports are expanded (collapsed by default)
+  const [expandedReports, setExpandedReports] = useState<Set<number>>(new Set());
 
   // ==========================================================================
   // Draft Editing State (for consolidated report editing)
@@ -1015,11 +1019,29 @@ export function ManagementReportsPage() {
 
   const getVisibilityInfo = (report: ManagementReport) => {
     if (report.visible_to_manager === true) {
-      return { icon: <EyeIcon />, tooltip: 'Visible to manager (override)', color: 'green' };
+      return {
+        icon: <EyeIcon />,
+        label: 'Visible to Manager',
+        tooltip: 'This report is shared with your manager. Click to hide it.',
+        color: '#3e8635',
+        labelColor: 'green' as const,
+      };
     } else if (report.visible_to_manager === false) {
-      return { icon: <EyeIcon />, tooltip: 'Hidden from manager (override)', color: 'red' };
+      return {
+        icon: <EyeSlashIcon />,
+        label: 'Hidden from Manager',
+        tooltip: 'This report is hidden from your manager. Click to reset to default.',
+        color: '#c9190b',
+        labelColor: 'red' as const,
+      };
     } else {
-      return { icon: <EyeIcon />, tooltip: 'Using default visibility', color: 'grey' };
+      return {
+        icon: <EyeIcon />,
+        label: 'Default Visibility',
+        tooltip: 'Using default visibility rules. Click to explicitly share with manager.',
+        color: '#6a6e73',
+        labelColor: 'grey' as const,
+      };
     }
   };
 
@@ -1652,6 +1674,38 @@ export function ManagementReportsPage() {
       const visInfo = getVisibilityInfo(report);
       const isEditingReport = hasChanges(report.id);
       const displayEntries = getDisplayEntries(report);
+      const isExpanded = expandedReports.has(report.id);
+
+      const reportToggleContent = (
+        <Flex
+          alignItems={{ default: 'alignItemsCenter' }}
+          style={{ gap: '0.5rem' }}
+        >
+          <FlexItem>
+            <strong>{report.title}</strong>
+          </FlexItem>
+          {report.project_key && (
+            <FlexItem>
+              <Label color="blue" isCompact>{report.project_key}</Label>
+            </FlexItem>
+          )}
+          {report.report_period && (
+            <FlexItem>
+              <Label color="grey" isCompact>{report.report_period}</Label>
+            </FlexItem>
+          )}
+          {isEditingReport && (
+            <FlexItem>
+              <Label color="orange" isCompact>Unsaved Changes</Label>
+            </FlexItem>
+          )}
+          <FlexItem>
+            <small style={{ color: '#6a6e73' }}>
+              {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
+            </small>
+          </FlexItem>
+        </Flex>
+      );
 
       return (
         <Card
@@ -1661,89 +1715,96 @@ export function ManagementReportsPage() {
             border: isEditingReport ? '2px solid #0066cc' : undefined,
           }}
         >
-          <CardTitle>
-            <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }}>
-              <FlexItem>
-                {report.title}
-                {report.project_key && (
-                  <Label color="blue" style={{ marginLeft: '0.5rem' }}>
-                    {report.project_key}
-                  </Label>
-                )}
-                {report.report_period && (
-                  <Label color="grey" style={{ marginLeft: '0.5rem' }}>
-                    {report.report_period}
-                  </Label>
-                )}
-                {isEditingReport && (
-                  <Label color="orange" style={{ marginLeft: '0.5rem' }}>
-                    Unsaved Changes
-                  </Label>
-                )}
+          <CardBody style={{ paddingBottom: isExpanded ? undefined : 0 }}>
+            <Flex
+              justifyContent={{ default: 'justifyContentSpaceBetween' }}
+              alignItems={{ default: 'alignItemsCenter' }}
+              style={{ marginBottom: isExpanded ? '0.5rem' : 0 }}
+            >
+              <FlexItem style={{ flex: 1 }}>
+                <ExpandableSection
+                  toggleContent={reportToggleContent}
+                  isExpanded={isExpanded}
+                  onToggle={(_event, expanded) => {
+                    setExpandedReports((prev) => {
+                      const next = new Set(prev);
+                      if (expanded) {
+                        next.add(report.id);
+                      } else {
+                        next.delete(report.id);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <ReportEntryEditor
+                    entries={displayEntries.length > 0 ? displayEntries : [{ text: '', private: false }]}
+                    onChange={(entries) => handleEntryChange(report.id, entries)}
+                    placeholder="Work item description with links..."
+                    fields={fieldsData?.fields}
+                  />
+
+                  {isEditingReport && (
+                    <Flex style={{ marginTop: '1rem', gap: '0.5rem' }}>
+                      <FlexItem>
+                        <Button
+                          variant="primary"
+                          onClick={() => handleSaveEdit(report.id)}
+                          isLoading={updateMutation.isPending}
+                        >
+                          Save
+                        </Button>
+                      </FlexItem>
+                      <FlexItem>
+                        <Button
+                          variant="link"
+                          onClick={() => handleCancelEdit(report.id)}
+                        >
+                          Cancel
+                        </Button>
+                      </FlexItem>
+                    </Flex>
+                  )}
+
+                  {report.referenced_tickets.length > 0 && (
+                    <p style={{ marginTop: '1rem' }}>
+                      <strong>Referenced Tickets:</strong>{' '}
+                      {report.referenced_tickets.join(', ')}
+                    </p>
+                  )}
+                </ExpandableSection>
               </FlexItem>
               <FlexItem>
-                <small>
-                  {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
-                </small>
-                <Button
-                  variant="plain"
-                  aria-label={visInfo.tooltip}
-                  title={visInfo.tooltip}
-                  onClick={() => handleToggleVisibility(report)}
-                  isLoading={visibilityMutation.isPending}
-                  style={{ color: visInfo.color, marginLeft: '0.5rem' }}
+                <Flex
+                  alignItems={{ default: 'alignItemsCenter' }}
+                  style={{ gap: '0.5rem' }}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {visInfo.icon}
-                </Button>
-                <Button
-                  variant="link"
-                  isDanger
-                  onClick={() => handleDelete(report.id)}
-                  style={{ marginLeft: '0.5rem' }}
-                >
-                  Delete
-                </Button>
+                  <FlexItem>
+                    <Tooltip content={visInfo.tooltip}>
+                      <Button
+                        variant="link"
+                        onClick={() => handleToggleVisibility(report)}
+                        isLoading={visibilityMutation.isPending}
+                        style={{ color: visInfo.color, whiteSpace: 'nowrap', padding: '0.25rem 0.5rem' }}
+                        icon={visInfo.icon}
+                      >
+                        {visInfo.label}
+                      </Button>
+                    </Tooltip>
+                  </FlexItem>
+                  <FlexItem>
+                    <Button
+                      variant="link"
+                      isDanger
+                      onClick={() => handleDelete(report.id)}
+                    >
+                      Delete
+                    </Button>
+                  </FlexItem>
+                </Flex>
               </FlexItem>
             </Flex>
-          </CardTitle>
-          <CardBody>
-            {/* Inline editable entries */}
-            <ReportEntryEditor
-              entries={displayEntries.length > 0 ? displayEntries : [{ text: '', private: false }]}
-              onChange={(entries) => handleEntryChange(report.id, entries)}
-              placeholder="Work item description with links..."
-              fields={fieldsData?.fields}
-            />
-
-            {/* Save/Cancel buttons when there are unsaved changes */}
-            {isEditingReport && (
-              <Flex style={{ marginTop: '1rem', gap: '0.5rem' }}>
-                <FlexItem>
-                  <Button
-                    variant="primary"
-                    onClick={() => handleSaveEdit(report.id)}
-                    isLoading={updateMutation.isPending}
-                  >
-                    Save
-                  </Button>
-                </FlexItem>
-                <FlexItem>
-                  <Button
-                    variant="link"
-                    onClick={() => handleCancelEdit(report.id)}
-                  >
-                    Cancel
-                  </Button>
-                </FlexItem>
-              </Flex>
-            )}
-
-            {report.referenced_tickets.length > 0 && (
-              <p style={{ marginTop: '1rem' }}>
-                <strong>Referenced Tickets:</strong>{' '}
-                {report.referenced_tickets.join(', ')}
-              </p>
-            )}
           </CardBody>
         </Card>
       );
