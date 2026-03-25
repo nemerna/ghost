@@ -6,8 +6,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
-  Card,
-  CardBody,
   Content,
   Form,
   FormGroup,
@@ -149,139 +147,135 @@ export function ActivitiesPage() {
       </PageSection>
 
       <PageSection>
-        <Card>
-          <CardBody>
-            <Toolbar>
-              <ToolbarContent>
-                <ToolbarItem>
-                  <FormSelect
-                    value={sourceFilter}
-                    onChange={(_event, value) => setSourceFilter(value as TicketSource | '')}
-                    aria-label="Filter by source"
-                  >
-                    {ticketSources.map((source) => (
-                      <FormSelectOption key={source.value} value={source.value} label={source.label} />
-                    ))}
-                  </FormSelect>
-                </ToolbarItem>
-                <ToolbarItem>
-                  <TextInput
-                    placeholder="Filter by project/repo"
-                    value={projectFilter}
-                    onChange={(_event, value) => setProjectFilter(value)}
-                    aria-label="Filter by project"
-                  />
-                </ToolbarItem>
-                <ToolbarItem align={{ default: 'alignEnd' }}>
-                  <Button
-                    variant="primary"
-                    icon={<PlusIcon />}
-                    onClick={() => setIsModalOpen(true)}
-                  >
-                    Log Activity
-                  </Button>
-                </ToolbarItem>
-              </ToolbarContent>
-            </Toolbar>
-
-            <Table aria-label="Activities table">
-              <Thead>
-                <Tr>
-                  {columns.map((col) => (
-                    <Th key={col}>{col}</Th>
+          <Toolbar>
+            <ToolbarContent>
+              <ToolbarItem>
+                <FormSelect
+                  value={sourceFilter}
+                  onChange={(_event, value) => setSourceFilter(value as TicketSource | '')}
+                  aria-label="Filter by source"
+                >
+                  {ticketSources.map((source) => (
+                    <FormSelectOption key={source.value} value={source.value} label={source.label} />
                   ))}
-                </Tr>
-              </Thead>
-              <Tbody>
-                {isLoading ? (
-                  <Tr>
-                    <Td colSpan={columns.length}>Loading...</Td>
-                  </Tr>
-                ) : activities?.activities.length ? (
-                  activities.activities.map((activity) => (
-                    <Tr key={activity.id}>
-                      <Td dataLabel="Source">
-                        <Label color={activity.ticket_source === 'github' ? 'purple' : 'blue'}>
-                          {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
-                        </Label>
-                      </Td>
-                      <Td dataLabel="Ticket">
-                        {(() => {
-                          const url = getTicketUrl(activity, jiraServerUrl);
-                          return url ? (
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              <strong>{activity.ticket_key}</strong>
-                              <ExternalLinkAltIcon style={{ fontSize: '0.75em' }} />
-                            </a>
-                          ) : (
-                            <strong>{activity.ticket_key}</strong>
-                          );
-                        })()}
-                      </Td>
-                      <Td dataLabel="Summary">
-                        {activity.ticket_summary || '-'}
-                      </Td>
-                      <Td dataLabel="Project/Repo">
-                        {activity.project_key || activity.github_repo || '-'}
-                      </Td>
-                      <Td dataLabel="Timestamp">
-                        {format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
-                      </Td>
-                      <Td dataLabel="Visibility">
-                        {(() => {
-                          const vis = getVisibilityIcon(activity);
-                          return (
-                            <Button
-                              variant="plain"
-                              aria-label={vis.tooltip}
-                              title={vis.tooltip}
-                              onClick={() => handleToggleVisibility(activity)}
-                              isLoading={visibilityMutation.isPending}
-                              style={{ color: vis.color }}
-                            >
-                              {vis.icon}
-                            </Button>
-                          );
-                        })()}
-                      </Td>
-                      <Td dataLabel="Actions">
-                        <Button
-                          variant="plain"
-                          aria-label="Delete"
-                          onClick={() => handleDeleteActivity(activity.id)}
-                          isLoading={deleteMutation.isPending}
-                        >
-                          <TrashIcon />
-                        </Button>
-                      </Td>
-                    </Tr>
-                  ))
-                ) : (
-                  <Tr>
-                    <Td colSpan={columns.length}>No activities found</Td>
-                  </Tr>
-                )}
-              </Tbody>
-            </Table>
+                </FormSelect>
+              </ToolbarItem>
+              <ToolbarItem>
+                <TextInput
+                  placeholder="Filter by project/repo"
+                  value={projectFilter}
+                  onChange={(_event, value) => setProjectFilter(value)}
+                  aria-label="Filter by project"
+                />
+              </ToolbarItem>
+              <ToolbarItem align={{ default: 'alignEnd' }}>
+                <Button
+                  variant="primary"
+                  icon={<PlusIcon />}
+                  onClick={() => setIsModalOpen(true)}
+                >
+                  Log Activity
+                </Button>
+              </ToolbarItem>
+            </ToolbarContent>
+          </Toolbar>
 
-            <Pagination
-              itemCount={activities?.total || 0}
-              perPage={perPage}
-              page={page}
-              onSetPage={(_event, newPage) => setPage(newPage)}
-              onPerPageSelect={(_event, newPerPage) => {
-                setPerPage(newPerPage);
-                setPage(1);
-              }}
-              variant="bottom"
-            />
-          </CardBody>
-        </Card>
+          <Table aria-label="Activities table">
+            <Thead>
+              <Tr>
+                {columns.map((col) => (
+                  <Th key={col}>{col}</Th>
+                ))}
+              </Tr>
+            </Thead>
+            <Tbody>
+              {isLoading ? (
+                <Tr>
+                  <Td colSpan={columns.length}>Loading...</Td>
+                </Tr>
+              ) : activities?.activities.length ? (
+                activities.activities.map((activity) => (
+                  <Tr key={activity.id}>
+                    <Td dataLabel="Source">
+                      <Label color={activity.ticket_source === 'github' ? 'purple' : 'blue'}>
+                        {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
+                      </Label>
+                    </Td>
+                    <Td dataLabel="Ticket">
+                      {(() => {
+                        const url = getTicketUrl(activity, jiraServerUrl);
+                        return url ? (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <strong>{activity.ticket_key}</strong>
+                            <ExternalLinkAltIcon style={{ fontSize: '0.75em' }} />
+                          </a>
+                        ) : (
+                          <strong>{activity.ticket_key}</strong>
+                        );
+                      })()}
+                    </Td>
+                    <Td dataLabel="Summary">
+                      {activity.ticket_summary || '-'}
+                    </Td>
+                    <Td dataLabel="Project/Repo">
+                      {activity.project_key || activity.github_repo || '-'}
+                    </Td>
+                    <Td dataLabel="Timestamp">
+                      {format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
+                    </Td>
+                    <Td dataLabel="Visibility">
+                      {(() => {
+                        const vis = getVisibilityIcon(activity);
+                        return (
+                          <Button
+                            variant="plain"
+                            aria-label={vis.tooltip}
+                            title={vis.tooltip}
+                            onClick={() => handleToggleVisibility(activity)}
+                            isLoading={visibilityMutation.isPending}
+                            style={{ color: vis.color }}
+                          >
+                            {vis.icon}
+                          </Button>
+                        );
+                      })()}
+                    </Td>
+                    <Td dataLabel="Actions">
+                      <Button
+                        variant="plain"
+                        aria-label="Delete"
+                        onClick={() => handleDeleteActivity(activity.id)}
+                        isLoading={deleteMutation.isPending}
+                      >
+                        <TrashIcon />
+                      </Button>
+                    </Td>
+                  </Tr>
+                ))
+              ) : (
+                <Tr>
+                  <Td colSpan={columns.length}>No activities found</Td>
+                </Tr>
+              )}
+            </Tbody>
+          </Table>
+
+          <Pagination
+            itemCount={activities?.total || 0}
+            perPage={perPage}
+            page={page}
+            onSetPage={(_event, newPage) => setPage(newPage)}
+            onPerPageSelect={(_event, newPerPage) => {
+              setPerPage(newPerPage);
+              setPage(1);
+            }}
+            variant="bottom"
+          />
       </PageSection>
 
       {/* Create Activity Modal */}
