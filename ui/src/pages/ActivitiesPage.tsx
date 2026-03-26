@@ -34,6 +34,8 @@ import { getMyActivities, createActivity, deleteActivity, updateActivityVisibili
 import { useAuth } from '@/auth';
 import { getTicketUrl } from '@/utils/tickets';
 import type { Activity, ActivityCreateRequest, TicketSource } from '@/types';
+const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Timestamp', 'Visibility', 'Actions'] as const;
+
 const ticketSources: Array<{ value: TicketSource | ''; label: string }> = [
   { value: '', label: 'All sources' },
   { value: 'jira', label: 'Jira' },
@@ -136,7 +138,6 @@ export function ActivitiesPage() {
     }
   };
 
-  const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Timestamp', 'Visibility', 'Actions'];
 
   return (
     <>
@@ -219,13 +220,13 @@ export function ActivitiesPage() {
                         );
                       })()}
                     </Td>
-                    <Td dataLabel="Summary">
+                    <Td dataLabel="Summary" modifier="breakWord">
                       {activity.ticket_summary || '-'}
                     </Td>
                     <Td dataLabel="Project/Repo">
                       {activity.project_key || activity.github_repo || '-'}
                     </Td>
-                    <Td dataLabel="Timestamp">
+                    <Td dataLabel="Timestamp" modifier="nowrap">
                       {format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
                     </Td>
                     <Td dataLabel="Visibility">
