@@ -11,6 +11,7 @@ export async function getMyActivities(params?: {
   project_key?: string;
   ticket_source?: TicketSource;
   github_repo?: string;
+  q?: string;
   action_type?: string;
   ticket_key?: string;
   limit?: number;

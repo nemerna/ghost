@@ -2,7 +2,8 @@
  * Activities page - view and log activities
  */
 
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import debounce from 'lodash/debounce';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -51,9 +52,25 @@ export function ActivitiesPage() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
 
-  // Filter state
+  // Filter state — raw input drives UI; debounced value drives query
   const [projectFilter, setProjectFilter] = useState('');
+  const [debouncedProjectFilter, setDebouncedProjectFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState<TicketSource | ''>('');
+
+  const applyProjectFilter = useRef(
+    debounce((value: string) => {
+      setDebouncedProjectFilter(value);
+      setPage(1);
+    }, 350),
+  ).current;
+
+  const handleProjectFilterChange = useCallback(
+    (_event: React.FormEvent, value: string) => {
+      setProjectFilter(value);
+      applyProjectFilter(value);
+    },
+    [applyProjectFilter],
+  );
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,13 +81,13 @@ export function ActivitiesPage() {
 
   // Fetch activities
   const { data: activities, isLoading } = useQuery({
-    queryKey: ['myActivities', page, perPage, projectFilter, sourceFilter],
+    queryKey: ['myActivities', page, perPage, debouncedProjectFilter, sourceFilter],
     queryFn: () =>
       getMyActivities({
         limit: perPage,
         offset: (page - 1) * perPage,
-        project_key: projectFilter || undefined,
         ticket_source: sourceFilter || undefined,
+        q: debouncedProjectFilter || undefined,
       }),
   });
 
@@ -165,7 +182,7 @@ export function ActivitiesPage() {
                 <TextInput
                   placeholder="Filter by project/repo"
                   value={projectFilter}
-                  onChange={(_event, value) => setProjectFilter(value)}
+                  onChange={handleProjectFilterChange}
                   aria-label="Filter by project"
                 />
               </ToolbarItem>

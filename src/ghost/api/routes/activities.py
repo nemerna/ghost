@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from pydantic import BaseModel
 
 from ghost.api.deps import CurrentUser, require_manager_or_admin
@@ -161,6 +162,7 @@ async def get_my_activities(
     project_key: str | None = Query(None, description="Filter by Jira project"),
     ticket_source: str | None = Query(None, description="Filter by source: 'jira' or 'github'"),
     github_repo: str | None = Query(None, description="Filter by GitHub repo (owner/repo)"),
+    q: str | None = Query(None, description="Wide filter: partial match on project_key OR github_repo"),
     action_type: str | None = Query(None, description="Filter by action type"),
     ticket_key: str | None = Query(None, description="Filter by ticket key"),
     limit: int = Query(50, ge=1, le=100),
@@ -189,6 +191,13 @@ async def get_my_activities(
             query = query.filter(ActivityLog.project_key == project_key)
         if github_repo:
             query = query.filter(ActivityLog.github_repo == github_repo)
+        if q:
+            query = query.filter(
+                or_(
+                    ActivityLog.project_key.ilike(f"%{q}%"),
+                    ActivityLog.github_repo.ilike(f"%{q}%"),
+                )
+            )
         if action_type:
             try:
                 action_enum = ActionType(action_type.lower())
