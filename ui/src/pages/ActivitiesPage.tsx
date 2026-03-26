@@ -42,7 +42,15 @@ import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import { useAuth } from '@/auth';
 import { getTicketUrl } from '@/utils/tickets';
 import type { Activity, ActivityCreateRequest, TicketSource } from '@/types';
-const columns = ['Source', 'Ticket', 'Summary', 'Project/Repo', 'Timestamp', 'Visibility', 'Actions'] as const;
+const columns = [
+  { label: 'Source',       modifier: 'fitContent' as const },
+  { label: 'Ticket',       modifier: undefined              },
+  { label: 'Summary',      modifier: undefined              },
+  { label: 'Project/Repo', modifier: undefined              },
+  { label: 'Timestamp',    modifier: 'fitContent' as const  },
+  { label: 'Visibility',   modifier: 'fitContent' as const },
+  { label: 'Actions',      modifier: 'fitContent' as const },
+] as const;
 
 const ticketSources: Array<{ value: TicketSource | ''; label: string }> = [
   { value: '', label: 'All sources' },
@@ -311,7 +319,7 @@ export function ActivitiesPage() {
               <Tr>
                 <Th select={toggleSelectAll} />
                 {columns.map((col) => (
-                  <Th key={col}>{col}</Th>
+                  <Th key={col.label} modifier={col.modifier}>{col.label}</Th>
                 ))}
               </Tr>
             </Thead>
@@ -321,7 +329,7 @@ export function ActivitiesPage() {
                   <Tr key={i}>
                     <Td />
                     {columns.map((col) => (
-                      <Td key={col} dataLabel={col}>
+                      <Td key={col.label} dataLabel={col.label}>
                         <Skeleton />
                       </Td>
                     ))}
@@ -352,12 +360,10 @@ export function ActivitiesPage() {
                             rel="noopener noreferrer"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                           >
-                            <strong>{activity.ticket_key}</strong>
+                            {activity.ticket_key}
                             <ExternalLinkAltIcon style={{ fontSize: '0.75em' }} />
                           </a>
-                        ) : (
-                          <strong>{activity.ticket_key}</strong>
-                        );
+                        ) : activity.ticket_key;
                       })()}
                     </Td>
                     <Td dataLabel="Summary" modifier="breakWord">
