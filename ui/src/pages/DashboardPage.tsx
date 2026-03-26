@@ -32,13 +32,13 @@ import { getMyActivitySummary, getMyActivities } from '@/api/activities';
 import { getTicketUrl } from '@/utils/tickets';
 import { format } from 'date-fns';
 
-// Ordered color palette for project bars
+// Ordered color palette for project bars — semantic nonstatus tokens (dark-mode safe)
 const PROJECT_COLORS = [
-  'var(--pf-t--color--blue--60)',
-  'var(--pf-t--color--green--60)',
-  'var(--pf-t--color--orange--60)',
-  'var(--pf-t--color--red--60)',
-  'var(--pf-t--color--purple--60)',
+  'var(--pf-t--global--color--nonstatus--blue--default)',
+  'var(--pf-t--global--color--nonstatus--green--default)',
+  'var(--pf-t--global--color--nonstatus--orange--default)',
+  'var(--pf-t--global--color--nonstatus--red--default)',
+  'var(--pf-t--global--color--nonstatus--purple--default)',
 ];
 
 export function DashboardPage() {
@@ -60,9 +60,9 @@ export function DashboardPage() {
 
   const heroStat = { title: 'Activities This Week', value: activitySummary?.total_activities || 0 };
   const secondaryStats = [
-    { title: 'Tickets', value: activitySummary?.unique_tickets || 0, icon: <ListIcon color="var(--pf-t--color--purple--40)" /> },
-    { title: 'Jira', value: activitySummary?.by_source?.jira || 0, icon: <ClipboardCheckIcon color="var(--pf-t--color--blue--40)" /> },
-    { title: 'GitHub', value: activitySummary?.by_source?.github || 0, icon: <GithubIcon color="var(--pf-t--color--teal--40)" /> },
+    { title: 'Tickets', value: activitySummary?.unique_tickets || 0, icon: <ListIcon color="var(--pf-t--global--color--nonstatus--purple--default)" /> },
+    { title: 'Jira', value: activitySummary?.by_source?.jira || 0, icon: <ClipboardCheckIcon color="var(--pf-t--global--color--nonstatus--blue--default)" /> },
+    { title: 'GitHub', value: activitySummary?.by_source?.github || 0, icon: <GithubIcon color="var(--pf-t--global--color--nonstatus--teal--default)" /> },
   ];
 
   const topProjects = Object.entries(activitySummary?.by_project ?? {})
@@ -155,7 +155,7 @@ export function DashboardPage() {
                   <CardBody>
                     <Flex direction={{ default: 'column' }} alignItems={{ default: 'alignItemsCenter' }}>
                       <FlexItem>
-                        <Title headingLevel="h1" size="4xl">{heroStat.value}</Title>
+                        <Title headingLevel="h2" size="4xl">{heroStat.value}</Title>
                       </FlexItem>
                     </Flex>
 

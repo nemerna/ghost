@@ -208,11 +208,11 @@ export function ActivitiesPage() {
 
   const getVisibilityIcon = (activity: Activity) => {
     if (activity.visible_to_manager === true) {
-      return { icon: <EyeIcon />, tooltip: 'Visible to manager (override)', color: 'green' };
+      return { icon: <EyeIcon />, tooltip: 'Visible to manager (override)', color: 'var(--pf-t--global--icon--color--status--success--default)' };
     } else if (activity.visible_to_manager === false) {
-      return { icon: <LockIcon />, tooltip: 'Hidden from manager (override)', color: 'red' };
+      return { icon: <LockIcon />, tooltip: 'Hidden from manager (override)', color: 'var(--pf-t--global--icon--color--status--danger--default)' };
     } else {
-      return { icon: <EyeIcon />, tooltip: 'Using default visibility', color: 'grey' };
+      return { icon: <EyeIcon />, tooltip: 'Using default visibility', color: 'var(--pf-t--global--text--color--disabled)' };
     }
   };
 
