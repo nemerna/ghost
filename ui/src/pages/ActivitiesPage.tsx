@@ -11,23 +11,28 @@ import {
   Form,
   FormGroup,
   FormHelperText,
-  FormSelect,
-  FormSelectOption,
   HelperText,
   HelperTextItem,
   Label,
+  MenuToggle,
   Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
   PageSection,
   Pagination,
+  Select,
+  SelectList,
+  SelectOption,
   TextInput,
   Title,
   Toolbar,
   ToolbarContent,
+  ToolbarFilter,
+  ToolbarGroup,
   ToolbarItem,
 } from '@patternfly/react-core';
+import type { MenuToggleElement } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr, ActionsColumn, ThProps } from '@patternfly/react-table';
 import { PlusIcon, ExternalLinkAltIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
@@ -57,6 +62,7 @@ export function ActivitiesPage() {
   const [projectFilter, setProjectFilter] = useState('');
   const [debouncedProjectFilter, setDebouncedProjectFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState<TicketSource | ''>('');
+  const [isSourceSelectOpen, setIsSourceSelectOpen] = useState(false);
 
   const applyProjectFilter = useRef(
     debounce((value: string) => {
@@ -155,7 +161,7 @@ export function ActivitiesPage() {
 
   // Edit activity mutation
   const editMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { ticket_summary?: string } }) =>
+    mutationFn: ({ id, data }: { id: number; data: { ticket_key?: string; ticket_summary?: string } }) =>
       updateActivity(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['myActivities'] });
@@ -219,43 +225,80 @@ export function ActivitiesPage() {
       </PageSection>
 
       <PageSection>
-          <Toolbar>
+          <Toolbar
+            clearAllFilters={() => {
+              setSourceFilter('');
+              setProjectFilter('');
+              setDebouncedProjectFilter('');
+            }}
+            clearFiltersButtonText="Clear filters"
+          >
             <ToolbarContent>
-              <ToolbarItem>
-                <FormSelect
-                  value={sourceFilter}
-                  onChange={(_event, value) => setSourceFilter(value as TicketSource | '')}
-                  aria-label="Filter by source"
+              <ToolbarGroup variant="filter-group">
+                {/* Source filter with active chip */}
+                <ToolbarFilter
+                  labels={sourceFilter ? [ticketSources.find((s) => s.value === sourceFilter)?.label ?? sourceFilter] : []}
+                  deleteLabel={() => setSourceFilter('')}
+                  categoryName="Source"
                 >
-                  {ticketSources.map((source) => (
-                    <FormSelectOption key={source.value} value={source.value} label={source.label} />
-                  ))}
-                </FormSelect>
-              </ToolbarItem>
-              <ToolbarItem>
-                <TextInput
-                  placeholder="Filter by project/repo"
-                  value={projectFilter}
-                  onChange={handleProjectFilterChange}
-                  aria-label="Filter by project"
-                />
-              </ToolbarItem>
+                  <Select
+                    isOpen={isSourceSelectOpen}
+                    selected={sourceFilter || undefined}
+                    onSelect={(_event, value) => {
+                      setSourceFilter((value as TicketSource | '') ?? '');
+                      setIsSourceSelectOpen(false);
+                    }}
+                    onOpenChange={setIsSourceSelectOpen}
+                    toggle={(ref: React.Ref<MenuToggleElement>) => (
+                      <MenuToggle
+                        ref={ref}
+                        onClick={() => setIsSourceSelectOpen((o) => !o)}
+                        isExpanded={isSourceSelectOpen}
+                      >
+                        {ticketSources.find((s) => s.value === sourceFilter)?.label ?? 'All sources'}
+                      </MenuToggle>
+                    )}
+                    shouldFocusToggleOnSelect
+                  >
+                    <SelectList>
+                      {ticketSources.filter((s) => s.value !== '').map((source) => (
+                        <SelectOption key={source.value} value={source.value}>
+                          {source.label}
+                        </SelectOption>
+                      ))}
+                    </SelectList>
+                  </Select>
+                </ToolbarFilter>
+
+                {/* Project/repo text filter with active chip */}
+                <ToolbarFilter
+                  labels={debouncedProjectFilter ? [debouncedProjectFilter] : []}
+                  deleteLabel={() => {
+                    setProjectFilter('');
+                    setDebouncedProjectFilter('');
+                  }}
+                  categoryName="Project/repo"
+                >
+                  <TextInput
+                    placeholder="Filter by project/repo"
+                    value={projectFilter}
+                    onChange={handleProjectFilterChange}
+                    aria-label="Filter by project"
+                  />
+                </ToolbarFilter>
+              </ToolbarGroup>
+
+              {/* Bulk delete */}
               {someSelected && (
                 <ToolbarItem>
-                  <Button
-                    variant="danger"
-                    onClick={() => setIsBulkDeleteModalOpen(true)}
-                  >
+                  <Button variant="danger" onClick={() => setIsBulkDeleteModalOpen(true)}>
                     Delete ({selectedIds.size})
                   </Button>
                 </ToolbarItem>
               )}
+
               <ToolbarItem align={{ default: 'alignEnd' }}>
-                <Button
-                  variant="primary"
-                  icon={<PlusIcon />}
-                  onClick={() => setIsModalOpen(true)}
-                >
+                <Button variant="primary" icon={<PlusIcon />} onClick={() => setIsModalOpen(true)}>
                   Log Activity
                 </Button>
               </ToolbarItem>
