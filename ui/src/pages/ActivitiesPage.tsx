@@ -28,10 +28,11 @@ import {
   ToolbarContent,
   ToolbarItem,
 } from '@patternfly/react-core';
-import { Table, Tbody, Td, Th, Thead, Tr, ActionsColumn } from '@patternfly/react-table';
+import { Table, Tbody, Td, Th, Thead, Tr, ActionsColumn, ThProps } from '@patternfly/react-table';
 import { PlusIcon, ExternalLinkAltIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
 import { getMyActivities, createActivity, deleteActivity, updateActivityVisibility, updateActivity } from '@/api/activities';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import { useAuth } from '@/auth';
 import { getTicketUrl } from '@/utils/tickets';
 import type { Activity, ActivityCreateRequest, TicketSource } from '@/types';
@@ -84,6 +85,21 @@ export function ActivitiesPage() {
   const [editTicketKey, setEditTicketKey] = useState('');
   const [editSummary, setEditSummary] = useState('');
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+
+  // Single-row delete confirmation
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const toggleSelectRow = (id: number, isSelected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      isSelected ? next.add(id) : next.delete(id);
+      return next;
+    });
+  };
+
   // Fetch activities
   const { data: activities, isLoading } = useQuery({
     queryKey: ['myActivities', page, perPage, debouncedProjectFilter, sourceFilter],
@@ -95,6 +111,15 @@ export function ActivitiesPage() {
         q: debouncedProjectFilter || undefined,
       }),
   });
+
+  // Derived bulk-selection values — computed after activities are available
+  const allIds = activities?.activities.map((a) => a.id) ?? [];
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+  const someSelected = allIds.some((id) => selectedIds.has(id));
+  const toggleSelectAll: ThProps['select'] = {
+    onSelect: (_event, isSelected) => setSelectedIds(isSelected ? new Set(allIds) : new Set()),
+    isSelected: allSelected,
+  };
 
   // Create activity mutation
   const createMutation = useMutation({
@@ -113,6 +138,18 @@ export function ActivitiesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['myActivities'] });
       queryClient.invalidateQueries({ queryKey: ['activitySummary'] });
+      setDeletingId(null);
+    },
+  });
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: number[]) => Promise.all(ids.map(deleteActivity)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myActivities'] });
+      queryClient.invalidateQueries({ queryKey: ['activitySummary'] });
+      setSelectedIds(new Set());
+      setIsBulkDeleteModalOpen(false);
     },
   });
 
@@ -170,11 +207,7 @@ export function ActivitiesPage() {
     }
   };
 
-  const handleDeleteActivity = (id: number) => {
-    if (confirm('Are you sure you want to delete this activity?')) {
-      deleteMutation.mutate(id);
-    }
-  };
+  const handleDeleteActivity = (id: number) => setDeletingId(id);
 
 
   return (
@@ -207,6 +240,16 @@ export function ActivitiesPage() {
                   aria-label="Filter by project"
                 />
               </ToolbarItem>
+              {someSelected && (
+                <ToolbarItem>
+                  <Button
+                    variant="danger"
+                    onClick={() => setIsBulkDeleteModalOpen(true)}
+                  >
+                    Delete ({selectedIds.size})
+                  </Button>
+                </ToolbarItem>
+              )}
               <ToolbarItem align={{ default: 'alignEnd' }}>
                 <Button
                   variant="primary"
@@ -222,6 +265,7 @@ export function ActivitiesPage() {
           <Table aria-label="Activities table">
             <Thead>
               <Tr>
+                <Th select={toggleSelectAll} />
                 {columns.map((col) => (
                   <Th key={col}>{col}</Th>
                 ))}
@@ -230,11 +274,18 @@ export function ActivitiesPage() {
             <Tbody>
               {isLoading ? (
                 <Tr>
-                  <Td colSpan={columns.length}>Loading...</Td>
+                  <Td colSpan={columns.length + 1}>Loading...</Td>
                 </Tr>
               ) : activities?.activities.length ? (
                 activities.activities.map((activity) => (
-                  <Tr key={activity.id}>
+                  <Tr key={activity.id} selected={selectedIds.has(activity.id)}>
+                    <Td
+                      select={{
+                        rowIndex: activities.activities.indexOf(activity),
+                        onSelect: (_event, isSelected) => toggleSelectRow(activity.id, isSelected),
+                        isSelected: selectedIds.has(activity.id),
+                      }}
+                    />
                     <Td dataLabel="Source">
                       <Label color={activity.ticket_source === 'github' ? 'purple' : 'blue'}>
                         {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
@@ -302,7 +353,7 @@ export function ActivitiesPage() {
                 ))
               ) : (
                 <Tr>
-                  <Td colSpan={columns.length}>No activities found</Td>
+                  <Td colSpan={columns.length + 1}>No activities found</Td>
                 </Tr>
               )}
             </Tbody>
@@ -425,6 +476,23 @@ export function ActivitiesPage() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      {/* Single-row delete confirmation */}
+      <DeleteConfirmModal
+        isOpen={deletingId !== null}
+        onClose={() => setDeletingId(null)}
+        onConfirm={() => deletingId !== null && deleteMutation.mutate(deletingId)}
+        isLoading={deleteMutation.isPending}
+      />
+
+      {/* Bulk delete confirmation */}
+      <DeleteConfirmModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        isLoading={bulkDeleteMutation.isPending}
+        itemCount={selectedIds.size}
+      />
     </>
   );
 }
