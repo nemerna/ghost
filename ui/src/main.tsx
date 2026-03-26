@@ -14,23 +14,20 @@ import '@patternfly/patternfly/patternfly.css';
 import { AuthProvider } from '@/auth';
 import App from './App';
 
-// Auto-detect dark mode from system preference (PatternFly 6)
+// Apply theme on startup: saved preference takes precedence over system preference.
 function applySystemTheme() {
-  const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
-  
-  const updateTheme = (isDark: boolean) => {
-    if (isDark) {
-      document.documentElement.classList.add('pf-v6-theme-dark');
-    } else {
-      document.documentElement.classList.remove('pf-v6-theme-dark');
-    }
-  };
-  
-  // Apply initial theme
-  updateTheme(darkModeQuery.matches);
-  
-  // Listen for system preference changes
-  darkModeQuery.addEventListener('change', (e) => updateTheme(e.matches));
+  const saved = localStorage.getItem('theme');
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = saved === 'dark' || (saved === null && systemDark);
+
+  document.documentElement.classList.toggle('pf-v6-theme-dark', isDark);
+
+  // Only follow system changes when user has no saved preference
+  if (saved === null) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      document.documentElement.classList.toggle('pf-v6-theme-dark', e.matches);
+    });
+  }
 }
 
 applySystemTheme();
