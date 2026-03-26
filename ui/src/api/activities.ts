@@ -36,7 +36,7 @@ export async function createActivity(data: ActivityCreateRequest): Promise<Activ
 
 export async function updateActivity(
   activityId: number,
-  data: { ticket_key?: string; ticket_summary?: string; action_type?: string },
+  data: { ticket_key?: string; ticket_summary?: string },
 ): Promise<Activity> {
   const response = await apiClient.put<Activity>(`/activities/${activityId}`, data);
   return response.data;

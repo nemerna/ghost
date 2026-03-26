@@ -199,7 +199,6 @@ export function DashboardPage() {
                             }}
                           >
                             <Flex alignItems={{ default: 'alignItemsCenter' }} style={{ marginBottom: '0.4rem' }}>
-                              {/* Colored left indicator */}
                               <FlexItem>
                                 <div style={{ width: '4px', height: '1.25rem', borderRadius: '2px', background: color }} />
                               </FlexItem>
@@ -210,7 +209,6 @@ export function DashboardPage() {
                                 {count as number} {(count as number) === 1 ? 'activity' : 'activities'}
                               </FlexItem>
                             </Flex>
-                            {/* Progress bar */}
                             <div style={{
                               height: '6px',
                               background: 'transparent',

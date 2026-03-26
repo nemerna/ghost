@@ -17,14 +17,14 @@ import App from './App';
 // Apply theme on startup: saved preference takes precedence over system preference.
 function applySystemTheme() {
   const saved = localStorage.getItem('theme');
-  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const isDark = saved === 'dark' || (saved === null && systemDark);
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const isDark = saved === 'dark' || (saved === null && darkQuery.matches);
 
   document.documentElement.classList.toggle('pf-v6-theme-dark', isDark);
 
   // Only follow system changes when user has no saved preference
   if (saved === null) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    darkQuery.addEventListener('change', (e) => {
       document.documentElement.classList.toggle('pf-v6-theme-dark', e.matches);
     });
   }

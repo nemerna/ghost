@@ -225,6 +225,8 @@ export function ActivitiesPage() {
   const handleDeleteActivity = (id: number) => setDeletingId(id);
 
 
+  const selectedSourceLabel = ticketSources.find((s) => s.value === sourceFilter)?.label;
+
   return (
     <>
       <PageSection>
@@ -246,7 +248,7 @@ export function ActivitiesPage() {
               <ToolbarGroup variant="filter-group">
                 {/* Source filter with active chip */}
                 <ToolbarFilter
-                  labels={sourceFilter ? [ticketSources.find((s) => s.value === sourceFilter)?.label ?? sourceFilter] : []}
+                  labels={sourceFilter ? [selectedSourceLabel ?? sourceFilter] : []}
                   deleteLabel={() => setSourceFilter('')}
                   categoryName="Source"
                 >
@@ -264,7 +266,7 @@ export function ActivitiesPage() {
                         onClick={() => setIsSourceSelectOpen((o) => !o)}
                         isExpanded={isSourceSelectOpen}
                       >
-                        {ticketSources.find((s) => s.value === sourceFilter)?.label ?? 'All sources'}
+                        {selectedSourceLabel ?? 'All sources'}
                       </MenuToggle>
                     )}
                     shouldFocusToggleOnSelect
@@ -336,11 +338,11 @@ export function ActivitiesPage() {
                   </Tr>
                 ))
               ) : activities?.activities.length ? (
-                activities.activities.map((activity) => (
+                activities.activities.map((activity, rowIndex) => (
                   <Tr key={activity.id} selected={selectedIds.has(activity.id)}>
                     <Td
                       select={{
-                        rowIndex: activities.activities.indexOf(activity),
+                        rowIndex,
                         onSelect: (_event, isSelected) => toggleSelectRow(activity.id, isSelected),
                         isSelected: selectedIds.has(activity.id),
                       }}
