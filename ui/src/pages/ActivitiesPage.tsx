@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Content,
+  Skeleton,
   Form,
   FormGroup,
   FormHelperText,
@@ -316,9 +317,16 @@ export function ActivitiesPage() {
             </Thead>
             <Tbody>
               {isLoading ? (
-                <Tr>
-                  <Td colSpan={columns.length + 1}>Loading...</Td>
-                </Tr>
+                Array.from({ length: perPage }).map((_, i) => (
+                  <Tr key={i}>
+                    <Td />
+                    {columns.map((col) => (
+                      <Td key={col} dataLabel={col}>
+                        <Skeleton />
+                      </Td>
+                    ))}
+                  </Tr>
+                ))
               ) : activities?.activities.length ? (
                 activities.activities.map((activity) => (
                   <Tr key={activity.id} selected={selectedIds.has(activity.id)}>

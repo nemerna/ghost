@@ -19,6 +19,7 @@ import {
   ModalHeader,
   PageSection,
   Pagination,
+  Skeleton,
   TextInput,
   Title,
   Toolbar,
@@ -152,9 +153,15 @@ export function AdminUsersPage() {
               </Thead>
               <Tbody>
                 {isLoading ? (
-                  <Tr>
-                    <Td colSpan={columns.length}>Loading...</Td>
-                  </Tr>
+                  Array.from({ length: perPage }).map((_, i) => (
+                    <Tr key={i}>
+                      {columns.map((col) => (
+                        <Td key={col} dataLabel={col}>
+                          <Skeleton />
+                        </Td>
+                      ))}
+                    </Tr>
+                  ))
                 ) : usersData?.users.length ? (
                   usersData.users.map((user) => (
                     <Tr key={user.id}>
