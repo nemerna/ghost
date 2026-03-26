@@ -47,13 +47,21 @@ class VisibilityUpdateRequest(BaseModel):
 
 class ActivityCreateRequest(BaseModel):
     """Request model for creating an activity."""
-    
+
     ticket_key: str
     ticket_summary: str | None = None
     project_key: str | None = None
     github_repo: str | None = None
     action_type: str = "other"
     action_details: dict | None = None
+
+
+class ActivityUpdateRequest(BaseModel):
+    """Request model for updating an activity (all fields optional)."""
+
+    ticket_key: str | None = None
+    ticket_summary: str | None = None
+    action_type: str | None = None
 
 
 class ActivityListResponse(BaseModel):
@@ -345,6 +353,47 @@ async def delete_activity(
         session.delete(activity)
     
     return {"message": "Activity deleted successfully"}
+
+
+@router.put("/{activity_id}", response_model=ActivityResponse)
+async def update_activity(
+    activity_id: int,
+    request: ActivityUpdateRequest,
+    user: CurrentUser,
+):
+    """Update an activity's summary and/or action type (own activities only)."""
+    db = get_db()
+
+    with db.session() as session:
+        activity = session.query(ActivityLog).filter(ActivityLog.id == activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+
+        if activity.username != user.email and activity.user_id != user.id:
+            if user.role != UserRole.ADMIN:
+                raise HTTPException(status_code=403, detail="Can only edit your own activities")
+
+        if request.ticket_key is not None:
+            # Re-parse source when ticket key changes
+            source, normalized_key, project_key, github_repo = _parse_ticket_source(
+                request.ticket_key, activity.github_repo
+            )
+            activity.ticket_key = normalized_key
+            activity.ticket_source = source
+            if project_key is not None:
+                activity.project_key = project_key
+            if github_repo is not None:
+                activity.github_repo = github_repo
+        if request.ticket_summary is not None:
+            activity.ticket_summary = request.ticket_summary
+        if request.action_type is not None:
+            try:
+                activity.action_type = ActionType(request.action_type.lower())
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Invalid action_type: {request.action_type}")
+
+        session.flush()
+        return activity_to_response(activity)
 
 
 @router.patch("/{activity_id}/visibility", response_model=ActivityResponse)

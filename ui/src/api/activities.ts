@@ -34,6 +34,14 @@ export async function createActivity(data: ActivityCreateRequest): Promise<Activ
   return response.data;
 }
 
+export async function updateActivity(
+  activityId: number,
+  data: { ticket_key?: string; ticket_summary?: string; action_type?: string },
+): Promise<Activity> {
+  const response = await apiClient.put<Activity>(`/activities/${activityId}`, data);
+  return response.data;
+}
+
 export async function deleteActivity(activityId: number): Promise<void> {
   await apiClient.delete(`/activities/${activityId}`);
 }

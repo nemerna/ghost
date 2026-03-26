@@ -28,10 +28,10 @@ import {
   ToolbarContent,
   ToolbarItem,
 } from '@patternfly/react-core';
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
-import { PlusIcon, TrashIcon, ExternalLinkAltIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
+import { Table, Tbody, Td, Th, Thead, Tr, ActionsColumn } from '@patternfly/react-table';
+import { PlusIcon, ExternalLinkAltIcon, LockIcon, EyeIcon } from '@patternfly/react-icons';
 import { format } from 'date-fns';
-import { getMyActivities, createActivity, deleteActivity, updateActivityVisibility } from '@/api/activities';
+import { getMyActivities, createActivity, deleteActivity, updateActivityVisibility, updateActivity } from '@/api/activities';
 import { useAuth } from '@/auth';
 import { getTicketUrl } from '@/utils/tickets';
 import type { Activity, ActivityCreateRequest, TicketSource } from '@/types';
@@ -72,12 +72,17 @@ export function ActivitiesPage() {
     [applyProjectFilter],
   );
 
-  // Modal state
+  // Create modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newActivity, setNewActivity] = useState<ActivityCreateRequest>({
     ticket_key: '',
     ticket_summary: '',
   });
+
+  // Edit modal state
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [editTicketKey, setEditTicketKey] = useState('');
+  const [editSummary, setEditSummary] = useState('');
 
   // Fetch activities
   const { data: activities, isLoading } = useQuery({
@@ -110,6 +115,22 @@ export function ActivitiesPage() {
       queryClient.invalidateQueries({ queryKey: ['activitySummary'] });
     },
   });
+
+  // Edit activity mutation
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { ticket_summary?: string } }) =>
+      updateActivity(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myActivities'] });
+      setEditingActivity(null);
+    },
+  });
+
+  const handleOpenEdit = (activity: Activity) => {
+    setEditingActivity(activity);
+    setEditTicketKey(activity.ticket_key);
+    setEditSummary(activity.ticket_summary || '');
+  };
 
   // Update visibility mutation
   const visibilityMutation = useMutation({
@@ -263,15 +284,19 @@ export function ActivitiesPage() {
                         );
                       })()}
                     </Td>
-                    <Td dataLabel="Actions">
-                      <Button
-                        variant="plain"
-                        aria-label="Delete"
-                        onClick={() => handleDeleteActivity(activity.id)}
-                        isLoading={deleteMutation.isPending}
-                      >
-                        <TrashIcon />
-                      </Button>
+                    <Td isActionCell>
+                      <ActionsColumn
+                        items={[
+                          {
+                            title: 'Edit',
+                            onClick: () => handleOpenEdit(activity),
+                          },
+                          {
+                            title: 'Delete',
+                            onClick: () => handleDeleteActivity(activity.id),
+                          },
+                        ]}
+                      />
                     </Td>
                   </Tr>
                 ))
@@ -346,6 +371,56 @@ export function ActivitiesPage() {
             Log Activity
           </Button>
           <Button variant="link" onClick={() => setIsModalOpen(false)}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Edit Activity Modal */}
+      <Modal
+        isOpen={!!editingActivity}
+        onClose={() => setEditingActivity(null)}
+        aria-labelledby="edit-activity-modal"
+        variant="medium"
+      >
+        <ModalHeader title="Edit Activity" labelId="edit-activity-modal" />
+        <ModalBody>
+          <Form>
+            <FormGroup label="Ticket Key" isRequired fieldId="edit-ticket-key">
+              <TextInput
+                isRequired
+                id="edit-ticket-key"
+                value={editTicketKey}
+                onChange={(_event, value) => setEditTicketKey(value)}
+                placeholder="e.g., PROJ-123 or owner/repo#42"
+              />
+            </FormGroup>
+            <FormGroup label="Summary" fieldId="edit-summary">
+              <TextInput
+                id="edit-summary"
+                value={editSummary}
+                onChange={(_event, value) => setEditSummary(value)}
+                placeholder="Brief description of the ticket"
+              />
+            </FormGroup>
+          </Form>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="primary"
+            isLoading={editMutation.isPending}
+            isDisabled={!editTicketKey}
+            onClick={() =>
+              editingActivity &&
+              editMutation.mutate({
+                id: editingActivity.id,
+                data: { ticket_key: editTicketKey, ticket_summary: editSummary },
+              })
+            }
+          >
+            Save
+          </Button>
+          <Button variant="link" onClick={() => setEditingActivity(null)}>
             Cancel
           </Button>
         </ModalFooter>
