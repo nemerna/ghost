@@ -30,20 +30,7 @@ import {
 import t_global_text_color_subtle from '@patternfly/react-tokens/dist/esm/t_global_text_color_subtle';
 import { listTeams, getTeam, removeTeamMember } from '@/api/teams';
 import { getTeamActivitySummary } from '@/api/activities';
-import { NONSTATUS_COLORS } from '@/utils/colors';
-import type { UserRole } from '@/types';
-
-const ROLE_COLORS: Record<UserRole, 'purple' | 'blue' | 'grey'> = {
-  admin: 'purple',
-  manager: 'blue',
-  user: 'grey',
-};
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: 'Admin',
-  manager: 'Manager',
-  user: 'User',
-};
+import { NONSTATUS_COLORS, ROLE_COLORS, ROLE_LABELS } from '@/utils/colors';
 
 const STAT_CARDS = [
   { key: 'members', title: 'Team Members', icon: UsersIcon, color: 'var(--pf-t--global--color--nonstatus--blue--default)' },
@@ -221,7 +208,7 @@ export function TeamDashboardPage() {
                       </Tr>
                     </Thead>
                     <Tbody>
-                      {teamDetails.members.map((member) => {
+                      {[...teamDetails.members].sort((a, b) => a.email.localeCompare(b.email)).map((member) => {
                         const count = summary?.by_member?.[member.email]?.total_activities || 0;
                         const bars = getSparklineBars(member.email, count, maxActivity);
                         const avatarColor = NONSTATUS_COLORS[hashString(member.email) % NONSTATUS_COLORS.length];
