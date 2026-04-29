@@ -3,7 +3,7 @@
  */
 
 import apiClient from './client';
-import type { Activity, ActivityCreateRequest, ActivityListResponse, ActivitySummary, TicketSource } from '@/types';
+import type { Activity, ActivityCreateRequest, ActivityListResponse, ActivitySummary, TeamActivitySummary, TicketSource } from '@/types';
 
 export async function getMyActivities(params?: {
   start_date?: string;
@@ -70,7 +70,7 @@ export async function getTeamActivities(teamId: number, params?: {
 export async function getTeamActivitySummary(teamId: number, params?: {
   days?: number;
   ticket_source?: TicketSource;
-}): Promise<Record<string, unknown>> {
-  const response = await apiClient.get(`/activities/team/${teamId}/summary`, { params: { days: params?.days ?? 7, ...params } });
+}): Promise<TeamActivitySummary> {
+  const response = await apiClient.get<TeamActivitySummary>(`/activities/team/${teamId}/summary`, { params: { days: params?.days ?? 7, ...params } });
   return response.data;
 }

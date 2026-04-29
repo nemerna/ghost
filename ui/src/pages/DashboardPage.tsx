@@ -31,15 +31,8 @@ import t_global_text_color_subtle from '@patternfly/react-tokens/dist/esm/t_glob
 import { useAuth } from '@/auth';
 import { getMyActivitySummary, getMyActivities } from '@/api/activities';
 import { getTicketUrl } from '@/utils/tickets';
+import { NONSTATUS_COLORS } from '@/utils/colors';
 import { format } from 'date-fns';
-
-const PROJECT_COLORS = [
-  'var(--pf-t--global--color--nonstatus--blue--default)',
-  'var(--pf-t--global--color--nonstatus--green--default)',
-  'var(--pf-t--global--color--nonstatus--orange--default)',
-  'var(--pf-t--global--color--nonstatus--red--default)',
-  'var(--pf-t--global--color--nonstatus--purple--default)',
-];
 
 const STAT_CARDS = [
   { key: 'activities', title: 'Activities', subtitle: 'This week', icon: BundleIcon },
@@ -194,7 +187,7 @@ export function DashboardPage() {
                   </Title>
                   {topProjects.length > 0 ? (
                     topProjects.map(([project, count], i) => {
-                      const color = PROJECT_COLORS[i % PROJECT_COLORS.length];
+                      const color = NONSTATUS_COLORS[i % NONSTATUS_COLORS.length];
                       const barWidth = `${((count as number) / maxProjectCount) * 100}%`;
                       const isLast = i === topProjects.length - 1;
                       return (
