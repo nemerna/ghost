@@ -114,6 +114,12 @@ export interface ActivitySummary {
   period_end: string;
 }
 
+export interface TeamActivitySummary {
+  total_activities: number;
+  total_unique_tickets: number;
+  by_member: Record<string, { total_activities: number }>;
+}
+
 export interface ActivityCreateRequest {
   ticket_key: string;
   ticket_summary?: string;

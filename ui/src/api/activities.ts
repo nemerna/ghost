@@ -3,7 +3,7 @@
  */
 
 import apiClient from './client';
-import type { Activity, ActivityCreateRequest, ActivityListResponse, ActivitySummary, TicketSource } from '@/types';
+import type { Activity, ActivityCreateRequest, ActivityListResponse, ActivitySummary, TeamActivitySummary, TicketSource } from '@/types';
 
 export async function getMyActivities(params?: {
   start_date?: string;
@@ -11,6 +11,7 @@ export async function getMyActivities(params?: {
   project_key?: string;
   ticket_source?: TicketSource;
   github_repo?: string;
+  q?: string;
   action_type?: string;
   ticket_key?: string;
   limit?: number;
@@ -30,6 +31,14 @@ export async function getMyActivitySummary(params?: {
 
 export async function createActivity(data: ActivityCreateRequest): Promise<Activity> {
   const response = await apiClient.post<Activity>('/activities', data);
+  return response.data;
+}
+
+export async function updateActivity(
+  activityId: number,
+  data: { ticket_key?: string; ticket_summary?: string },
+): Promise<Activity> {
+  const response = await apiClient.put<Activity>(`/activities/${activityId}`, data);
   return response.data;
 }
 
@@ -61,7 +70,7 @@ export async function getTeamActivities(teamId: number, params?: {
 export async function getTeamActivitySummary(teamId: number, params?: {
   days?: number;
   ticket_source?: TicketSource;
-}): Promise<Record<string, unknown>> {
-  const response = await apiClient.get(`/activities/team/${teamId}/summary`, { params: { days: params?.days ?? 7, ...params } });
+}): Promise<TeamActivitySummary> {
+  const response = await apiClient.get<TeamActivitySummary>(`/activities/team/${teamId}/summary`, { params: { days: params?.days ?? 7, ...params } });
   return response.data;
 }

@@ -5,7 +5,9 @@
 import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Button,
   Divider,
+  Tooltip,
   Dropdown,
   DropdownItem,
   DropdownList,
@@ -27,7 +29,7 @@ import {
   ToolbarGroup,
   ToolbarItem,
 } from '@patternfly/react-core';
-import { BarsIcon, RedhatIcon, UserIcon } from '@patternfly/react-icons';
+import { BarsIcon, MoonIcon, RedhatIcon, SunIcon, UserIcon } from '@patternfly/react-icons';
 import { useAuth } from '@/auth';
 
 interface NavItemDef {
@@ -54,6 +56,16 @@ export function AppLayout() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isDark, setIsDark] = useState(
+    () => document.documentElement.classList.contains('pf-v6-theme-dark'),
+  );
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    document.documentElement.classList.toggle('pf-v6-theme-dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+    setIsDark(next);
+  };
 
   // Filter nav items based on user role
   const visibleNavItems = navItems.filter((item) => {
@@ -109,6 +121,17 @@ export function AppLayout() {
           variant="action-group-plain"
           align={{ default: 'alignEnd' }}
         >
+          <ToolbarItem>
+            <Tooltip content={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+              <Button
+                variant="plain"
+                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                onClick={toggleTheme}
+              >
+                {isDark ? <SunIcon /> : <MoonIcon />}
+              </Button>
+            </Tooltip>
+          </ToolbarItem>
           <ToolbarItem>
             <Dropdown
               isOpen={isUserMenuOpen}
