@@ -33,16 +33,27 @@ import { InlineMarkdown } from '@/components/StyledMarkdown';
 import { ProjectBadge } from '@/components/ProjectBadge';
 import type { ReportEntry, ReportEntryInput, ReportField } from '@/types';
 
-function buildTicketUrl(ticketKey: string, jiraServerUrl?: string): string | null {
+function buildTicketUrl(ticketKey: string, jiraServerUrl?: string, entryText?: string): string | null {
+  // GitHub: org/repo#123 → GitHub issues URL
   const githubMatch = ticketKey.match(/^([^#]+)#(\d+)$/);
   if (githubMatch) {
     const [, repo, num] = githubMatch;
     return `https://github.com/${repo}/issues/${num}`;
   }
+
+  // Jira: extract URL from embedded markdown in the entry text first (works for old reports)
+  if (entryText) {
+    const urlPattern = new RegExp(`https?://[^\\s)>"]+/browse/${ticketKey}(?=[\\s)>"<]|$)`, 'i');
+    const match = entryText.match(urlPattern);
+    if (match) return match[0];
+  }
+
+  // Jira: fallback to constructing from jira_server_url preference
   const baseUrl = jiraServerUrl?.replace(/\/+$/, '');
   if (baseUrl && /^[A-Z]+-\d+$/.test(ticketKey)) {
     return `${baseUrl}/browse/${ticketKey}`;
   }
+
   return null;
 }
 
@@ -218,7 +229,7 @@ export function ReportEntryEditor({
                 </Td>
                 <Td dataLabel="Ticket" modifier="nowrap">
                   {entry.ticket_key ? (() => {
-                    const url = buildTicketUrl(entry.ticket_key, jiraServerUrl);
+                    const url = buildTicketUrl(entry.ticket_key, jiraServerUrl, entry.text);
                     return url ? (
                       <a href={url} target="_blank" rel="noopener noreferrer"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
