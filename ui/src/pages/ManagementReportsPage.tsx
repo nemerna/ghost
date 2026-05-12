@@ -1718,7 +1718,7 @@ export function ManagementReportsPage() {
           <CardBody style={{ paddingBottom: isExpanded ? undefined : 0 }}>
             <Flex
               justifyContent={{ default: 'justifyContentSpaceBetween' }}
-              alignItems={{ default: 'alignItemsCenter' }}
+              alignItems={{ default: 'alignItemsFlexStart' }}
               style={{ marginBottom: isExpanded ? '0.5rem' : 0 }}
             >
               <FlexItem style={{ flex: 1 }}>
