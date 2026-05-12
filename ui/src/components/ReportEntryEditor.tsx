@@ -133,6 +133,7 @@ export function ReportEntryEditor({
           <Tr>
             <Th>Entry</Th>
             <Th width={15}>Ticket</Th>
+            <Th width={15}>Project</Th>
             <Th width={10}>Visibility</Th>
             <Th screenReaderText="Actions" />
           </Tr>
@@ -144,7 +145,7 @@ export function ReportEntryEditor({
             if (isEditing) {
               return (
                 <Tr key={index} style={{ backgroundColor: 'var(--pf-t--global--background--color--secondary--default)' }}>
-                  <Td colSpan={2}>
+                  <Td colSpan={3}>
                     <Flex direction={{ default: 'column' }} style={{ gap: '0.25rem' }}>
                       <FlexItem>
                         <TextInput
@@ -195,23 +196,23 @@ export function ReportEntryEditor({
             return (
               <Tr key={index} style={entry.private ? { opacity: 0.75 } : undefined}>
                 <Td dataLabel="Entry">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    {entry.text
-                      ? <InlineMarkdown>{entry.text}</InlineMarkdown>
-                      : <span style={{ color: '#6a6e73', fontStyle: 'italic' }}>{placeholder}</span>}
-                    {fields && fields.length > 0 && (
-                      <ProjectBadge
+                  {entry.text
+                    ? <InlineMarkdown>{entry.text}</InlineMarkdown>
+                    : <span style={{ color: '#6a6e73', fontStyle: 'italic' }}>{placeholder}</span>}
+                </Td>
+                <Td dataLabel="Ticket" modifier="nowrap">
+                  {entry.ticket_key
+                    ? <Label color="blue" isCompact>{entry.ticket_key}</Label>
+                    : <span style={{ color: '#6a6e73' }}>—</span>}
+                </Td>
+                <Td dataLabel="Project">
+                  {fields && fields.length > 0
+                    ? <ProjectBadge
                         projectId={entry.detected_project_id ?? null}
                         fields={fields}
                         onChange={(pid) => handleProjectChange(index, pid)}
                         disabled={disabled}
                       />
-                    )}
-                  </div>
-                </Td>
-                <Td dataLabel="Ticket" modifier="nowrap">
-                  {entry.ticket_key
-                    ? <Label color="blue" isCompact>{entry.ticket_key}</Label>
                     : <span style={{ color: '#6a6e73' }}>—</span>}
                 </Td>
                 <Td dataLabel="Visibility">
