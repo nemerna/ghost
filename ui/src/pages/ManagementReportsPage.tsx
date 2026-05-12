@@ -143,7 +143,8 @@ type ViewMode = 'review' | 'edit';
 
 export function ManagementReportsPage() {
   const queryClient = useQueryClient();
-  const { isManager, isAdmin } = useAuth();
+  const { isManager, isAdmin, user } = useAuth();
+  const jiraServerUrl = (user?.preferences?.jira_server_url as string) || '';
   const canViewTeams = isManager || isAdmin;
 
   // Team selection state
@@ -1777,6 +1778,7 @@ export function ManagementReportsPage() {
                         onChange={(entries) => handleEntryChange(report.id, entries)}
                         placeholder="Work item description with links..."
                         fields={fieldsData?.fields}
+                        jiraServerUrl={jiraServerUrl}
                       />
                       {isEditingReport && (
                         <Flex style={{ marginTop: '1rem', gap: '0.5rem' }}>
@@ -1928,6 +1930,7 @@ export function ManagementReportsPage() {
                 onChange={setNewReportEntries}
                 placeholder="Work item description with links..."
                 fields={fieldsData?.fields}
+                jiraServerUrl={jiraServerUrl}
               />
             </FormGroup>
 

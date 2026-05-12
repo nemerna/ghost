@@ -28,9 +28,23 @@ import {
   PlusIcon,
   TimesIcon,
 } from '@patternfly/react-icons';
+import { ExternalLinkAltIcon } from '@patternfly/react-icons';
 import { InlineMarkdown } from '@/components/StyledMarkdown';
 import { ProjectBadge } from '@/components/ProjectBadge';
 import type { ReportEntry, ReportEntryInput, ReportField } from '@/types';
+
+function buildTicketUrl(ticketKey: string, jiraServerUrl?: string): string | null {
+  const githubMatch = ticketKey.match(/^([^#]+)#(\d+)$/);
+  if (githubMatch) {
+    const [, repo, num] = githubMatch;
+    return `https://github.com/${repo}/issues/${num}`;
+  }
+  const baseUrl = jiraServerUrl?.replace(/\/+$/, '');
+  if (baseUrl && /^[A-Z]+-\d+$/.test(ticketKey)) {
+    return `${baseUrl}/browse/${ticketKey}`;
+  }
+  return null;
+}
 
 export interface ReportEntryEditorProps {
   entries: ReportEntryInput[];
@@ -38,6 +52,7 @@ export interface ReportEntryEditorProps {
   placeholder?: string;
   disabled?: boolean;
   fields?: ReportField[];
+  jiraServerUrl?: string;
 }
 
 export function reportEntriesToInputs(entries: ReportEntry[] | null | undefined): ReportEntryInput[] {
@@ -56,6 +71,7 @@ export function ReportEntryEditor({
   placeholder = 'Work item description with links...',
   disabled = false,
   fields,
+  jiraServerUrl,
 }: ReportEntryEditorProps) {
   const [editingIndex, setEditingIndex] = useState<number>(-1);
   const [editText, setEditText] = useState('');
@@ -201,9 +217,20 @@ export function ReportEntryEditor({
                     : <span style={{ color: '#6a6e73', fontStyle: 'italic' }}>{placeholder}</span>}
                 </Td>
                 <Td dataLabel="Ticket" modifier="nowrap">
-                  {entry.ticket_key
-                    ? <Label color="blue" isCompact>{entry.ticket_key}</Label>
-                    : <span style={{ color: '#6a6e73' }}>—</span>}
+                  {entry.ticket_key ? (() => {
+                    const url = buildTicketUrl(entry.ticket_key, jiraServerUrl);
+                    return url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
+                        <Label color="blue" isCompact style={{ cursor: 'pointer' }}>
+                          {entry.ticket_key}
+                        </Label>
+                        <ExternalLinkAltIcon style={{ fontSize: '0.7em', color: '#6a6e73' }} />
+                      </a>
+                    ) : (
+                      <Label color="blue" isCompact>{entry.ticket_key}</Label>
+                    );
+                  })() : <span style={{ color: '#6a6e73' }}>—</span>}
                 </Td>
                 <Td dataLabel="Project">
                   {fields && fields.length > 0
