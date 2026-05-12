@@ -36,7 +36,7 @@ class ReportEntry(BaseModel):
     text: str
     private: bool = False
     ticket_key: str | None = None  # Associated ticket key for project/component tracking
-    detected_project_id: int | None = None  # Resolved during report creation from ActivityLog
+    detected_project_id: int | None = None  # Resolved during report creation from ticket_key + field/project config
 
 
 class ManagementReportResponse(BaseModel):
@@ -144,7 +144,6 @@ def _get_user_visibility_defaults(user: User) -> dict:
     """Get visibility defaults from user preferences."""
     preferences = json.loads(user.preferences) if user.preferences else {}
     return preferences.get("visibility_defaults", {
-        "activity_logs": "shared",
         "management_reports": "private",
     })
 
@@ -342,10 +341,10 @@ async def create_management_report(
     user: CurrentUser,
 ):
     """Create a new management report.
-    
+
     Supports both legacy plain text content and structured entries format.
     If entries are provided, they are serialized to JSON for storage.
-    Field/project linking is resolved at creation time from existing ActivityLog data.
+    Field/project linking is resolved at creation time from ticket_key + field/project config.
     """
     db = get_db()
     
@@ -611,10 +610,10 @@ async def update_management_report(
     user: CurrentUser,
 ):
     """Update a management report.
-    
+
     Supports both legacy plain text content and structured entries format.
     If entries are provided, they are serialized to JSON for storage.
-    Field/project linking is re-resolved at update time from existing ActivityLog data.
+    Field/project linking is re-resolved at update time from ticket_key + field/project config.
     """
     db = get_db()
     
@@ -880,7 +879,7 @@ async def get_consolidated_report(
 
         # Group individual report entries by detected project.
         # Project assignments are read directly from entries (resolved at report
-        # creation time) so no ActivityLog lookup or Jira MCP is needed here.
+        # creation time from ticket_key + field/project config).
         entries_by_project: dict[int, list[ConsolidatedEntry]] = {}
         uncategorized_entries: list[ConsolidatedEntry] = []
 
@@ -1400,7 +1399,7 @@ async def _get_consolidated_as_draft_content(session, team_id: int, user: User) 
     
     This converts the live consolidated data into editable draft format.
     Project assignments are read directly from entries (resolved at report
-    creation time) so no ActivityLog lookup or Jira MCP is needed here.
+    creation time from ticket_key + field/project config).
     """
     # Get team member emails
     memberships = session.query(TeamMembership).filter(TeamMembership.team_id == team_id).all()

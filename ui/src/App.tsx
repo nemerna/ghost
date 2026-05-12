@@ -8,7 +8,6 @@ import { AppLayout } from '@/components/layout';
 
 // Pages
 import DashboardPage from '@/pages/DashboardPage';
-import ActivitiesPage from '@/pages/ActivitiesPage';
 import TeamDashboardPage from '@/pages/TeamDashboardPage';
 import ManagementReportsPage from '@/pages/ManagementReportsPage';
 import AdminUsersPage from '@/pages/AdminUsersPage';
@@ -25,7 +24,6 @@ function App() {
           <Route index element={<DashboardPage />} />
           
           {/* User routes */}
-          <Route path="activities" element={<ActivitiesPage />} />
           <Route path="management-reports" element={<ManagementReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           

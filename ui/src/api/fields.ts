@@ -106,7 +106,7 @@ export async function reorderProjects(fieldId: number, data: ProjectReorderReque
 // =============================================================================
 
 /**
- * Re-run project detection on existing activities
+ * Re-run project detection on existing report entries
  */
 export async function redetectActivities(params?: {
   username?: string;

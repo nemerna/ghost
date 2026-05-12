@@ -1,6 +1,5 @@
 """API route modules."""
 
-from ghost.api.routes.activities import router as activities_router
 from ghost.api.routes.fields import router as fields_router
 from ghost.api.routes.github_tokens import router as github_tokens_router
 from ghost.api.routes.health import router as health_router
@@ -13,7 +12,6 @@ __all__ = [
     "health_router",
     "users_router",
     "teams_router",
-    "activities_router",
     "reports_router",
     "fields_router",
     "tokens_router",

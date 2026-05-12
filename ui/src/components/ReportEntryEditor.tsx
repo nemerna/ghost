@@ -8,6 +8,7 @@ import {
   Button,
   Flex,
   FlexItem,
+  Label,
   TextInput,
   Tooltip,
 } from '@patternfly/react-core';
@@ -61,6 +62,8 @@ export function ReportEntryEditor({
   const [editingIndex, setEditingIndex] = useState<number>(-1);
   // Temporary text while editing (before save)
   const [editText, setEditText] = useState<string>('');
+  // Temporary ticket_key while editing
+  const [editTicketKey, setEditTicketKey] = useState<string>('');
   // Ref to focus input when editing starts
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -75,26 +78,33 @@ export function ReportEntryEditor({
   const handleStartEdit = useCallback((index: number) => {
     setEditingIndex(index);
     setEditText(entries[index].text);
+    setEditTicketKey(entries[index].ticket_key ?? '');
   }, [entries]);
 
   // Save the current edit
   const handleSaveEdit = useCallback(() => {
     if (editingIndex >= 0) {
       const newEntries = [...entries];
-      newEntries[editingIndex] = { ...newEntries[editingIndex], text: editText };
+      newEntries[editingIndex] = {
+        ...newEntries[editingIndex],
+        text: editText,
+        ticket_key: editTicketKey.trim() || undefined,
+      };
       onChange(newEntries);
       setEditingIndex(-1);
       setEditText('');
+      setEditTicketKey('');
     }
-  }, [editingIndex, editText, entries, onChange]);
+  }, [editingIndex, editText, editTicketKey, entries, onChange]);
 
   // Cancel the current edit
   const handleCancelEdit = useCallback(() => {
     setEditingIndex(-1);
     setEditText('');
+    setEditTicketKey('');
   }, []);
 
-  // Handle keyboard events in edit mode
+  // Handle keyboard events in text edit mode
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -108,9 +118,9 @@ export function ReportEntryEditor({
   const handleAddEntry = useCallback(() => {
     const newEntries = [...entries, { text: '', private: false }];
     onChange(newEntries);
-    // Start editing the new entry
     setEditingIndex(newEntries.length - 1);
     setEditText('');
+    setEditTicketKey('');
   }, [entries, onChange]);
 
   // Toggle an entry's visibility
@@ -129,12 +139,11 @@ export function ReportEntryEditor({
   // Delete an entry
   const handleDeleteEntry = useCallback(
     (index: number) => {
-      // If we're editing this entry, cancel the edit
       if (editingIndex === index) {
         setEditingIndex(-1);
         setEditText('');
+        setEditTicketKey('');
       } else if (editingIndex > index) {
-        // Adjust editing index if we deleted an entry before it
         setEditingIndex(editingIndex - 1);
       }
       const newEntries = entries.filter((_, i) => i !== index);
@@ -163,18 +172,33 @@ export function ReportEntryEditor({
           <Flex alignItems={{ default: 'alignItemsCenter' }}>
             <FlexItem grow={{ default: 'grow' }}>
               {editingIndex === index ? (
-                <TextInput
-                  ref={inputRef}
-                  value={editText}
-                  onChange={(_event, value) => setEditText(value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={placeholder}
-                  isDisabled={disabled}
-                  aria-label={`Edit entry ${index + 1}`}
-                  style={{
-                    backgroundColor: entry.private ? 'rgba(255, 0, 0, 0.05)' : undefined,
-                  }}
-                />
+                <Flex direction={{ default: 'column' }} style={{ gap: '0.25rem' }}>
+                  <FlexItem>
+                    <TextInput
+                      ref={inputRef}
+                      value={editText}
+                      onChange={(_event, value) => setEditText(value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={placeholder}
+                      isDisabled={disabled}
+                      aria-label={`Edit entry ${index + 1}`}
+                      style={{
+                        backgroundColor: entry.private ? 'rgba(255, 0, 0, 0.05)' : undefined,
+                      }}
+                    />
+                  </FlexItem>
+                  <FlexItem>
+                    <TextInput
+                      value={editTicketKey}
+                      onChange={(_event, value) => setEditTicketKey(value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Ticket key (e.g. PROJ-123 or org/repo#42)"
+                      isDisabled={disabled}
+                      aria-label={`Ticket key for entry ${index + 1}`}
+                      style={{ fontSize: '0.875rem' }}
+                    />
+                  </FlexItem>
+                </Flex>
               ) : (
                 <div
                   style={{
@@ -182,9 +206,11 @@ export function ReportEntryEditor({
                     minHeight: '36px',
                     display: 'flex',
                     alignItems: 'center',
+                    gap: '0.5rem',
                     backgroundColor: entry.private ? 'rgba(255, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                     borderRadius: '3px',
                     color: entry.private ? '#6a6e73' : 'inherit',
+                    flexWrap: 'wrap',
                   }}
                 >
                   {entry.text ? (
@@ -192,10 +218,15 @@ export function ReportEntryEditor({
                   ) : (
                     <span style={{ color: '#6a6e73', fontStyle: 'italic' }}>{placeholder}</span>
                   )}
+                  {entry.ticket_key && (
+                    <Label color="blue" isCompact style={{ flexShrink: 0 }}>
+                      {entry.ticket_key}
+                    </Label>
+                  )}
                 </div>
               )}
             </FlexItem>
-            
+
             {editingIndex === index ? (
               <>
                 <FlexItem>

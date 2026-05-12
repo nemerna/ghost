@@ -27,12 +27,10 @@ from ghost.github_client import GitHubClient, GitHubClientError, GitHubTokenMana
 from ghost.prompts import get_prompt as resolve_prompt
 from ghost.prompts import list_prompts as get_all_prompts
 
-# Import activity tracking and report functions
 from ghost.tools import reports as report_tools
 from ghost.tools.schemas import (
     DeleteManagementReportInput,
     GetManagementReportInput,
-    GetWeeklyActivityInput,
     # GitHub Pull Requests
     GitHubAddPRCommentInput,
     GitHubCompareBranchesInput,
@@ -62,8 +60,6 @@ from ghost.tools.schemas import (
     GitHubSearchIssuesInput,
     GitHubUpdateIssueInput,
     ListManagementReportsInput,
-    # Activity & Reports
-    LogActivityInput,
     # Management Reports
     SaveManagementReportInput,
     UpdateManagementReportInput,
@@ -1057,7 +1053,7 @@ GITHUB_TOOLS: list[Tool] = [
     ),
     Tool(
         name="github_search_issues",
-        description="Search for issues across GitHub repositories. Use GitHub search qualifiers like 'author:username', 'repo:owner/repo', 'state:open', 'label:bug'. Returns issue_key in 'owner/repo#number' format for activity logging.",
+        description="Search for issues across GitHub repositories. Use GitHub search qualifiers like 'author:username', 'repo:owner/repo', 'state:open', 'label:bug'. Returns issue_key in 'owner/repo#number' format.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1109,7 +1105,7 @@ GITHUB_TOOLS: list[Tool] = [
 
 
 # =============================================================================
-# Reports Tools (Activity Tracking & Reporting)
+# Reports Tools (Management Reports & Project Detection)
 # =============================================================================
 
 REPORTS_TOOLS: list[Tool] = [
@@ -1122,75 +1118,7 @@ REPORTS_TOOLS: list[Tool] = [
             "properties": {},
         },
     ),
-    # --- Activity Tracking ---
-    Tool(
-        name="log_activity",
-        description="Log a work activity for tracking. Supports both Jira tickets (PROJ-123) and GitHub issues (owner/repo#123). Call this when working on tickets to track your work. For Jira tickets, provide jira_components for project detection.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The ticket key. Jira: 'PROJ-123'. GitHub: 'owner/repo#123' or '#123' (with github_repo).",
-                },
-                "action_type": {
-                    "type": "string",
-                    "enum": ["view", "create", "update", "comment", "transition", "link", "other"],
-                    "description": "Optional internal metadata. Not displayed to users. Defaults to 'other'.",
-                    "default": "other",
-                },
-                "ticket_summary": {
-                    "type": "string",
-                    "description": "Optional ticket summary for context.",
-                },
-                "github_repo": {
-                    "type": "string",
-                    "description": "For GitHub issues: repository in 'owner/repo' format. Required if using short '#123' format.",
-                },
-                "jira_components": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "For Jira tickets: list of component names for project detection (e.g., ['FSI-Lab']).",
-                },
-                "ticket_url": {
-                    "type": "string",
-                    "description": "Canonical browse URL for the ticket (e.g. from jira_get_issue 'url' field or GitHub issue URL). Stored for reports and UI links.",
-                },
-                "action_details": {
-                    "type": "string",
-                    "description": "Optional JSON string with additional context.",
-                },
-            },
-            "required": ["ticket_key"],
-        },
-    ),
-    Tool(
-        name="get_weekly_activity",
-        description="Get activity summary for a time period. Use 'days' to specify how many days back to look (e.g. 7 for last week).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "days": {
-                    "type": "integer",
-                    "description": "Number of days to look back (e.g. 7 for last week, 14 for last two weeks). Preferred over week_offset.",
-                    "minimum": 1,
-                    "maximum": 365,
-                },
-                "week_offset": {
-                    "type": "integer",
-                    "description": "(Legacy) Week offset from current week (0 = current, -1 = last week). Use 'days' instead.",
-                    "default": 0,
-                    "minimum": -52,
-                    "maximum": 0,
-                },
-                "project": {
-                    "type": "string",
-                    "description": "Optional project key to filter by.",
-                },
-            },
-        },
-    ),
-    # --- Management Reports (AI-generated for stakeholders) ---
+    # --- Management Reports ---
     Tool(
         name="save_management_report",
         description="""Save a management report. Read instructions at 'reports://instructions/management-report' first.
@@ -1199,8 +1127,7 @@ Supports two formats:
 1. Legacy: Plain text content (bullet list)
 2. Structured entries: Array of entries with per-item visibility control
 
-When using structured entries, include ticket_key to auto-inherit visibility from activities.
-Items from activities marked as private will be automatically hidden from managers.""",
+When using structured entries, include ticket_key to enable automatic project detection via configured field/project mappings.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1227,12 +1154,12 @@ Items from activities marked as private will be automatically hidden from manage
                             },
                             "ticket_key": {
                                 "type": "string",
-                                "description": "Optional ticket key to auto-detect visibility from activity settings.",
+                                "description": "Optional ticket key for automatic project detection via field/project config.",
                             },
                         },
                         "required": ["text"],
                     },
-                    "description": "Structured entries with per-item visibility. If ticket_key is provided, visibility is auto-inherited from activity.",
+                    "description": "Structured entries with per-item visibility. If ticket_key is provided, project is auto-detected from field/project config.",
                 },
                 "project_key": {
                     "type": "string",
@@ -1318,7 +1245,7 @@ Items from activities marked as private will be automatically hidden from manage
                             },
                             "ticket_key": {
                                 "type": "string",
-                                "description": "Optional ticket key to auto-detect visibility from activity settings.",
+                                "description": "Optional ticket key for automatic project detection via field/project config.",
                             },
                         },
                         "required": ["text"],
@@ -1355,13 +1282,13 @@ Items from activities marked as private will be automatically hidden from manage
     # --- Project Detection ---
     Tool(
         name="redetect_project_assignments",
-        description="Re-run project detection on existing activities. Useful after configuring project mappings (Jira components or GitHub repos) to update historical activities. Auto-fetches Jira components if missing.",
+        description="Re-run project detection on existing report entries. Useful after configuring project mappings (Jira components or GitHub repos) to update historical report entries.",
         inputSchema={
             "type": "object",
             "properties": {
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of activities to process. Default: 100.",
+                    "description": "Maximum number of reports to process. Default: 100.",
                     "default": 100,
                     "minimum": 1,
                     "maximum": 1000,
@@ -1375,20 +1302,6 @@ Items from activities marked as private will be automatically hidden from manage
         inputSchema={
             "type": "object",
             "properties": {},
-        },
-    ),
-    Tool(
-        name="get_activity_details",
-        description="Get detailed information about a specific activity by ticket key. Useful for debugging project detection.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "ticket_key": {
-                    "type": "string",
-                    "description": "The ticket key to look up (e.g., 'APPENG-4347').",
-                },
-            },
-            "required": ["ticket_key"],
         },
     ),
 ]
@@ -1851,39 +1764,7 @@ async def _execute_reports_tool(
             "note": "Follow these guidelines when generating management reports using the save_management_report tool.",
         }
 
-    # --- Activity Tracking & Weekly Reports ---
-
-    elif name == "log_activity":
-        input_data = LogActivityInput(**arguments)
-
-        action_details = None
-        if input_data.action_details:
-            try:
-                action_details = json.loads(input_data.action_details)
-            except json.JSONDecodeError:
-                action_details = {"raw": input_data.action_details}
-
-        return report_tools.log_activity(
-            username=username,
-            ticket_key=input_data.ticket_key,
-            action_type=input_data.action_type,
-            ticket_summary=input_data.ticket_summary,
-            github_repo=input_data.github_repo,
-            jira_components=input_data.jira_components,
-            ticket_url=input_data.ticket_url,
-            action_details=action_details,
-        )
-
-    elif name == "get_weekly_activity":
-        input_data = GetWeeklyActivityInput(**arguments)
-        return report_tools.get_weekly_activity(
-            username=username,
-            week_offset=input_data.week_offset,
-            days=input_data.days,
-            project=input_data.project,
-        )
-
-    # --- Management Reports (AI-generated) ---
+    # --- Management Reports ---
 
     elif name == "save_management_report":
         input_data = SaveManagementReportInput(**arguments)
@@ -1952,10 +1833,6 @@ async def _execute_reports_tool(
     elif name == "list_report_fields":
         return report_tools.list_report_fields()
 
-    elif name == "get_activity_details":
-        ticket_key = arguments.get("ticket_key")
-        return report_tools.get_activity_details(username=username, ticket_key=ticket_key)
-
     else:
         raise ValueError(f"Unknown Reports tool: {name}")
 
@@ -1978,7 +1855,7 @@ async def run_streamable_http(host: str, port: int) -> None:
 
     logger.info(f"Starting MCP server with Streamable HTTP transport on {host}:{port}")
     logger.info(
-        "Endpoints: /mcp/github (GitHub tools), /mcp/reports (Activity & Reports)"
+        "Endpoints: /mcp/github (GitHub tools), /mcp/reports (Management Reports & Project Detection)"
     )
 
     # Stateless session managers — each request is independent with its own context
@@ -2229,14 +2106,14 @@ def main() -> None:
     logger.info("Database initialized")
 
     parser = argparse.ArgumentParser(
-        description="Ghost MCP Server - GitHub integration and activity reporting",
+        description="Ghost MCP Server - GitHub integration and management reporting",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Transport: Streamable HTTP (stateless)
 
 Endpoints (all via POST to the mount path):
   /mcp/github    GitHub tools (PRs, reviews, comments)
-  /mcp/reports   Activity logging & reporting tools
+  /mcp/reports   Management reports & project detection tools
 
 GitHub Headers (single token - simple):
   X-GitHub-Token       Personal Access Token (required if multi-token not used)
@@ -2255,7 +2132,7 @@ GitHub Headers (multi-token via JSON - alternative):
 Reports Headers:
   Authorization        Bearer <PAT> (preferred) or proxy headers below
   X-Forwarded-Email    User email from OAuth proxy
-  X-Username           Username for activity tracking
+  X-Username           Username for report authoring
 
 Note: Jira integration is handled via external Atlassian MCP. Configure it separately
       in your AI agent's MCP settings.

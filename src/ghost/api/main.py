@@ -54,7 +54,7 @@ def create_app(
     
     app = FastAPI(
         title="Ghost API",
-        description="REST API for Ghost activity tracking and reporting UI",
+        description="REST API for Ghost management reporting UI",
         version="1.0.0",
         lifespan=lifespan,
         docs_url="/api/docs" if dev_mode else None,  # Only enable docs in dev mode
@@ -81,7 +81,6 @@ def create_app(
     
     # Register API routes
     from ghost.api.routes import (
-        activities_router,
         fields_router,
         github_tokens_router,
         health_router,
@@ -90,11 +89,10 @@ def create_app(
         tokens_router,
         users_router,
     )
-    
+
     app.include_router(health_router, prefix="/api", tags=["health"])
     app.include_router(users_router, prefix="/api/users", tags=["users"])
     app.include_router(teams_router, prefix="/api/teams", tags=["teams"])
-    app.include_router(activities_router, prefix="/api/activities", tags=["activities"])
     app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
     app.include_router(fields_router, prefix="/api/fields", tags=["fields"])
     app.include_router(tokens_router, prefix="/api/tokens", tags=["tokens"])

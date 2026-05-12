@@ -30,7 +30,6 @@ export interface UserListResponse {
 export type VisibilityValue = 'shared' | 'private';
 
 export interface VisibilitySettings {
-  activity_logs: VisibilityValue;
   management_reports: VisibilityValue;
 }
 
@@ -73,60 +72,6 @@ export interface TeamDetail extends Team {
 export interface TeamListResponse {
   teams: Team[];
   total: number;
-}
-
-// =============================================================================
-// Activity Types
-// =============================================================================
-
-export type ActionType = 'view' | 'create' | 'update' | 'comment' | 'transition' | 'link' | 'other';
-
-export type TicketSource = 'jira' | 'github';
-
-export interface Activity {
-  id: number;
-  username: string;
-  user_id: number | null;
-  ticket_key: string;
-  ticket_summary: string | null;
-  ticket_url: string | null;
-  ticket_source: TicketSource;
-  project_key: string | null;
-  github_repo: string | null;
-  action_type: ActionType;
-  action_details: Record<string, unknown> | null;
-  timestamp: string;
-  visible_to_manager: boolean | null;
-}
-
-export interface ActivityListResponse {
-  activities: Activity[];
-  total: number;
-}
-
-export interface ActivitySummary {
-  total_activities: number;
-  unique_tickets: number;
-  by_action_type: Record<string, number>;
-  by_project: Record<string, number>;
-  by_source: Record<TicketSource, number>;
-  period_start: string;
-  period_end: string;
-}
-
-export interface TeamActivitySummary {
-  total_activities: number;
-  total_unique_tickets: number;
-  by_member: Record<string, { total_activities: number }>;
-}
-
-export interface ActivityCreateRequest {
-  ticket_key: string;
-  ticket_summary?: string;
-  project_key?: string;
-  github_repo?: string;
-  action_type?: ActionType;
-  action_details?: Record<string, unknown>;
 }
 
 // =============================================================================

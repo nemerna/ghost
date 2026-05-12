@@ -628,9 +628,8 @@ async def delete_project(
     user: Annotated[User, Depends(require_admin)],
 ):
     """Delete a project and all its children recursively (admin only).
-    
-    This will cascade delete all subprojects, their detection mappings,
-    and clear detected_project_id references in activity logs.
+
+    This will cascade delete all subprojects and their detection mappings.
     """
     db = get_db()
 
@@ -641,23 +640,7 @@ async def delete_project(
 
         project_name = project.name
         children_count = len(project.children)
-        
-        # Clear detected_project_id for activities pointing to this project or its children
-        # This is handled by ON DELETE SET NULL in the FK, but we do it explicitly for clarity
-        from ghost.db import ActivityLog
-        
-        def get_all_descendant_ids(proj) -> list[int]:
-            """Recursively get all descendant project IDs."""
-            ids = [proj.id]
-            for child in proj.children:
-                ids.extend(get_all_descendant_ids(child))
-            return ids
-        
-        all_ids = get_all_descendant_ids(project)
-        session.query(ActivityLog).filter(
-            ActivityLog.detected_project_id.in_(all_ids)
-        ).update({ActivityLog.detected_project_id: None}, synchronize_session=False)
-        
+
         session.delete(project)
 
     message = f"Project '{project_name}' deleted successfully"
@@ -729,13 +712,13 @@ async def reorder_projects(
 
 
 @router.post("/redetect", response_model=RedetectResponse)
-async def redetect_activities(
+async def redetect_entry_projects(
     user: Annotated[User, Depends(require_admin)],
     username: str | None = None,
     limit: int = 1000,
 ):
-    """Re-run project detection on existing activities (admin only).
-    
+    """Re-run project detection on existing report entries (admin only).
+
     Useful after changing field/project configuration.
     """
     result = redetect_project_assignments(username=username, limit=limit)
