@@ -192,10 +192,10 @@ export function ReportEntryEditor({
                       value={editTicketKey}
                       onChange={(_event, value) => setEditTicketKey(value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Ticket key (e.g. PROJ-123 or org/repo#42)"
+                      placeholder="Ticket key e.g. PROJ-123"
                       isDisabled={disabled}
                       aria-label={`Ticket key for entry ${index + 1}`}
-                      style={{ fontSize: '0.875rem' }}
+                      style={{ fontSize: '0.8rem', height: '28px' }}
                     />
                   </FlexItem>
                 </Flex>

@@ -49,6 +49,7 @@ import {
   Th,
   Tbody,
   Td,
+  ExpandableRowContent,
 } from '@patternfly/react-table';
 import {
   PlusIcon,
@@ -1670,145 +1671,142 @@ export function ManagementReportsPage() {
       );
     }
 
-    return reportsData.reports.map((report) => {
-      const visInfo = getVisibilityInfo(report);
-      const isEditingReport = hasChanges(report.id);
-      const displayEntries = getDisplayEntries(report);
-      const isExpanded = expandedReports.has(report.id);
+    return (
+      <Table aria-label="My reports" variant="compact">
+        <Thead>
+          <Tr>
+            <Th screenReaderText="Row expansion" />
+            <Th width={35}>Title</Th>
+            <Th width={15}>Period</Th>
+            <Th width={10}>Entries</Th>
+            <Th width={15}>Date</Th>
+            <Th width={15}>Visibility</Th>
+            <Th width={10}>Actions</Th>
+          </Tr>
+        </Thead>
+        {reportsData.reports.map((report, rowIndex) => {
+          const visInfo = getVisibilityInfo(report);
+          const isEditingReport = hasChanges(report.id);
+          const displayEntries = getDisplayEntries(report);
+          const isExpanded = expandedReports.has(report.id);
+          const entryCount = displayEntries.length;
 
-      const reportToggleContent = (
-        <Flex
-          alignItems={{ default: 'alignItemsCenter' }}
-          style={{ gap: '0.5rem' }}
-        >
-          <FlexItem>
-            <strong>{report.title}</strong>
-          </FlexItem>
-          {report.project_key && (
-            <FlexItem>
-              <Label color="blue" isCompact>{report.project_key}</Label>
-            </FlexItem>
-          )}
-          {report.report_period && (
-            <FlexItem>
-              <Label color="grey" isCompact>{report.report_period}</Label>
-            </FlexItem>
-          )}
-          {isEditingReport && (
-            <FlexItem>
-              <Label color="orange" isCompact>Unsaved Changes</Label>
-            </FlexItem>
-          )}
-          <FlexItem>
-            <small style={{ color: '#6a6e73' }}>
-              {report.created_at && format(new Date(report.created_at), 'MMM d, yyyy')}
-            </small>
-          </FlexItem>
-        </Flex>
-      );
-
-      return (
-        <Card
-          key={report.id}
-          style={{
-            marginBottom: '1rem',
-            border: isEditingReport ? '2px solid #0066cc' : undefined,
-          }}
-        >
-          <CardBody style={{ paddingBottom: isExpanded ? undefined : 0 }}>
-            <Flex
-              justifyContent={{ default: 'justifyContentSpaceBetween' }}
-              alignItems={{ default: 'alignItemsFlexStart' }}
-              style={{ marginBottom: isExpanded ? '0.5rem' : 0 }}
-            >
-              <FlexItem style={{ flex: 1 }}>
-                <ExpandableSection
-                  toggleContent={reportToggleContent}
-                  isExpanded={isExpanded}
-                  onToggle={(_event, expanded) => {
-                    setExpandedReports((prev) => {
-                      const next = new Set(prev);
-                      if (expanded) {
-                        next.add(report.id);
-                      } else {
-                        next.delete(report.id);
-                      }
-                      return next;
-                    });
+          return (
+            <Tbody key={report.id} isExpanded={isExpanded}>
+              <Tr style={isEditingReport ? { outline: '2px solid #0066cc' } : undefined}>
+                <Td
+                  expand={{
+                    rowIndex,
+                    isExpanded,
+                    onToggle: () => {
+                      setExpandedReports((prev) => {
+                        const next = new Set(prev);
+                        if (isExpanded) next.delete(report.id);
+                        else next.add(report.id);
+                        return next;
+                      });
+                    },
+                    expandId: `report-expand-${report.id}`,
                   }}
-                >
-                  <ReportEntryEditor
-                    entries={displayEntries.length > 0 ? displayEntries : [{ text: '', private: false }]}
-                    onChange={(entries) => handleEntryChange(report.id, entries)}
-                    placeholder="Work item description with links..."
-                    fields={fieldsData?.fields}
-                  />
-
-                  {isEditingReport && (
-                    <Flex style={{ marginTop: '1rem', gap: '0.5rem' }}>
+                />
+                <Td dataLabel="Title">
+                  <Flex alignItems={{ default: 'alignItemsCenter' }} style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+                    <FlexItem>
+                      <strong>{report.title}</strong>
+                    </FlexItem>
+                    {report.project_key && (
                       <FlexItem>
-                        <Button
-                          variant="primary"
-                          onClick={() => handleSaveEdit(report.id)}
-                          isLoading={updateMutation.isPending}
-                        >
-                          Save
-                        </Button>
+                        <Label color="blue" isCompact>{report.project_key}</Label>
                       </FlexItem>
+                    )}
+                    {isEditingReport && (
                       <FlexItem>
-                        <Button
-                          variant="link"
-                          onClick={() => handleCancelEdit(report.id)}
-                        >
-                          Cancel
-                        </Button>
+                        <Label color="orange" isCompact>Unsaved</Label>
                       </FlexItem>
-                    </Flex>
-                  )}
-
-                  {report.referenced_tickets.length > 0 && (
-                    <p style={{ marginTop: '1rem' }}>
-                      <strong>Referenced Tickets:</strong>{' '}
-                      {report.referenced_tickets.join(', ')}
-                    </p>
-                  )}
-                </ExpandableSection>
-              </FlexItem>
-              <FlexItem>
-                <Flex
-                  alignItems={{ default: 'alignItemsCenter' }}
-                  style={{ gap: '0.5rem' }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <FlexItem>
-                    <Tooltip content={visInfo.tooltip}>
-                      <Button
-                        variant="link"
-                        onClick={() => handleToggleVisibility(report)}
-                        isLoading={visibilityMutation.isPending}
-                        style={{ color: visInfo.color, whiteSpace: 'nowrap', padding: '0.25rem 0.5rem' }}
-                        icon={visInfo.icon}
-                      >
-                        {visInfo.label}
-                      </Button>
-                    </Tooltip>
-                  </FlexItem>
-                  <FlexItem>
+                    )}
+                  </Flex>
+                </Td>
+                <Td dataLabel="Period">
+                  {report.report_period
+                    ? <Label color="grey" isCompact>{report.report_period}</Label>
+                    : <span style={{ color: '#6a6e73' }}>—</span>}
+                </Td>
+                <Td dataLabel="Entries" modifier="nowrap">
+                  {entryCount}
+                </Td>
+                <Td dataLabel="Date" modifier="nowrap">
+                  <Content component="small" style={{ color: '#6a6e73' }}>
+                    {report.created_at ? format(new Date(report.created_at), 'MMM d, yyyy') : '—'}
+                  </Content>
+                </Td>
+                <Td dataLabel="Visibility">
+                  <Tooltip content={visInfo.tooltip}>
                     <Button
                       variant="link"
-                      isDanger
-                      onClick={() => handleDelete(report.id)}
+                      isInline
+                      onClick={() => handleToggleVisibility(report)}
+                      isLoading={visibilityMutation.isPending}
+                      style={{ color: visInfo.color, whiteSpace: 'nowrap' }}
+                      icon={visInfo.icon}
                     >
-                      Delete
+                      {visInfo.label}
                     </Button>
-                  </FlexItem>
-                </Flex>
-              </FlexItem>
-            </Flex>
-          </CardBody>
-        </Card>
-      );
-    });
+                  </Tooltip>
+                </Td>
+                <Td dataLabel="Actions" modifier="nowrap">
+                  <Button
+                    variant="link"
+                    isDanger
+                    isInline
+                    onClick={() => handleDelete(report.id)}
+                  >
+                    Delete
+                  </Button>
+                </Td>
+              </Tr>
+              <Tr isExpanded={isExpanded}>
+                <Td colSpan={7} noPadding>
+                  <ExpandableRowContent>
+                    <div style={{ padding: '1rem 1.5rem' }}>
+                      <ReportEntryEditor
+                        entries={displayEntries.length > 0 ? displayEntries : [{ text: '', private: false }]}
+                        onChange={(entries) => handleEntryChange(report.id, entries)}
+                        placeholder="Work item description with links..."
+                        fields={fieldsData?.fields}
+                      />
+                      {isEditingReport && (
+                        <Flex style={{ marginTop: '1rem', gap: '0.5rem' }}>
+                          <FlexItem>
+                            <Button
+                              variant="primary"
+                              onClick={() => handleSaveEdit(report.id)}
+                              isLoading={updateMutation.isPending}
+                            >
+                              Save
+                            </Button>
+                          </FlexItem>
+                          <FlexItem>
+                            <Button variant="link" onClick={() => handleCancelEdit(report.id)}>
+                              Cancel
+                            </Button>
+                          </FlexItem>
+                        </Flex>
+                      )}
+                      {report.referenced_tickets.length > 0 && (
+                        <p style={{ marginTop: '1rem', marginBottom: 0 }}>
+                          <strong>Referenced Tickets:</strong>{' '}
+                          {report.referenced_tickets.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  </ExpandableRowContent>
+                </Td>
+              </Tr>
+            </Tbody>
+          );
+        })}
+      </Table>
+    );
   };
 
   // ==========================================================================
