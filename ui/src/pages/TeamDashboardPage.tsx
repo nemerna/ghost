@@ -202,12 +202,11 @@ export function TeamDashboardPage() {
               ))}
             </Grid>
 
-            <Card style={{ marginTop: 'var(--pf-t--global--spacer--lg)' }}>
-              <CardBody>
-                <Title headingLevel="h2" size="lg" style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}>
-                  Team Members
-                </Title>
-                {teamDetails?.members.length ? (
+            <div style={{ marginTop: 'var(--pf-t--global--spacer--lg)' }}>
+              <Title headingLevel="h2" size="lg" style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}>
+                Team Members
+              </Title>
+              {teamDetails?.members.length ? (
                   <Table aria-label="Team roster" variant="compact">
                     <Thead>
                       <Tr>
@@ -304,8 +303,7 @@ export function TeamDashboardPage() {
                     No team members
                   </Content>
                 )}
-              </CardBody>
-            </Card>
+            </div>
           </>
         )}
       </PageSection>

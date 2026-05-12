@@ -1259,111 +1259,115 @@ export function ManagementReportsPage() {
     }
 
     return (
-      <Card>
-        <CardTitle>
-          <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }}>
-            <FlexItem>
-              <CubesIcon style={{ marginRight: '0.5rem' }} />
-              Team Reports
-              <Label color="blue" style={{ marginLeft: '0.5rem' }}>
-                {reportRows.length} {reportRows.length === 1 ? 'report' : 'reports'}
-              </Label>
-            </FlexItem>
-          </Flex>
-        </CardTitle>
-        <CardBody>
-          <Table aria-label="Reports table" variant="compact">
-            <Thead>
-              <Tr>
-                <Th width={30}>Title</Th>
-                <Th width={15}>Period</Th>
-                <Th width={10}>Status</Th>
-                <Th width={10}>Entries</Th>
-                <Th width={15}>Modified</Th>
-                <Th width={20}>Actions</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {reportRows.map((row) => (
-                <Tr key={row.id}>
-                  <Td dataLabel="Title">
-                    <Button
-                      variant="link"
-                      onClick={() => handleOpenReport(row.id)}
-                      style={{ padding: 0, textAlign: 'left' }}
-                    >
-                      {row.title}
-                    </Button>
-                  </Td>
-                  <Td dataLabel="Period">
-                    {row.period || '-'}
-                  </Td>
-                  <Td dataLabel="Status">
-                    <Label
-                      color={row.type === 'live' ? 'green' : row.type === 'draft' ? 'orange' : 'blue'}
-                      isCompact
-                    >
-                      {row.type === 'live' ? 'Live' : row.type === 'draft' ? 'Draft' : 'Snapshot'}
-                    </Label>
-                  </Td>
-                  <Td dataLabel="Entries">
-                    {row.entriesCount}
-                  </Td>
-                  <Td dataLabel="Modified">
-                    {row.modifiedAt
-                      ? formatDistanceToNow(row.modifiedAt, { addSuffix: true })
-                      : row.type === 'live' ? 'Live data' : '-'}
-                  </Td>
-                  <Td dataLabel="Actions">
-                    <Flex style={{ gap: '0.5rem' }}>
+      <>
+        <Flex
+          justifyContent={{ default: 'justifyContentSpaceBetween' }}
+          alignItems={{ default: 'alignItemsCenter' }}
+          style={{ marginBottom: 'var(--pf-t--global--spacer--sm)' }}
+        >
+          <FlexItem>
+            <Flex alignItems={{ default: 'alignItemsCenter' }} style={{ gap: '0.5rem' }}>
+              <FlexItem><CubesIcon /></FlexItem>
+              <FlexItem><strong>Team Reports</strong></FlexItem>
+              <FlexItem>
+                <Label color="blue" isCompact>
+                  {reportRows.length} {reportRows.length === 1 ? 'report' : 'reports'}
+                </Label>
+              </FlexItem>
+            </Flex>
+          </FlexItem>
+        </Flex>
+        <Table aria-label="Reports table" variant="compact">
+          <Thead>
+            <Tr>
+              <Th width={30}>Title</Th>
+              <Th width={15}>Period</Th>
+              <Th width={10}>Status</Th>
+              <Th width={10}>Entries</Th>
+              <Th width={15}>Modified</Th>
+              <Th width={20}>Actions</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {reportRows.map((row) => (
+              <Tr key={row.id}>
+                <Td dataLabel="Title">
+                  <Button
+                    variant="link"
+                    onClick={() => handleOpenReport(row.id)}
+                    style={{ padding: 0, textAlign: 'left' }}
+                  >
+                    {row.title}
+                  </Button>
+                </Td>
+                <Td dataLabel="Period">
+                  {row.period || '-'}
+                </Td>
+                <Td dataLabel="Status">
+                  <Label
+                    color={row.type === 'live' ? 'green' : row.type === 'draft' ? 'orange' : 'blue'}
+                    isCompact
+                  >
+                    {row.type === 'live' ? 'Live' : row.type === 'draft' ? 'Draft' : 'Snapshot'}
+                  </Label>
+                </Td>
+                <Td dataLabel="Entries">
+                  {row.entriesCount}
+                </Td>
+                <Td dataLabel="Modified">
+                  {row.modifiedAt
+                    ? formatDistanceToNow(row.modifiedAt, { addSuffix: true })
+                    : row.type === 'live' ? 'Live data' : '-'}
+                </Td>
+                <Td dataLabel="Actions">
+                  <Flex style={{ gap: '0.5rem' }}>
+                    <FlexItem>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleOpenReport(row.id)}
+                        icon={<FolderOpenIcon />}
+                      >
+                        Open
+                      </Button>
+                    </FlexItem>
+                    {row.type === 'draft' && (
                       <FlexItem>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleOpenReport(row.id)}
-                          icon={<FolderOpenIcon />}
-                        >
-                          Open
-                        </Button>
+                        <Tooltip content="Delete draft">
+                          <Button
+                            variant="plain"
+                            isDanger
+                            size="sm"
+                            onClick={() => handleDeleteDraft((row.data as ConsolidatedDraft).id)}
+                            isLoading={deleteDraftMutation.isPending}
+                          >
+                            <TrashIcon />
+                          </Button>
+                        </Tooltip>
                       </FlexItem>
-                      {row.type === 'draft' && (
-                        <FlexItem>
-                          <Tooltip content="Delete draft">
-                            <Button
-                              variant="plain"
-                              isDanger
-                              size="sm"
-                              onClick={() => handleDeleteDraft((row.data as ConsolidatedDraft).id)}
-                              isLoading={deleteDraftMutation.isPending}
-                            >
-                              <TrashIcon />
-                            </Button>
-                          </Tooltip>
-                        </FlexItem>
-                      )}
-                      {row.type === 'snapshot' && (
-                        <FlexItem>
-                          <Tooltip content="Delete snapshot">
-                            <Button
-                              variant="plain"
-                              isDanger
-                              size="sm"
-                              onClick={() => handleDeleteSnapshot((row.data as ConsolidatedReportSnapshot).id)}
-                              isLoading={deleteSnapshotMutation.isPending}
-                            >
-                              <TrashIcon />
-                            </Button>
-                          </Tooltip>
-                        </FlexItem>
-                      )}
-                    </Flex>
-                  </Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
-        </CardBody>
-      </Card>
+                    )}
+                    {row.type === 'snapshot' && (
+                      <FlexItem>
+                        <Tooltip content="Delete snapshot">
+                          <Button
+                            variant="plain"
+                            isDanger
+                            size="sm"
+                            onClick={() => handleDeleteSnapshot((row.data as ConsolidatedReportSnapshot).id)}
+                            isLoading={deleteSnapshotMutation.isPending}
+                          >
+                            <TrashIcon />
+                          </Button>
+                        </Tooltip>
+                      </FlexItem>
+                    )}
+                  </Flex>
+                </Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+      </>
     );
   };
 
