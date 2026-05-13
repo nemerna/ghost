@@ -92,14 +92,12 @@ available MCP tools.
 
 | Prompt | What it does |
 |--------|-------------|
-| `gather-activities` | Scans Jira (via external MCP) and GitHub for work you did during a given period and compares it against what's already logged, surfacing untracked items. |
-| `log-activities` | Logs untracked items into the system. Shows you the list first and waits for confirmation before writing anything. |
-| `create-management-report` | Builds a management report from your logged activities with properly formatted links, then saves it via the Reports API. |
-| `unghost` | Creates a tracking ticket (via Jira MCP or GitHub issue) for work that was submitted without one, adds a progress comment linking the actual commits/PRs, and optionally logs the activity. |
-| `weekly-report` | End-to-end workflow: gathers activities from Jira and GitHub, logs untracked items, and creates a formatted management report — all in one go. |
+| `create-management-report` | Discovers work from Jira and GitHub for a given period, then builds and saves a formatted management report with properly embedded links. |
+| `unghost` | Creates a tracking ticket (via Jira MCP or GitHub issue) for work that was submitted without one, then adds a progress comment linking the actual commits/PRs. |
+| `weekly-report` | End-to-end workflow: discovers work from Jira and GitHub, then creates a formatted management report — all in one go. |
 
-All prompts (except `unghost`) will prompt you to enter the number of days to
-collect data from (e.g. `7` for the last week, `14` for the last two weeks).
+All prompts (except `unghost`) accept a `days` argument to specify how many days back to cover
+(e.g. `7` for the last week, `14` for the last two weeks).
 `unghost` operates on the current branch and does not require a time range.
 
 ---

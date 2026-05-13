@@ -1,9 +1,7 @@
-"""Database layer for Jira MCP activity tracking, reports, and user management."""
+"""Database layer for management reports and user management."""
 
 from ghost.db.database import Database, get_db, init_db
 from ghost.db.models import (
-    ActionType,
-    ActivityLog,
     ConsolidatedReportDraft,
     ConsolidatedReportSnapshot,
     GitHubTokenConfig,
@@ -27,7 +25,6 @@ __all__ = [
     "init_db",
     "Database",
     # Enums
-    "ActionType",
     "TicketSource",
     "UserRole",
     "SnapshotType",
@@ -37,8 +34,7 @@ __all__ = [
     "TeamMembership",
     "PersonalAccessToken",
     "GitHubTokenConfig",
-    # Activity & Report Models
-    "ActivityLog",
+    # Report Models
     "ManagementReport",
     "ConsolidatedReportDraft",
     "ConsolidatedReportSnapshot",

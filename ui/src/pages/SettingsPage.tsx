@@ -58,7 +58,6 @@ export function SettingsPage() {
   
   // Visibility settings state
   const [visibilitySettings, setVisibilitySettings] = useState<VisibilitySettings>({
-    activity_logs: 'shared',
     management_reports: 'private',
   });
 
@@ -503,22 +502,6 @@ export function SettingsPage() {
               </p>
             </Content>
             <Form>
-              <FormGroup fieldId="visibility-activities">
-                <Switch
-                  id="visibility-activities"
-                  label="Activity Logs"
-                  isChecked={visibilitySettings.activity_logs === 'shared'}
-                  onChange={() => handleVisibilityToggle('activity_logs')}
-                  isDisabled={visibilityLoading}
-                />
-                <HelperText>
-                  <HelperTextItem>
-                    {visibilitySettings.activity_logs === 'shared'
-                      ? 'Your activity logs are visible to your manager by default'
-                      : 'Your activity logs are hidden from your manager by default'}
-                  </HelperTextItem>
-                </HelperText>
-              </FormGroup>
               <FormGroup fieldId="visibility-management">
                 <Switch
                   id="visibility-management"

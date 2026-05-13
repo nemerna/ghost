@@ -19,18 +19,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 MIGRATIONS = [
-    # Migration 1: Add ticket_source and github_repo to activity_log
-    {
-        "id": "001_add_ticket_source",
-        "description": "Add ticket_source and github_repo columns to activity_log",
-        "check": lambda inspector: "ticket_source" not in [
-            c["name"] for c in inspector.get_columns("activity_log")
-        ],
-        "sql": [
-            "ALTER TABLE activity_log ADD COLUMN ticket_source VARCHAR(10) DEFAULT 'jira' NOT NULL",
-            "ALTER TABLE activity_log ADD COLUMN github_repo VARCHAR(255)",
-        ],
-    },
     # Migration 2: Drop one_liner and executive_summary from management_reports
     # These columns are no longer needed - reports now only store content (bullet list)
     # Note: SQLite < 3.35.0 doesn't support DROP COLUMN, so the columns may remain
@@ -78,43 +66,6 @@ MIGRATIONS = [
             # Recreate indexes
             "CREATE INDEX idx_mgmt_user_created ON management_reports (username, created_at)",
             "CREATE INDEX idx_mgmt_project ON management_reports (project_key, created_at)",
-        ],
-        "optional": False,
-    },
-    # Migration 4: Add jira_components column to activity_log for auto-detection
-    {
-        "id": "004_add_jira_components",
-        "description": "Add jira_components column to activity_log for storing Jira component info",
-        "check": lambda inspector: "activity_log" in inspector.get_table_names()
-        and "jira_components" not in [c["name"] for c in inspector.get_columns("activity_log")],
-        "sql": [
-            "ALTER TABLE activity_log ADD COLUMN jira_components VARCHAR(500)",
-        ],
-        "optional": False,
-    },
-    # Migration 5: Add detected_project_id column to activity_log for auto-detection
-    {
-        "id": "005_add_detected_project_id",
-        "description": "Add detected_project_id column to activity_log for report consolidation",
-        "check": lambda inspector: "activity_log" in inspector.get_table_names()
-        and "detected_project_id" not in [c["name"] for c in inspector.get_columns("activity_log")],
-        "sql": [
-            "ALTER TABLE activity_log ADD COLUMN detected_project_id INTEGER REFERENCES report_projects(id)",
-            "CREATE INDEX IF NOT EXISTS idx_detected_project ON activity_log (detected_project_id, timestamp)",
-        ],
-        "optional": False,
-    },
-    # Migration 6: Add visible_to_manager column to activity_log, weekly_reports, and management_reports
-    # This allows users to control visibility of their data to managers
-    {
-        "id": "006_add_visible_to_manager",
-        "description": "Add visible_to_manager column for manager visibility controls",
-        "check": lambda inspector: "activity_log" in inspector.get_table_names()
-        and "visible_to_manager" not in [c["name"] for c in inspector.get_columns("activity_log")],
-        "sql": [
-            "ALTER TABLE activity_log ADD COLUMN visible_to_manager BOOLEAN DEFAULT NULL",
-            "ALTER TABLE weekly_reports ADD COLUMN visible_to_manager BOOLEAN DEFAULT NULL",
-            "ALTER TABLE management_reports ADD COLUMN visible_to_manager BOOLEAN DEFAULT NULL",
         ],
         "optional": False,
     },
@@ -193,16 +144,17 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
-    # Migration 11: Add ticket_url column to activity_log for storing canonical URLs
+    # Migration 12: Drop legacy activity_log and weekly_reports tables
     {
-        "id": "011_add_ticket_url",
-        "description": "Add ticket_url column to activity_log for storing canonical browse URLs at log time",
+        "id": "012_drop_activity_tables",
+        "description": "Drop activity_log and weekly_reports tables (superseded by management report entries)",
         "check": lambda inspector: "activity_log" in inspector.get_table_names()
-        and "ticket_url" not in [c["name"] for c in inspector.get_columns("activity_log")],
+        or "weekly_reports" in inspector.get_table_names(),
         "sql": [
-            "ALTER TABLE activity_log ADD COLUMN ticket_url VARCHAR(1000)",
+            "DROP TABLE IF EXISTS activity_log",
+            "DROP TABLE IF EXISTS weekly_reports",
         ],
-        "optional": False,
+        "optional": True,
     },
 ]
 
@@ -276,9 +228,9 @@ class Database:
         """Run pending database migrations."""
         inspector = inspect(self._engine)
         
-        # Check if activity_log table exists before running migrations
-        if "activity_log" not in inspector.get_table_names():
-            logger.info("activity_log table doesn't exist yet, skipping migrations")
+        # Check if management_reports table exists before running migrations
+        if "management_reports" not in inspector.get_table_names():
+            logger.info("management_reports table doesn't exist yet, skipping migrations")
             return
 
         for migration in MIGRATIONS:

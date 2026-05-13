@@ -1,4 +1,4 @@
-"""SQLAlchemy models for activity tracking, weekly reports, and user management."""
+"""SQLAlchemy models for management reports and user management."""
 
 import enum
 from datetime import datetime
@@ -24,18 +24,6 @@ class UserRole(str, enum.Enum):
     USER = "user"
     MANAGER = "manager"
     ADMIN = "admin"
-
-
-class ActionType(str, enum.Enum):
-    """Types of actions that can be logged."""
-
-    VIEW = "view"
-    CREATE = "create"
-    UPDATE = "update"
-    COMMENT = "comment"
-    TRANSITION = "transition"
-    LINK = "link"
-    OTHER = "other"
 
 
 class TicketSource(str, enum.Enum):
@@ -177,130 +165,6 @@ class TeamMembership(Base):
 # =============================================================================
 # Activity & Report Models
 # =============================================================================
-
-
-class ActivityLog(Base):
-    """Log of Jira/GitHub ticket interactions for activity tracking."""
-
-    __tablename__ = "activity_log"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    # User info - username for backwards compatibility, user_id for new entries
-    username = Column(String(255), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-
-    # Ticket info
-    ticket_key = Column(String(100), nullable=False, index=True)  # PROJ-123 or owner/repo#123
-    ticket_summary = Column(String(500), nullable=True)
-    project_key = Column(String(50), nullable=True, index=True)  # For Jira: project key
-
-    # Ticket source (Jira or GitHub)
-    ticket_source = Column(
-        Enum(TicketSource), nullable=False, default=TicketSource.JIRA, index=True
-    )
-    github_repo = Column(String(255), nullable=True, index=True)  # For GitHub: owner/repo
-
-    # Jira components (comma-separated for auto-detection)
-    jira_components = Column(String(500), nullable=True)  # e.g., "component1,component2"
-
-    # Canonical browse URL for the ticket (stored at log time to avoid re-fetching)
-    ticket_url = Column(String(1000), nullable=True)
-
-    # Auto-detected project for report consolidation
-    detected_project_id = Column(
-        Integer, ForeignKey("report_projects.id"), nullable=True, index=True
-    )
-
-    # Action info
-    action_type = Column(Enum(ActionType), nullable=False, default=ActionType.OTHER)
-    action_details = Column(Text, nullable=True)  # JSON string with additional context
-
-    # Timestamps
-    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-
-    # Visibility control - None=inherit from user preferences, True=shared, False=private
-    visible_to_manager = Column(Boolean, nullable=True, default=None)
-
-    # Relationships
-    detected_project = relationship("ReportProject", back_populates="activities")
-
-    # Indexes for weekly report queries
-    __table_args__ = (
-        Index("idx_user_timestamp", "username", "timestamp"),
-        Index("idx_user_project_timestamp", "username", "project_key", "timestamp"),
-        Index("idx_user_source_timestamp", "username", "ticket_source", "timestamp"),
-        Index("idx_detected_project", "detected_project_id", "timestamp"),
-    )
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "username": self.username,
-            "ticket_key": self.ticket_key,
-            "ticket_summary": self.ticket_summary,
-            "ticket_url": self.ticket_url,
-            "project_key": self.project_key,
-            "ticket_source": self.ticket_source.value if self.ticket_source else "jira",
-            "github_repo": self.github_repo,
-            "jira_components": self.jira_components.split(",") if self.jira_components else [],
-            "detected_project_id": self.detected_project_id,
-            "action_type": self.action_type.value if self.action_type else None,
-            "action_details": self.action_details,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "visible_to_manager": self.visible_to_manager,
-        }
-
-
-class WeeklyReport(Base):
-    """Stored weekly reports for users."""
-
-    __tablename__ = "weekly_reports"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    # User info
-    username = Column(String(255), nullable=False, index=True)
-
-    # Report period
-    week_start = Column(DateTime, nullable=False, index=True)
-    week_end = Column(DateTime, nullable=False)
-
-    # Report content
-    title = Column(String(500), nullable=False)
-    summary = Column(Text, nullable=False)  # Executive summary
-    content = Column(Text, nullable=False)  # Full report content (Markdown)
-
-    # Metadata
-    tickets_count = Column(Integer, nullable=False, default=0)
-    projects = Column(String(500), nullable=True)  # Comma-separated project keys
-
-    # Timestamps
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
-
-    # Visibility control - None=inherit from user preferences, True=shared, False=private
-    visible_to_manager = Column(Boolean, nullable=True, default=None)
-
-    __table_args__ = (Index("idx_user_week", "username", "week_start"),)
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "username": self.username,
-            "week_start": self.week_start.isoformat() if self.week_start else None,
-            "week_end": self.week_end.isoformat() if self.week_end else None,
-            "title": self.title,
-            "summary": self.summary,
-            "content": self.content,
-            "tickets_count": self.tickets_count,
-            "projects": self.projects.split(",") if self.projects else [],
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "visible_to_manager": self.visible_to_manager,
-        }
 
 
 class ManagementReport(Base):
@@ -483,7 +347,6 @@ class ReportProject(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
-    activities = relationship("ActivityLog", back_populates="detected_project")
 
     __table_args__ = (
         Index("idx_project_field_order", "field_id", "display_order"),

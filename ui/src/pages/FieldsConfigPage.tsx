@@ -422,7 +422,7 @@ export function FieldsConfigPage() {
           <FlexItem>
             <Content>
               <Title headingLevel="h1">Report Fields Configuration</Title>
-              <p>Configure fields and projects for report consolidation. Activities are auto-assigned to projects based on git repos and Jira components.</p>
+              <p>Configure fields and projects for report consolidation. Entries are auto-assigned to projects based on git repos and Jira components.</p>
             </Content>
           </FlexItem>
           <FlexItem>
@@ -434,7 +434,7 @@ export function FieldsConfigPage() {
                   onClick={() => redetectMutation.mutate({ limit: 5000 })}
                   isLoading={redetectMutation.isPending}
                 >
-                  Redetect Activities
+                  Redetect Entry Projects
                 </Button>
               </FlexItem>
               <FlexItem>

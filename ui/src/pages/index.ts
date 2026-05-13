@@ -3,7 +3,6 @@
  */
 
 export { default as DashboardPage } from './DashboardPage';
-export { default as ActivitiesPage } from './ActivitiesPage';
 export { default as TeamDashboardPage } from './TeamDashboardPage';
 export { default as ManagementReportsPage } from './ManagementReportsPage';
 export { default as AdminUsersPage } from './AdminUsersPage';

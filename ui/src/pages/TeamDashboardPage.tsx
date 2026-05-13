@@ -22,21 +22,16 @@ import {
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import {
-  BundleIcon,
+  CheckCircleIcon,
   EllipsisVIcon,
-  ListIcon,
+  ExclamationCircleIcon,
+  FileAltIcon,
   UsersIcon,
 } from '@patternfly/react-icons';
 import t_global_text_color_subtle from '@patternfly/react-tokens/dist/esm/t_global_text_color_subtle';
 import { listTeams, getTeam, removeTeamMember } from '@/api/teams';
-import { getTeamActivitySummary } from '@/api/activities';
+import { getTeamReportingProgress } from '@/api/reports';
 import { NONSTATUS_COLORS, ROLE_COLORS, ROLE_LABELS } from '@/utils/colors';
-
-const STAT_CARDS = [
-  { key: 'members', title: 'Team Members', icon: UsersIcon, color: 'var(--pf-t--global--color--nonstatus--blue--default)' },
-  { key: 'activities', title: 'Total Activities', icon: BundleIcon, color: 'var(--pf-t--global--color--nonstatus--green--default)' },
-  { key: 'tickets', title: 'Unique Tickets', icon: ListIcon, color: 'var(--pf-t--global--color--nonstatus--purple--default)' },
-] as const;
 
 function hashString(str: string): number {
   let hash = 0;
@@ -54,15 +49,6 @@ function getInitials(name: string | null, email: string): string {
   return email.slice(0, 2).toUpperCase();
 }
 
-function getSparklineBars(email: string, count: number, maxCount: number): number[] {
-  const hash = hashString(email);
-  const scale = maxCount > 0 ? count / maxCount : 0;
-  return Array.from({ length: 5 }, (_, i) => {
-    const base = Math.abs(Math.sin(hash + i * 1.7)) * 0.6 + 0.2;
-    return Math.max(15, base * scale * 100);
-  });
-}
-
 export function TeamDashboardPage() {
   const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
@@ -72,7 +58,7 @@ export function TeamDashboardPage() {
     mutationFn: (memberId: number) => removeTeamMember(selectedTeamId!, memberId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team', selectedTeamId] });
-      queryClient.invalidateQueries({ queryKey: ['teamActivitySummary', selectedTeamId] });
+      queryClient.invalidateQueries({ queryKey: ['teamReportingProgress', selectedTeamId] });
     },
   });
 
@@ -87,12 +73,13 @@ export function TeamDashboardPage() {
     enabled: !!selectedTeamId,
   });
 
-  const { data: summary, isLoading: activityLoading } = useQuery({
-    queryKey: ['teamActivitySummary', selectedTeamId],
-    queryFn: () => getTeamActivitySummary(selectedTeamId!, { days: 7 }),
+  const { data: reportingProgress, isLoading: progressLoading } = useQuery({
+    queryKey: ['teamReportingProgress', selectedTeamId],
+    queryFn: () => getTeamReportingProgress(selectedTeamId!),
     enabled: !!selectedTeamId,
   });
-  const isLoading = teamsLoading || (!!selectedTeamId && (teamLoading || activityLoading));
+
+  const isLoading = teamsLoading || (!!selectedTeamId && (teamLoading || progressLoading));
 
   useEffect(() => {
     if (teamsData?.teams.length && !selectedTeamId) {
@@ -100,17 +87,41 @@ export function TeamDashboardPage() {
     }
   }, [teamsData, selectedTeamId]);
 
-  const maxActivity = !teamDetails?.members.length || !summary?.by_member
-    ? 1
-    : Math.max(1, ...teamDetails.members.map(m =>
-        summary.by_member[m.email]?.total_activities || 0
-      ));
+  const memberCount = teamDetails?.members.length ?? 0;
+  const reportsSubmitted = reportingProgress?.members.filter(m => m.status === 'done').length ?? 0;
+  const reportsMissing = reportingProgress?.members.filter(m => m.status === 'missing').length ?? 0;
+  const reportsInProgress = reportingProgress?.members.filter(m => m.status === 'in_progress').length ?? 0;
 
-  const statValues: Record<string, number> = {
-    members: teamDetails?.members.length || 0,
-    activities: summary?.total_activities || 0,
-    tickets: summary?.total_unique_tickets || 0,
-  };
+  const STAT_CARDS = [
+    {
+      key: 'members',
+      title: 'Team Members',
+      value: memberCount,
+      icon: UsersIcon,
+      color: 'var(--pf-t--global--color--nonstatus--blue--default)',
+    },
+    {
+      key: 'reports',
+      title: 'Reports Submitted',
+      value: reportsSubmitted,
+      icon: CheckCircleIcon,
+      color: 'var(--pf-t--global--color--status--success--default)',
+    },
+    {
+      key: 'missing',
+      title: 'Missing Report',
+      value: reportsMissing,
+      icon: ExclamationCircleIcon,
+      color: 'var(--pf-t--global--color--status--warning--default)',
+    },
+    {
+      key: 'in-progress',
+      title: 'In Progress',
+      value: reportsInProgress,
+      icon: FileAltIcon,
+      color: 'var(--pf-t--global--color--nonstatus--purple--default)',
+    },
+  ] as const;
 
   return (
     <>
@@ -151,8 +162,8 @@ export function TeamDashboardPage() {
         ) : (
           <>
             <Grid hasGutter>
-              {STAT_CARDS.map(({ key, title, icon: StatIcon, color }) => (
-                <GridItem key={key} span={4}>
+              {STAT_CARDS.map(({ key, title, value, icon: StatIcon, color }) => (
+                <GridItem key={key} span={3}>
                   <Card isCompact>
                     <CardBody>
                       <Flex spaceItems={{ default: 'spaceItemsMd' }} alignItems={{ default: 'alignItemsCenter' }}>
@@ -180,7 +191,7 @@ export function TeamDashboardPage() {
                           </FlexItem>
                           <FlexItem>
                             <Title headingLevel="h3" size="2xl" className="pf-v6-m-tabular-nums">
-                              {statValues[key]}
+                              {value}
                             </Title>
                           </FlexItem>
                         </Flex>
@@ -191,26 +202,25 @@ export function TeamDashboardPage() {
               ))}
             </Grid>
 
-            <Card style={{ marginTop: 'var(--pf-t--global--spacer--lg)' }}>
-              <CardBody>
-                <Title headingLevel="h2" size="lg" style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}>
-                  Team Members
-                </Title>
-                {teamDetails?.members.length ? (
+            <div style={{ marginTop: 'var(--pf-t--global--spacer--lg)' }}>
+              <Title headingLevel="h2" size="lg" style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}>
+                Team Members
+              </Title>
+              {teamDetails?.members.length ? (
                   <Table aria-label="Team roster" variant="compact">
                     <Thead>
                       <Tr>
                         <Th width={30}>Display name</Th>
-                        <Th width={25}>Email Address</Th>
+                        <Th width={30}>Email Address</Th>
                         <Th width={15}>Role</Th>
-                        <Th width={20}>Activity</Th>
+                        <Th width={15}>Report Status</Th>
                         <Th width={10} screenReaderText="Actions" />
                       </Tr>
                     </Thead>
                     <Tbody>
                       {[...teamDetails.members].sort((a, b) => a.email.localeCompare(b.email)).map((member) => {
-                        const count = summary?.by_member?.[member.email]?.total_activities || 0;
-                        const bars = getSparklineBars(member.email, count, maxActivity);
+                        const progress = reportingProgress?.members.find(m => m.email === member.email);
+                        const status = progress?.status ?? 'missing';
                         const avatarColor = NONSTATUS_COLORS[hashString(member.email) % NONSTATUS_COLORS.length];
                         const initials = getInitials(member.display_name, member.email);
 
@@ -246,29 +256,13 @@ export function TeamDashboardPage() {
                                 {ROLE_LABELS[member.role]}
                               </Label>
                             </Td>
-                            <Td dataLabel="Activity">
-                              <Flex spaceItems={{ default: 'spaceItemsMd' }} alignItems={{ default: 'alignItemsCenter' }}>
-                                <FlexItem>
-                                  <span style={{ fontWeight: 600, minWidth: '1.5rem', display: 'inline-block' }} className="pf-v6-m-tabular-nums">
-                                    {count}
-                                  </span>
-                                </FlexItem>
-                                <FlexItem>
-                                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '16px' }}>
-                                    {bars.map((height, i) => (
-                                      <div
-                                        key={i}
-                                        style={{
-                                          width: '3px',
-                                          height: `${height}%`,
-                                          backgroundColor: 'var(--pf-t--global--color--brand--default)',
-                                          borderRadius: '1px',
-                                        }}
-                                      />
-                                    ))}
-                                  </div>
-                                </FlexItem>
-                              </Flex>
+                            <Td dataLabel="Report Status">
+                              <Label
+                                color={status === 'done' ? 'green' : status === 'in_progress' ? 'blue' : 'orange'}
+                                isCompact
+                              >
+                                {status === 'done' ? 'Submitted' : status === 'in_progress' ? 'In Progress' : 'Missing'}
+                              </Label>
                             </Td>
                             <Td dataLabel="Actions" isActionCell>
                               <Dropdown
@@ -309,8 +303,7 @@ export function TeamDashboardPage() {
                     No team members
                   </Content>
                 )}
-              </CardBody>
-            </Card>
+            </div>
           </>
         )}
       </PageSection>

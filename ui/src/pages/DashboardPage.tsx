@@ -1,7 +1,8 @@
 /**
- * Dashboard page - shows activity summary and quick stats
+ * Dashboard page - shows management report summary and quick stats
  */
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -21,54 +22,67 @@ import {
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import {
-  BundleIcon,
-  ClipboardCheckIcon,
-  ExternalLinkAltIcon,
-  GithubIcon,
+  ClipboardListIcon,
+  FileAltIcon,
   ListIcon,
+  LockIcon,
 } from '@patternfly/react-icons';
 import t_global_text_color_subtle from '@patternfly/react-tokens/dist/esm/t_global_text_color_subtle';
 import { useAuth } from '@/auth';
-import { getMyActivitySummary, getMyActivities } from '@/api/activities';
-import { getTicketUrl } from '@/utils/tickets';
+import { listManagementReports } from '@/api/reports';
+import type { ManagementReport, ReportEntry } from '@/types';
 import { NONSTATUS_COLORS } from '@/utils/colors';
 import { format } from 'date-fns';
 
+function parseEntries(report: ManagementReport): ReportEntry[] {
+  try {
+    const data = JSON.parse(report.content ?? '{}');
+    if (data?.format === 'structured' && Array.isArray(data.entries)) {
+      return data.entries as ReportEntry[];
+    }
+  } catch {
+    // legacy plain-text content — no structured entries
+  }
+  return [];
+}
+
 const STAT_CARDS = [
-  { key: 'activities', title: 'Activities', subtitle: 'This week', icon: BundleIcon },
-  { key: 'tickets', title: 'Tickets', subtitle: 'Unique', icon: ListIcon },
-  { key: 'jira', title: 'Jira', subtitle: 'Activities', icon: ClipboardCheckIcon },
-  { key: 'github', title: 'GitHub', subtitle: 'Activities', icon: GithubIcon },
+  { key: 'reports', title: 'Reports', subtitle: 'Total saved', icon: FileAltIcon },
+  { key: 'entries', title: 'Entries', subtitle: 'Across all reports', icon: ListIcon },
+  { key: 'shared', title: 'Shared', subtitle: 'Visible to manager', icon: ClipboardListIcon },
+  { key: 'private', title: 'Private', subtitle: 'Hidden from manager', icon: LockIcon },
 ] as const;
 
 export function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const jiraServerUrl = (user?.preferences?.jira_server_url as string) || '';
 
-  const { data: activitySummary, isLoading: summaryLoading } = useQuery({
-    queryKey: ['activitySummary', 7],
-    queryFn: () => getMyActivitySummary({ days: 7 }),
+  const { data: reportsData, isLoading } = useQuery({
+    queryKey: ['managementReports', 'dashboard'],
+    queryFn: () => listManagementReports({ limit: 20 }),
   });
 
-  const { data: recentActivities, isLoading: activitiesLoading } = useQuery({
-    queryKey: ['recentActivities'],
-    queryFn: () => getMyActivities({ limit: 5 }),
-  });
+  const reports = reportsData?.reports ?? [];
 
-  const isLoading = summaryLoading || activitiesLoading;
+  const allEntries = useMemo(
+    () => reports.flatMap((r) => parseEntries(r)),
+    [reports],
+  );
+
+  const sharedCount = allEntries.filter((e) => !e.private).length;
+  const privateCount = allEntries.filter((e) => e.private).length;
 
   const statValues: Record<string, number> = {
-    activities: activitySummary?.total_activities || 0,
-    tickets: activitySummary?.unique_tickets || 0,
-    jira: activitySummary?.by_source?.jira || 0,
-    github: activitySummary?.by_source?.github || 0,
+    reports: reports.length,
+    entries: allEntries.length,
+    shared: sharedCount,
+    private: privateCount,
   };
 
-  const topProjects = Object.entries(activitySummary?.by_project ?? {})
-    .sort(([, a], [, b]) => (b as number) - (a as number))
-    .slice(0, 5);
-  const maxProjectCount = (topProjects[0]?.[1] as number) || 1;
+  // Top projects by entry count
+  // Recent entries from the most recent report
+  const latestReport = reports[0];
+  const recentEntries = latestReport ? parseEntries(latestReport).slice(0, 5) : [];
 
   return (
     <>
@@ -115,84 +129,79 @@ export function DashboardPage() {
               </GridItem>
             ))}
 
-            {/* Bottom left — Recent Activities (8 cols) */}
+            {/* Bottom left — Recent Entries (8 cols) */}
             <GridItem span={8}>
               <Card>
                 <CardBody>
-                  <Flex justifyContent={{ default: 'justifyContentSpaceBetween' }} alignItems={{ default: 'alignItemsCenter' }} style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}>
+                  <Flex
+                    justifyContent={{ default: 'justifyContentSpaceBetween' }}
+                    alignItems={{ default: 'alignItemsCenter' }}
+                    style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}
+                  >
                     <FlexItem>
-                      <Title headingLevel="h2" size="lg">Recent Activities</Title>
+                      <Title headingLevel="h2" size="lg">
+                        {latestReport
+                          ? `Recent Entries — ${latestReport.title}`
+                          : 'Recent Entries'}
+                      </Title>
                     </FlexItem>
                     <FlexItem>
-                      <Button variant="link" isInline onClick={() => navigate('/activities')}>
-                        View all
+                      <Button variant="link" isInline onClick={() => navigate('/management-reports')}>
+                        View all reports
                       </Button>
                     </FlexItem>
                   </Flex>
-                  {recentActivities?.activities.length ? (
-                    <Table aria-label="Recent activities" variant="compact">
+                  {recentEntries.length ? (
+                    <Table aria-label="Recent entries" variant="compact">
                       <Thead>
                         <Tr>
-                          <Th width={10}>Source</Th>
-                          <Th width={25}>Ticket</Th>
-                          <Th width={45}>Summary</Th>
-                          <Th width={20}>Date</Th>
+                          <Th width={10}>Visibility</Th>
+                          <Th width={70}>Entry</Th>
+                          <Th width={20}>Ticket</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {recentActivities.activities.map((activity) => {
-                          const url = getTicketUrl(activity, jiraServerUrl);
-                          return (
-                            <Tr key={activity.id}>
-                              <Td dataLabel="Source">
-                                <Label color={activity.ticket_source === 'github' ? 'purple' : 'blue'} isCompact>
-                                  {activity.ticket_source === 'github' ? 'GitHub' : 'Jira'}
-                                </Label>
-                              </Td>
-                              <Td dataLabel="Ticket" modifier="nowrap">
-                                {url ? (
-                                  <a href={url} target="_blank" rel="noopener noreferrer"
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                    {activity.ticket_key}
-                                    <ExternalLinkAltIcon style={{ fontSize: '0.75em' }} />
-                                  </a>
-                                ) : activity.ticket_key}
-                              </Td>
-                              <Td dataLabel="Summary" modifier="truncate">
-                                {activity.ticket_summary || '-'}
-                              </Td>
-                              <Td dataLabel="Date" modifier="nowrap">
-                                {format(new Date(activity.timestamp), 'MMM d, h:mm a')}
-                              </Td>
-                            </Tr>
-                          );
-                        })}
+                        {recentEntries.map((entry, idx) => (
+                          <Tr key={idx}>
+                            <Td dataLabel="Visibility">
+                              <Label color={entry.private ? 'orange' : 'green'} isCompact>
+                                {entry.private ? 'Private' : 'Shared'}
+                              </Label>
+                            </Td>
+                            <Td dataLabel="Entry" modifier="truncate">
+                              <span dangerouslySetInnerHTML={{ __html: entry.text }} />
+                            </Td>
+                            <Td dataLabel="Ticket" modifier="nowrap">
+                              {entry.ticket_key ?? '-'}
+                            </Td>
+                          </Tr>
+                        ))}
                       </Tbody>
                     </Table>
                   ) : (
                     <Content component="small" style={{ color: t_global_text_color_subtle.var }}>
-                      No recent activities
+                      {reports.length === 0 ? 'No reports yet' : 'No structured entries in the latest report'}
                     </Content>
                   )}
                 </CardBody>
               </Card>
             </GridItem>
 
-            {/* Bottom right — Activity by Project (4 cols) */}
+            {/* Bottom right — Recent Reports (4 cols) */}
             <GridItem span={4}>
               <Card style={{ height: '100%' }}>
                 <CardBody>
                   <Title headingLevel="h2" size="lg" style={{ marginBottom: 'var(--pf-t--global--spacer--md)' }}>
-                    Activity by Project
+                    Recent Reports
                   </Title>
-                  {topProjects.length > 0 ? (
-                    topProjects.map(([project, count], i) => {
+                  {reports.slice(0, 5).length > 0 ? (
+                    reports.slice(0, 5).map((report, i) => {
                       const color = NONSTATUS_COLORS[i % NONSTATUS_COLORS.length];
-                      const barWidth = `${((count as number) / maxProjectCount) * 100}%`;
-                      const isLast = i === topProjects.length - 1;
+                      const isLast = i === Math.min(reports.length, 5) - 1;
+                      const entryCount = parseEntries(report).length;
                       return (
                         <div
-                          key={project}
+                          key={report.id}
                           style={{
                             paddingBottom: isLast ? 0 : 'var(--pf-t--global--spacer--md)',
                             marginBottom: isLast ? 0 : 'var(--pf-t--global--spacer--md)',
@@ -204,29 +213,32 @@ export function DashboardPage() {
                               <div style={{ width: '4px', height: '1.25rem', borderRadius: '2px', background: color }} />
                             </FlexItem>
                             <FlexItem flex={{ default: 'flex_1' }}>
-                              {project}
+                              <Button
+                                variant="link"
+                                isInline
+                                onClick={() => navigate('/management-reports')}
+                                style={{ textAlign: 'left', whiteSpace: 'normal', wordBreak: 'break-word' }}
+                              >
+                                {report.title}
+                              </Button>
                             </FlexItem>
                             <FlexItem>
                               <span style={{ color: t_global_text_color_subtle.var }}>
-                                {count as number}
+                                {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
                               </span>
                             </FlexItem>
                           </Flex>
-                          <div style={{ height: '6px', borderRadius: '3px', marginLeft: '12px' }}>
-                            <div style={{
-                              height: '100%',
-                              width: barWidth,
-                              background: color,
-                              borderRadius: '3px',
-                              transition: 'width 0.3s ease',
-                            }} />
-                          </div>
+                          {report.created_at && (
+                            <Content component="small" style={{ color: t_global_text_color_subtle.var, marginLeft: '16px' }}>
+                              {format(new Date(report.created_at), 'MMM d, yyyy')}
+                            </Content>
+                          )}
                         </div>
                       );
                     })
                   ) : (
                     <Content component="small" style={{ color: t_global_text_color_subtle.var }}>
-                      No project data
+                      No reports yet
                     </Content>
                   )}
                 </CardBody>

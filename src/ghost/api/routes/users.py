@@ -49,8 +49,7 @@ class PreferencesUpdateRequest(BaseModel):
 
 class VisibilitySettings(BaseModel):
     """Visibility settings for manager access."""
-    
-    activity_logs: str = "shared"  # "shared" or "private"
+
     management_reports: str = "private"
 
 
@@ -173,7 +172,6 @@ async def get_my_visibility_settings(user: CurrentUser):
         
         return VisibilitySettingsResponse(
             visibility_defaults=VisibilitySettings(
-                activity_logs=visibility_defaults.get("activity_logs", "shared"),
                 management_reports=visibility_defaults.get("management_reports", "private"),
             )
         )
@@ -189,25 +187,21 @@ async def update_my_visibility_settings(
     
     # Validate values
     valid_values = {"shared", "private"}
-    if settings.activity_logs not in valid_values:
-        raise HTTPException(status_code=400, detail="activity_logs must be 'shared' or 'private'")
     if settings.management_reports not in valid_values:
         raise HTTPException(status_code=400, detail="management_reports must be 'shared' or 'private'")
-    
+
     with db.session() as session:
         db_user = session.query(User).filter(User.id == user.id).first()
         if not db_user:
             raise HTTPException(status_code=404, detail="User not found")
-        
-        # Get existing preferences and update visibility_defaults
+
         preferences = json.loads(db_user.preferences) if db_user.preferences else {}
         preferences["visibility_defaults"] = {
-            "activity_logs": settings.activity_logs,
             "management_reports": settings.management_reports,
         }
         db_user.preferences = json.dumps(preferences)
         session.flush()
-        
+
         return VisibilitySettingsResponse(
             visibility_defaults=settings
         )

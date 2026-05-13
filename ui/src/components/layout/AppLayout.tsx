@@ -41,7 +41,6 @@ interface NavItemDef {
 
 const navItems: NavItemDef[] = [
   { id: 'dashboard', label: 'Dashboard', path: '/' },
-  { id: 'activities', label: 'My Activities', path: '/activities' },
   { id: 'management-reports', label: 'Management Reports', path: '/management-reports' },
   { id: 'team-dashboard', label: 'Team Dashboard', path: '/team', roles: ['manager', 'admin'] },
   { id: 'admin-users', label: 'User Management', path: '/admin/users', roles: ['admin'] },

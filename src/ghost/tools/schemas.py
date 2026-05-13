@@ -2,41 +2,6 @@
 
 from pydantic import BaseModel, Field
 
-# --- Activity Tracking & Reports Input Schemas ---
-
-
-class LogActivityInput(BaseModel):
-    """Input schema for log_activity tool."""
-
-    ticket_key: str = Field(
-        ...,
-        description="The ticket key. Jira format: 'PROJ-123'. GitHub format: 'owner/repo#123' or '#123' (with github_repo).",
-    )
-    action_type: str = Field(
-        default="other",
-        description="Optional internal metadata. Not displayed to users. Defaults to 'other'.",
-    )
-    ticket_summary: str | None = Field(
-        default=None,
-        description="Optional ticket summary for context.",
-    )
-    github_repo: str | None = Field(
-        default=None,
-        description="For GitHub issues: repository in 'owner/repo' format. Required if using short '#123' format.",
-    )
-    jira_components: list[str] | None = Field(
-        default=None,
-        description="Optional list of Jira component names for auto-detection of report project.",
-    )
-    ticket_url: str | None = Field(
-        default=None,
-        description="Canonical browse URL for the ticket (e.g. from jira_get_issue 'url' field). Stored for later use in reports and UI.",
-    )
-    action_details: str | None = Field(
-        default=None,
-        description="Optional JSON string with additional context.",
-    )
-
 
 class RedetectProjectAssignmentsInput(BaseModel):
     """Input schema for redetect_project_assignments tool."""
@@ -49,28 +14,7 @@ class RedetectProjectAssignmentsInput(BaseModel):
         default=1000,
         ge=1,
         le=10000,
-        description="Maximum number of activities to process.",
-    )
-
-
-class GetWeeklyActivityInput(BaseModel):
-    """Input schema for get_weekly_activity tool."""
-
-    days: int | None = Field(
-        default=None,
-        ge=1,
-        le=365,
-        description="Number of days to look back (e.g. 7 for last week, 14 for last two weeks). Takes precedence over week_offset.",
-    )
-    week_offset: int = Field(
-        default=0,
-        ge=-52,
-        le=0,
-        description="(Legacy) Week offset from current week (0 = current, -1 = last week). Use 'days' instead.",
-    )
-    project: str | None = Field(
-        default=None,
-        description="Optional project key to filter by.",
+        description="Maximum number of reports to process.",
     )
 
 
@@ -90,7 +34,7 @@ class ReportEntryInput(BaseModel):
     )
     ticket_key: str | None = Field(
         default=None,
-        description="Optional ticket key to auto-detect visibility from activity settings.",
+        description="Optional ticket key for automatic project detection via field/project config.",
     )
 
 
@@ -108,7 +52,7 @@ class SaveManagementReportInput(BaseModel):
     )
     entries: list[ReportEntryInput] | None = Field(
         default=None,
-        description="Structured entries with per-item visibility. If ticket_key is provided, visibility is auto-inherited from activity.",
+        description="Structured entries with per-item visibility. If ticket_key is provided, project is auto-detected from field/project config.",
     )
     project_key: str | None = Field(
         default=None,
