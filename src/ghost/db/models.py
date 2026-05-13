@@ -738,3 +738,162 @@ class ConsolidatedReportSnapshot(Base):
 
     def __repr__(self) -> str:
         return f"<ConsolidatedReportSnapshot(id={self.id}, team_id={self.team_id}, period={self.report_period}, type={self.snapshot_type})>"
+
+
+# =============================================================================
+# Goal Models
+# =============================================================================
+
+
+class GoalScope(str, enum.Enum):
+    """Scope of a goal — team-wide or individual."""
+
+    TEAM = "team"
+    INDIVIDUAL = "individual"
+
+
+class GoalHorizon(str, enum.Enum):
+    """Time horizon for a goal."""
+
+    SPRINT = "sprint"
+    QUARTER = "quarter"
+    ONGOING = "ongoing"
+
+
+class GoalStatus(str, enum.Enum):
+    """Lifecycle status of a goal."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    DROPPED = "dropped"
+
+
+class Goal(Base):
+    """A structured goal at team or individual level.
+
+    Team goals are created by managers and visible to all team members.
+    Individual goals are created by engineers and visible to their manager.
+    Both types are always scoped to a team so managers retain full visibility.
+    """
+
+    __tablename__ = "goals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    scope = Column(Enum(GoalScope), nullable=False)
+
+    # Always set — individual goals still belong to a team for manager visibility
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    # Set for individual goals; null for team goals
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    horizon = Column(Enum(GoalHorizon), nullable=False, default=GoalHorizon.SPRINT)
+    status = Column(Enum(GoalStatus), nullable=False, default=GoalStatus.ACTIVE)
+
+    # Optional due date — auto-calculated from horizon on create, always editable
+    due_date = Column(DateTime, nullable=True)
+
+    # Optional: repo patterns / Jira component strings for future auto-linking
+    patterns = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    # Relationships
+    team = relationship("Team")
+    owner = relationship("User", foreign_keys=[owner_id])
+    entry_links = relationship("GoalEntryLink", back_populates="goal", cascade="all, delete-orphan")
+    notes = relationship("GoalNote", back_populates="goal", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_goal_team_status", "team_id", "status"),
+        Index("idx_goal_owner_status", "owner_id", "status"),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "scope": self.scope.value if self.scope else None,
+            "team_id": self.team_id,
+            "owner_id": self.owner_id,
+            "horizon": self.horizon.value if self.horizon else None,
+            "status": self.status.value if self.status else None,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+            "patterns": self.patterns,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<Goal(id={self.id}, title={self.title!r}, scope={self.scope}, status={self.status})>"
+
+
+class GoalNote(Base):
+    """A timestamped note attached to a goal — like a Jira comment."""
+
+    __tablename__ = "goal_notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False, index=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    goal = relationship("Goal", back_populates="notes")
+    author = relationship("User", foreign_keys=[author_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "goal_id": self.goal_id,
+            "author_id": self.author_id,
+            "body": self.body,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class GoalEntryLink(Base):
+    """Links a specific report entry (by its index in the entries JSON array) to a goal.
+
+    Using entry_index avoids a full entries-table migration — entries live inside
+    management_reports.content as a structured JSON blob.
+    """
+
+    __tablename__ = "goal_entry_links"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False, index=True)
+    report_id = Column(Integer, ForeignKey("management_reports.id"), nullable=False, index=True)
+    entry_index = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    goal = relationship("Goal", back_populates="entry_links")
+    report = relationship("ManagementReport")
+
+    __table_args__ = (
+        Index("idx_goal_entry_link_unique", "goal_id", "report_id", "entry_index", unique=True),
+        Index("idx_goal_entry_report", "report_id"),
+    )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "goal_id": self.goal_id,
+            "report_id": self.report_id,
+            "entry_index": self.entry_index,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"<GoalEntryLink(id={self.id}, goal_id={self.goal_id}, "
+            f"report_id={self.report_id}, entry_index={self.entry_index})>"
+        )

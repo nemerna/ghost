@@ -14,6 +14,7 @@ import AdminUsersPage from '@/pages/AdminUsersPage';
 import AdminTeamsPage from '@/pages/AdminTeamsPage';
 import FieldsConfigPage from '@/pages/FieldsConfigPage';
 import SettingsPage from '@/pages/SettingsPage';
+import GoalsPage from '@/pages/GoalsPage';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           {/* User routes */}
           <Route path="management-reports" element={<ManagementReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="goals" element={<GoalsPage />} />
           
           {/* Manager routes */}
           <Route
@@ -36,7 +38,6 @@ function App() {
               </RequireRole>
             }
           />
-          
           {/* Admin routes */}
           <Route
             path="admin/users"

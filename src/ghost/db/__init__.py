@@ -5,6 +5,12 @@ from ghost.db.models import (
     ConsolidatedReportDraft,
     ConsolidatedReportSnapshot,
     GitHubTokenConfig,
+    Goal,
+    GoalEntryLink,
+    GoalHorizon,
+    GoalNote,
+    GoalScope,
+    GoalStatus,
     ManagementReport,
     PersonalAccessToken,
     ProjectGitRepo,
@@ -28,6 +34,9 @@ __all__ = [
     "TicketSource",
     "UserRole",
     "SnapshotType",
+    "GoalScope",
+    "GoalHorizon",
+    "GoalStatus",
     # User & Team Models
     "User",
     "Team",
@@ -43,4 +52,8 @@ __all__ = [
     "ReportProject",
     "ProjectGitRepo",
     "ProjectJiraComponent",
+    # Goal Models
+    "Goal",
+    "GoalEntryLink",
+    "GoalNote",
 ]
