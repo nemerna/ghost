@@ -90,6 +90,7 @@ import {
   deleteConsolidatedSnapshot,
   getTeamReportingProgress,
 } from '@/api/reports';
+import { listGoals, createGoalLink } from '@/api/goals';
 import { listFields } from '@/api/fields';
 import { listTeams } from '@/api/teams';
 import { listEmailTemplates } from '@/api/users';
@@ -99,6 +100,7 @@ import { ReportEntryEditor, reportEntriesToInputs } from '@/components/ReportEnt
 import { ProjectEntryEditor, type ProjectEntry } from '@/components/ProjectEntryEditor';
 import { EmailTemplatesModal } from '@/components/EmailTemplatesModal';
 import type {
+  Goal,
   ManagementReportCreateRequest,
   ManagementReport,
   ReportEntryInput,
@@ -186,6 +188,10 @@ export function ManagementReportsPage() {
   // Track which personal reports are expanded (collapsed by default)
   const [expandedReports, setExpandedReports] = useState<Set<number>>(new Set());
 
+  // Link-to-goal modal state
+  const [linkGoalModal, setLinkGoalModal] = useState<{ reportId: number; entryIndex: number } | null>(null);
+  const [linkingGoalId, setLinkingGoalId] = useState<number | null>(null);
+
   // ==========================================================================
   // Draft Editing State (for consolidated report editing)
   // ==========================================================================
@@ -265,6 +271,13 @@ export function ManagementReportsPage() {
     queryKey: ['emailTemplates'],
     queryFn: listEmailTemplates,
     enabled: canViewTeams,
+  });
+
+  // Fetch goals for the "Link to Goal" modal
+  const { data: goalsDataForLink } = useQuery({
+    queryKey: ['goals'],
+    queryFn: listGoals,
+    staleTime: 60 * 1000,
   });
 
   // ==========================================================================
@@ -351,6 +364,16 @@ export function ManagementReportsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['managementReports'] });
       queryClient.invalidateQueries({ queryKey: ['consolidatedReport'] });
+    },
+  });
+
+  const linkToGoalMutation = useMutation({
+    mutationFn: ({ goalId, reportId, entryIndex }: { goalId: number; reportId: number; entryIndex: number }) =>
+      createGoalLink(goalId, { report_id: reportId, entry_index: entryIndex }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      setLinkGoalModal(null);
+      setLinkingGoalId(null);
     },
   });
 
@@ -1779,6 +1802,7 @@ export function ManagementReportsPage() {
                         placeholder="Work item description with links..."
                         fields={fieldsData?.fields}
                         jiraServerUrl={jiraServerUrl}
+                        onLinkToGoal={(entryIndex) => setLinkGoalModal({ reportId: report.id, entryIndex })}
                       />
                       {isEditingReport && (
                         <Flex style={{ marginTop: '1rem', gap: '0.5rem' }}>
@@ -1969,6 +1993,79 @@ export function ManagementReportsPage() {
         isOpen={emailTemplatesModalOpen}
         onClose={() => setEmailTemplatesModalOpen(false)}
       />
+
+      {/* Link to Goal Modal */}
+      <Modal
+        isOpen={!!linkGoalModal}
+        onClose={() => { setLinkGoalModal(null); setLinkingGoalId(null); }}
+        variant="small"
+        aria-labelledby="link-goal-modal-title"
+      >
+        <ModalHeader title="Link Entry to a Goal" labelId="link-goal-modal-title" />
+        <ModalBody>
+          {(() => {
+            const activeGoals = (goalsDataForLink?.goals ?? []).filter((g: Goal) => g.status === 'active');
+            if (activeGoals.length === 0) {
+              return (
+                <p style={{ color: '#6a6e73' }}>
+                  No active goals found. Create a goal on the Goals page first.
+                </p>
+              );
+            }
+            return (
+              <div>
+                <p style={{ marginBottom: '0.75rem', fontSize: '0.875rem', color: '#6a6e73' }}>
+                  Select a goal to link this entry to:
+                </p>
+                {activeGoals.map((g: Goal) => (
+                  <div
+                    key={g.id}
+                    onClick={() => setLinkingGoalId(g.id)}
+                    style={{
+                      padding: '0.75rem',
+                      marginBottom: '0.5rem',
+                      border: `2px solid ${linkingGoalId === g.id ? 'var(--pf-t--global--border--color--status--info--default)' : 'var(--pf-t--global--border--color--default)'}`,
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      background: linkingGoalId === g.id ? 'var(--pf-t--global--background--color--secondary--default)' : undefined,
+                    }}
+                  >
+                    <strong>{g.title}</strong>
+                    <div style={{ marginTop: '0.25rem' }}>
+                      <Label color={g.scope === 'team' ? 'purple' : 'blue'} isCompact>
+                        {g.scope === 'team' ? 'Team' : 'Individual'}
+                      </Label>
+                      {' '}
+                      <Label color="grey" isCompact>{g.horizon}</Label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="primary"
+            isDisabled={!linkingGoalId}
+            isLoading={linkToGoalMutation.isPending}
+            onClick={() => {
+              if (linkGoalModal && linkingGoalId) {
+                linkToGoalMutation.mutate({
+                  goalId: linkingGoalId,
+                  reportId: linkGoalModal.reportId,
+                  entryIndex: linkGoalModal.entryIndex,
+                });
+              }
+            }}
+          >
+            Link to Goal
+          </Button>
+          <Button variant="link" onClick={() => { setLinkGoalModal(null); setLinkingGoalId(null); }}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 }

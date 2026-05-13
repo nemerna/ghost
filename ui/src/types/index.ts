@@ -460,6 +460,111 @@ export interface GitHubTokenConfigListResponse {
 }
 
 // =============================================================================
+// Goal Types
+// =============================================================================
+
+export type GoalScope = 'team' | 'individual';
+export type GoalHorizon = 'sprint' | 'quarter' | 'ongoing';
+export type GoalStatus = 'active' | 'completed' | 'dropped';
+
+export interface Goal {
+  id: number;
+  title: string;
+  description: string | null;
+  scope: GoalScope;
+  team_id: number;
+  owner_id: number | null;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  horizon: GoalHorizon;
+  status: GoalStatus;
+  due_date: string | null;
+  patterns: string[] | null;
+  entry_link_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface GoalListResponse {
+  goals: Goal[];
+  total: number;
+}
+
+export interface GoalCreateRequest {
+  title: string;
+  description?: string;
+  scope: GoalScope;
+  team_id: number;
+  horizon?: GoalHorizon;
+  due_date?: string;
+}
+
+export interface GoalUpdateRequest {
+  title?: string;
+  description?: string;
+  status?: GoalStatus;
+  horizon?: GoalHorizon;
+  due_date?: string;
+}
+
+export interface GoalNote {
+  id: number;
+  goal_id: number;
+  author_id: number;
+  author_email: string | null;
+  author_display_name: string | null;
+  body: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface GoalNoteListResponse {
+  notes: GoalNote[];
+  total: number;
+}
+
+export interface GoalEntryLink {
+  id: number;
+  goal_id: number;
+  report_id: number;
+  entry_index: number;
+  username?: string | null;
+  report_title?: string | null;
+  report_period?: string | null;
+  entry_text?: string | null;
+  entry_ticket_key?: string | null;
+  created_at: string | null;
+}
+
+export interface GoalLinkListResponse {
+  links: GoalEntryLink[];
+  total: number;
+}
+
+export interface GoalLinkRequest {
+  report_id: number;
+  entry_index: number;
+}
+
+// =============================================================================
+// Ticket Activity Types
+// =============================================================================
+
+export interface MemberTicketActivity {
+  user_id: number;
+  email: string;
+  display_name: string | null;
+  unique_tickets: number;
+  tickets: string[];
+}
+
+export interface TicketActivityResponse {
+  team_unique_tickets: number;
+  period_days: number;
+  members: MemberTicketActivity[];
+}
+
+// =============================================================================
 // API Response Types
 // =============================================================================
 

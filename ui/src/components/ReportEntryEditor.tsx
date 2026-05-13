@@ -24,6 +24,7 @@ import {
 import {
   CheckIcon,
   EyeIcon,
+  LinkIcon,
   LockIcon,
   PlusIcon,
   TimesIcon,
@@ -64,6 +65,8 @@ export interface ReportEntryEditorProps {
   disabled?: boolean;
   fields?: ReportField[];
   jiraServerUrl?: string;
+  /** If provided, a "Link to Goal" action is added per entry row. Receives the 0-based entry index. */
+  onLinkToGoal?: (entryIndex: number) => void;
 }
 
 export function reportEntriesToInputs(entries: ReportEntry[] | null | undefined): ReportEntryInput[] {
@@ -83,6 +86,7 @@ export function ReportEntryEditor({
   disabled = false,
   fields,
   jiraServerUrl,
+  onLinkToGoal,
 }: ReportEntryEditorProps) {
   const [editingIndex, setEditingIndex] = useState<number>(-1);
   const [editText, setEditText] = useState('');
@@ -267,20 +271,39 @@ export function ReportEntryEditor({
                   </Tooltip>
                 </Td>
                 <Td isActionCell>
-                  <ActionsColumn
-                    items={[
-                      {
-                        title: 'Edit',
-                        onClick: () => handleStartEdit(index),
-                        isDisabled: disabled || editingIndex >= 0,
-                      },
-                      {
-                        title: 'Delete',
-                        onClick: () => handleDeleteEntry(index),
-                        isDisabled: disabled || entries.length <= 1,
-                      },
-                    ]}
-                  />
+                  <Flex spaceItems={{ default: 'spaceItemsNone' }} alignItems={{ default: 'alignItemsCenter' }}>
+                    {onLinkToGoal && (
+                      <FlexItem>
+                        <Tooltip content="Link this entry to a goal">
+                          <Button
+                            variant="plain"
+                            aria-label="Link to goal"
+                            onClick={() => onLinkToGoal(index)}
+                            isDisabled={disabled || !entry.text}
+                            style={{ color: 'var(--pf-t--global--color--nonstatus--purple--default)' }}
+                          >
+                            <LinkIcon />
+                          </Button>
+                        </Tooltip>
+                      </FlexItem>
+                    )}
+                    <FlexItem>
+                      <ActionsColumn
+                        items={[
+                          {
+                            title: 'Edit',
+                            onClick: () => handleStartEdit(index),
+                            isDisabled: disabled || editingIndex >= 0,
+                          },
+                          {
+                            title: 'Delete',
+                            onClick: () => handleDeleteEntry(index),
+                            isDisabled: disabled || entries.length <= 1,
+                          },
+                        ]}
+                      />
+                    </FlexItem>
+                  </Flex>
                 </Td>
               </Tr>
             );

@@ -1001,3 +1001,5 @@ class ManagerListTeamMembersInput(BaseModel):
         default=None,
         description="Team ID to query. Only admins may override; managers always see their own team.",
     )
+
+

@@ -144,6 +144,79 @@ MIGRATIONS = [
         ],
         "optional": False,
     },
+    # Migration 013: Create goals table for team and individual goal tracking
+    {
+        "id": "013_create_goals",
+        "description": "Create goals table for team and individual goal tracking",
+        "check": lambda inspector: "goals" not in inspector.get_table_names(),
+        "sql": [
+            """CREATE TABLE goals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title VARCHAR(500) NOT NULL,
+                description TEXT,
+                scope VARCHAR(20) NOT NULL,
+                team_id INTEGER NOT NULL REFERENCES teams(id),
+                owner_id INTEGER REFERENCES users(id),
+                horizon VARCHAR(20) NOT NULL DEFAULT 'sprint',
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                patterns JSON,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME
+            )""",
+            "CREATE INDEX idx_goal_team_status ON goals (team_id, status)",
+            "CREATE INDEX idx_goal_owner_status ON goals (owner_id, status)",
+        ],
+        "optional": False,
+    },
+    # Migration 014: Create goal_entry_links table
+    {
+        "id": "014_create_goal_entry_links",
+        "description": "Create goal_entry_links table for linking report entries to goals",
+        "check": lambda inspector: "goal_entry_links" not in inspector.get_table_names(),
+        "sql": [
+            """CREATE TABLE goal_entry_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal_id INTEGER NOT NULL REFERENCES goals(id),
+                report_id INTEGER NOT NULL REFERENCES management_reports(id),
+                entry_index INTEGER NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(goal_id, report_id, entry_index)
+            )""",
+            "CREATE INDEX idx_goal_entry_goal ON goal_entry_links (goal_id)",
+            "CREATE INDEX idx_goal_entry_report ON goal_entry_links (report_id)",
+        ],
+        "optional": False,
+    },
+    # Migration 015: Add due_date column to goals
+    {
+        "id": "015_add_goal_due_date",
+        "description": "Add due_date column to goals table",
+        "check": lambda inspector: "goals" in inspector.get_table_names()
+        and "due_date" not in [c["name"] for c in inspector.get_columns("goals")],
+        "sql": [
+            # TIMESTAMP works on both PostgreSQL and SQLite (SQLite ignores the type name anyway)
+            "ALTER TABLE goals ADD COLUMN due_date TIMESTAMP",
+        ],
+        "optional": False,
+    },
+    # Migration 016: Create goal_notes table
+    {
+        "id": "016_create_goal_notes",
+        "description": "Create goal_notes table for goal comments/notes",
+        "check": lambda inspector: "goal_notes" not in inspector.get_table_names(),
+        "sql": [
+            """CREATE TABLE goal_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+                author_id INTEGER NOT NULL REFERENCES users(id),
+                body TEXT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME
+            )""",
+            "CREATE INDEX idx_goal_notes_goal ON goal_notes (goal_id, created_at)",
+        ],
+        "optional": False,
+    },
     # Migration 12: Drop legacy activity_log and weekly_reports tables
     {
         "id": "012_drop_activity_tables",
@@ -226,15 +299,18 @@ class Database:
 
     def _run_migrations(self) -> None:
         """Run pending database migrations."""
-        inspector = inspect(self._engine)
-        
-        # Check if management_reports table exists before running migrations
-        if "management_reports" not in inspector.get_table_names():
+        # Initial check — bail early if the schema is completely empty
+        initial_inspector = inspect(self._engine)
+        if "management_reports" not in initial_inspector.get_table_names():
             logger.info("management_reports table doesn't exist yet, skipping migrations")
             return
 
         for migration in MIGRATIONS:
             try:
+                # Refresh the inspector before each check so that tables/columns
+                # created by earlier migrations in the same run are visible.
+                inspector = inspect(self._engine)
+                inspector.clear_cache()
                 if migration["check"](inspector):
                     logger.info(f"Running migration: {migration['id']} - {migration['description']}")
                     is_optional = migration.get("optional", False)
