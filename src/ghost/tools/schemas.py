@@ -897,3 +897,107 @@ class GitHubSearchIssuesInput(BaseModel):
         ge=1,
         description="Page number.",
     )
+
+
+# --- Manager Report Input Schemas ---
+
+
+class ManagerGetConsolidatedReportInput(BaseModel):
+    """Input schema for manager_get_consolidated_report tool."""
+
+    report_period: str | None = Field(
+        default=None,
+        description="Report period to retrieve (e.g. 'Week 4, Jan 2026'). Defaults to the current calendar week.",
+    )
+    team_id: int | None = Field(
+        default=None,
+        description="Team ID to query. Only admins may override; managers always see their own team.",
+    )
+
+
+class ManagerGetFilteredReportInput(BaseModel):
+    """Input schema for manager_get_filtered_report tool."""
+
+    field_ids: list[int] | None = Field(
+        default=None,
+        description="List of field IDs to include. If omitted, all fields are included.",
+    )
+    project_ids: list[int] | None = Field(
+        default=None,
+        description="List of project IDs to include within the selected fields. If omitted, all projects are included.",
+    )
+    report_period: str | None = Field(
+        default=None,
+        description="Report period to retrieve. Defaults to the current calendar week.",
+    )
+    team_id: int | None = Field(
+        default=None,
+        description="Team ID to query. Only admins may override; managers always see their own team.",
+    )
+
+
+class ManagerGetTeamProgressInput(BaseModel):
+    """Input schema for manager_get_team_progress tool."""
+
+    week_offset: int = Field(
+        default=0,
+        ge=-52,
+        le=0,
+        description="Week offset relative to the current week (0 = this week, -1 = last week). Range: -52 to 0.",
+    )
+    team_id: int | None = Field(
+        default=None,
+        description="Team ID to query. Only admins may override; managers always see their own team.",
+    )
+
+
+class ManagerGetMemberHistoryInput(BaseModel):
+    """Input schema for manager_get_member_history tool."""
+
+    username: str = Field(
+        ...,
+        description="Email/username of the team member whose report history to retrieve.",
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of reports to return, newest first.",
+    )
+
+
+class ManagerListSnapshotsInput(BaseModel):
+    """Input schema for manager_list_snapshots tool."""
+
+    report_period: str | None = Field(
+        default=None,
+        description="Filter snapshots by report period. If omitted, returns snapshots across all periods.",
+    )
+    team_id: int | None = Field(
+        default=None,
+        description="Team ID to query. Only admins may override; managers always see their own team.",
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of snapshots to return, newest first.",
+    )
+
+
+class ManagerGetSnapshotInput(BaseModel):
+    """Input schema for manager_get_snapshot tool."""
+
+    snapshot_id: int = Field(
+        ...,
+        description="Snapshot ID to retrieve (from manager_list_snapshots).",
+    )
+
+
+class ManagerListTeamMembersInput(BaseModel):
+    """Input schema for manager_list_team_members tool."""
+
+    team_id: int | None = Field(
+        default=None,
+        description="Team ID to query. Only admins may override; managers always see their own team.",
+    )

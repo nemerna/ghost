@@ -22,11 +22,13 @@ from mcp.types import (
 )
 
 from ghost.config import get_management_report_instructions
-from ghost.db import GitHubTokenConfig, PersonalAccessToken, User, get_db, init_db
+from ghost.db import GitHubTokenConfig, PersonalAccessToken, User, UserRole, get_db, init_db
 from ghost.github_client import GitHubClient, GitHubClientError, GitHubTokenManager
+from ghost.manager_prompts import get_manager_prompt, list_manager_prompts
 from ghost.prompts import get_prompt as resolve_prompt
 from ghost.prompts import list_prompts as get_all_prompts
 
+from ghost.tools import manager_reports
 from ghost.tools import reports as report_tools
 from ghost.tools.schemas import (
     DeleteManagementReportInput,
@@ -63,19 +65,29 @@ from ghost.tools.schemas import (
     # Management Reports
     SaveManagementReportInput,
     UpdateManagementReportInput,
+    # Manager Reports
+    ManagerGetConsolidatedReportInput,
+    ManagerGetFilteredReportInput,
+    ManagerGetMemberHistoryInput,
+    ManagerGetSnapshotInput,
+    ManagerGetTeamProgressInput,
+    ManagerListSnapshotsInput,
+    ManagerListTeamMembersInput,
 )
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
-# Create MCP Servers for GitHub and Reports
+# Create MCP Servers for GitHub, Reports, and Manager
 github_mcp_server = Server("github-mcp")
 reports_mcp_server = Server("reports-mcp")
+manager_mcp_server = Server("manager-mcp")
 
 # Context variables for per-request clients (set by auth wrappers before each request)
 _github_token_manager_ctx: ContextVar[GitHubTokenManager | None] = ContextVar("github_token_manager", default=None)
 _username_ctx: ContextVar[str | None] = ContextVar("username", default=None)
+_manager_user_id_ctx: ContextVar[int | None] = ContextVar("manager_user_id", default=None)
 
 
 def create_github_token_manager(
@@ -144,6 +156,14 @@ def get_username() -> str:
     if username is None:
         raise ValueError("Username not configured. Ensure X-Username header is set.")
     return username
+
+
+def get_manager_user_id() -> int:
+    """Get manager user ID from context for the manager endpoint."""
+    user_id = _manager_user_id_ctx.get()
+    if user_id is None:
+        raise ValueError("Manager user ID not set. Ensure a valid manager/admin Bearer token is provided.")
+    return user_id
 
 
 # =============================================================================
@@ -1308,6 +1328,198 @@ When using structured entries, include ticket_key to enable automatic project de
 
 
 # =============================================================================
+# Manager MCP Tools
+# =============================================================================
+
+MANAGER_TOOLS: list[Tool] = [
+    Tool(
+        name="manager_get_consolidated_report",
+        description=(
+            "Get the consolidated team report grouped by Field → Project → Member entries. "
+            "Only includes reports that team members have made visible to their manager. "
+            "Defaults to the current calendar week. Use report_period to query historical periods."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_period": {
+                    "type": "string",
+                    "description": "Report period to retrieve (e.g. 'Week 4, Jan 2026'). Defaults to the current week.",
+                },
+                "team_id": {
+                    "type": "integer",
+                    "description": "Team ID override. Only admins may use this; managers always see their own team.",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="manager_get_filtered_report",
+        description=(
+            "Get a filtered subset of the consolidated team report restricted to specific fields and/or projects. "
+            "Useful for producing stakeholder-specific sub-reports. Uncategorised entries are excluded."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "field_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List of field IDs to include. Omit to include all fields.",
+                },
+                "project_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List of project IDs to include within the selected fields. Omit to include all projects.",
+                },
+                "report_period": {
+                    "type": "string",
+                    "description": "Report period to retrieve. Defaults to the current week.",
+                },
+                "team_id": {
+                    "type": "integer",
+                    "description": "Team ID override. Only admins may use this.",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="manager_get_team_progress",
+        description=(
+            "Get per-member reporting progress for a given week. "
+            "Returns done / in_progress / missing status for each team member plus summary counts. "
+            "Use week_offset=0 for the current week, -1 for last week, etc."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "week_offset": {
+                    "type": "integer",
+                    "description": "Week offset relative to the current week (0 = this week, -1 = last week). Range: -52 to 0.",
+                    "default": 0,
+                    "minimum": -52,
+                    "maximum": 0,
+                },
+                "team_id": {
+                    "type": "integer",
+                    "description": "Team ID override. Only admins may use this.",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="manager_get_member_history",
+        description=(
+            "Get the report history for a specific team member (visible reports only). "
+            "Returns reports newest first. Useful for reviewing a member's contributions over time."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "username": {
+                    "type": "string",
+                    "description": "Email/username of the team member whose history to retrieve.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of reports to return (1-100). Default: 20.",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+            },
+            "required": ["username"],
+        },
+    ),
+    Tool(
+        name="manager_list_snapshots",
+        description=(
+            "List consolidated report snapshots for the team. "
+            "Snapshots are auto-saved on first view of a period and can also be manually saved. "
+            "Returns metadata (no full content); use manager_get_snapshot for full content."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "report_period": {
+                    "type": "string",
+                    "description": "Filter snapshots by report period. Omit to list all periods.",
+                },
+                "team_id": {
+                    "type": "integer",
+                    "description": "Team ID override. Only admins may use this.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of snapshots to return (1-100). Default: 20.",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="manager_get_snapshot",
+        description=(
+            "Get the full content of a specific consolidated report snapshot. "
+            "Use manager_list_snapshots first to find the snapshot ID."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "snapshot_id": {
+                    "type": "integer",
+                    "description": "Snapshot ID to retrieve (from manager_list_snapshots).",
+                },
+            },
+            "required": ["snapshot_id"],
+        },
+    ),
+    Tool(
+        name="manager_list_team_members",
+        description=(
+            "List all members of the managed team with their role and latest report date. "
+            "Useful for identifying team members before querying their history."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_id": {
+                    "type": "integer",
+                    "description": "Team ID override. Only admins may use this.",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="manager_list_all_teams",
+        description=(
+            "List teams available to the caller. "
+            "Managers see only their own managed team; admins see all teams. "
+            "Always call this first inside a prompt workflow to discover which team(s) are available "
+            "before asking the user to choose."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    Tool(
+        name="manager_list_report_fields",
+        description=(
+            "List all report fields and their projects with the configured project taxonomy. "
+            "Use this to discover field/project IDs for manager_get_filtered_report."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+]
+
+
+# =============================================================================
 # GitHub MCP Server Handlers
 # =============================================================================
 
@@ -1417,6 +1629,47 @@ async def list_reports_prompts() -> list[Prompt]:
 async def get_reports_prompt(name: str, arguments: dict[str, str] | None = None) -> GetPromptResult:
     """Return the content for a specific workflow prompt."""
     return resolve_prompt(name, arguments)
+
+
+# =============================================================================
+# Manager MCP Server Handlers
+# =============================================================================
+
+
+@manager_mcp_server.list_tools()
+async def list_manager_tools() -> list[Tool]:
+    """List available Manager MCP tools."""
+    return MANAGER_TOOLS
+
+
+@manager_mcp_server.call_tool()
+async def call_manager_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle Manager tool calls from MCP clients."""
+    try:
+        manager_user_id = get_manager_user_id()
+        result = await _execute_manager_tool(name, arguments, manager_user_id)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except Exception as e:
+        logger.exception(f"Error executing Manager tool {name}")
+        error_response = {
+            "error": True,
+            "message": str(e),
+        }
+        return [TextContent(type="text", text=json.dumps(error_response, indent=2))]
+
+
+@manager_mcp_server.list_prompts()
+async def list_manager_prompts_handler() -> list[Prompt]:
+    """List available manager workflow prompts."""
+    return list_manager_prompts()
+
+
+@manager_mcp_server.get_prompt()
+async def get_manager_prompt_handler(
+    name: str, arguments: dict[str, str] | None = None
+) -> GetPromptResult:
+    """Return the content for a specific manager workflow prompt."""
+    return get_manager_prompt(name, arguments)
 
 
 # =============================================================================
@@ -1837,6 +2090,78 @@ async def _execute_reports_tool(
         raise ValueError(f"Unknown Reports tool: {name}")
 
 
+async def _execute_manager_tool(
+    name: str, arguments: dict[str, Any], manager_user_id: int
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Execute a Manager tool and return the result."""
+
+    if name == "manager_get_consolidated_report":
+        input_data = ManagerGetConsolidatedReportInput(**arguments)
+        return manager_reports.get_consolidated_report(
+            manager_user_id=manager_user_id,
+            report_period=input_data.report_period,
+            team_id_override=input_data.team_id,
+        )
+
+    elif name == "manager_get_filtered_report":
+        input_data = ManagerGetFilteredReportInput(**arguments)
+        return manager_reports.get_filtered_report(
+            manager_user_id=manager_user_id,
+            field_ids=input_data.field_ids,
+            project_ids=input_data.project_ids,
+            report_period=input_data.report_period,
+            team_id_override=input_data.team_id,
+        )
+
+    elif name == "manager_get_team_progress":
+        input_data = ManagerGetTeamProgressInput(**arguments)
+        return manager_reports.get_team_progress(
+            manager_user_id=manager_user_id,
+            week_offset=input_data.week_offset,
+            team_id_override=input_data.team_id,
+        )
+
+    elif name == "manager_get_member_history":
+        input_data = ManagerGetMemberHistoryInput(**arguments)
+        return manager_reports.get_member_history(
+            manager_user_id=manager_user_id,
+            username=input_data.username,
+            limit=input_data.limit,
+        )
+
+    elif name == "manager_list_snapshots":
+        input_data = ManagerListSnapshotsInput(**arguments)
+        return manager_reports.list_snapshots(
+            manager_user_id=manager_user_id,
+            report_period=input_data.report_period,
+            team_id_override=input_data.team_id,
+            limit=input_data.limit,
+        )
+
+    elif name == "manager_get_snapshot":
+        input_data = ManagerGetSnapshotInput(**arguments)
+        return manager_reports.get_snapshot(
+            manager_user_id=manager_user_id,
+            snapshot_id=input_data.snapshot_id,
+        )
+
+    elif name == "manager_list_team_members":
+        input_data = ManagerListTeamMembersInput(**arguments)
+        return manager_reports.list_team_members(
+            manager_user_id=manager_user_id,
+            team_id_override=input_data.team_id,
+        )
+
+    elif name == "manager_list_all_teams":
+        return manager_reports.list_all_teams(manager_user_id=manager_user_id)
+
+    elif name == "manager_list_report_fields":
+        return report_tools.list_report_fields()
+
+    else:
+        raise ValueError(f"Unknown Manager tool: {name}")
+
+
 # =============================================================================
 # Streamable HTTP Transport
 # =============================================================================
@@ -1855,12 +2180,14 @@ async def run_streamable_http(host: str, port: int) -> None:
 
     logger.info(f"Starting MCP server with Streamable HTTP transport on {host}:{port}")
     logger.info(
-        "Endpoints: /mcp/github (GitHub tools), /mcp/reports (Management Reports & Project Detection)"
+        "Endpoints: /mcp/github (GitHub tools), /mcp/reports (Management Reports), "
+        "/mcp/manager (Manager Reports — manager/admin only)"
     )
 
     # Stateless session managers — each request is independent with its own context
     github_session_mgr = StreamableHTTPSessionManager(app=github_mcp_server, stateless=True)
     reports_session_mgr = StreamableHTTPSessionManager(app=reports_mcp_server, stateless=True)
+    manager_session_mgr = StreamableHTTPSessionManager(app=manager_mcp_server, stateless=True)
 
     async def health_check(request: Request) -> JSONResponse:
         """Health check endpoint."""
@@ -1871,6 +2198,7 @@ async def run_streamable_http(host: str, port: int) -> None:
                 "endpoints": {
                     "github": "/mcp/github",
                     "reports": "/mcp/reports",
+                    "manager": "/mcp/manager",
                 },
             }
         )
@@ -1944,6 +2272,23 @@ async def run_streamable_http(host: str, port: int) -> None:
         await send({
             "type": "http.response.start",
             "status": 401,
+            "headers": [
+                [b"content-type", b"application/json"],
+                [b"content-length", str(len(body)).encode("utf-8")],
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": body,
+        })
+
+    async def send_forbidden(send: Send, detail: str = "Forbidden") -> None:
+        """Send a 403 Forbidden HTTP response via ASGI."""
+        import json as _json
+        body = _json.dumps({"error": detail}).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": 403,
             "headers": [
                 [b"content-type", b"application/json"],
                 [b"content-length", str(len(body)).encode("utf-8")],
@@ -2053,6 +2398,44 @@ async def run_streamable_http(host: str, port: int) -> None:
 
         await reports_session_mgr.handle_request(scope, receive, send)
 
+    async def manager_handler(scope: Scope, receive: Receive, send: Send) -> None:
+        """Authenticate and authorise Manager MCP requests.
+
+        Requires a valid Bearer PAT that resolves to a user with MANAGER or ADMIN role.
+        The connection is rejected with 403 before the MCP handshake if the role check fails.
+        """
+        headers = extract_headers(scope)
+
+        user_email = authenticate_via_pat(headers)
+        if not user_email:
+            logger.warning("Manager request rejected: no valid authentication")
+            await send_unauthorized(
+                send, "Authentication required. Provide a valid Bearer PAT."
+            )
+            return
+
+        try:
+            db = get_db()
+            with db.session() as session:
+                user = session.query(User).filter(User.email == user_email).first()
+                if not user or user.role not in (UserRole.MANAGER, UserRole.ADMIN):
+                    logger.warning(
+                        f"Manager request rejected: insufficient role for user={user_email} "
+                        f"(role={user.role if user else 'not found'})"
+                    )
+                    await send_forbidden(
+                        send, "Manager or admin role required to access this endpoint."
+                    )
+                    return
+                _manager_user_id_ctx.set(user.id)
+                logger.debug(f"Manager request: user={user_email} role={user.role}")
+        except Exception as e:
+            logger.error(f"Manager auth error: {e}")
+            await send_unauthorized(send, "Authentication error. Please try again.")
+            return
+
+        await manager_session_mgr.handle_request(scope, receive, send)
+
     # ── Lifespan: start/stop all session managers ──────────────────────────
 
     @asynccontextmanager
@@ -2060,6 +2443,7 @@ async def run_streamable_http(host: str, port: int) -> None:
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(github_session_mgr.run())
             await stack.enter_async_context(reports_session_mgr.run())
+            await stack.enter_async_context(manager_session_mgr.run())
             logger.info("All Streamable HTTP session managers started")
             yield
         logger.info("All Streamable HTTP session managers stopped")
@@ -2067,7 +2451,7 @@ async def run_streamable_http(host: str, port: int) -> None:
     # ── Starlette app ─────────────────────────────────────────────────────
     # Each Mount delegates to an auth wrapper → session manager pipeline.
     # Clients POST (and optionally GET/DELETE) directly to the mount path.
-    _mcp_mount_paths = frozenset({"/mcp/github", "/mcp/reports"})
+    _mcp_mount_paths = frozenset({"/mcp/github", "/mcp/reports", "/mcp/manager"})
 
     starlette_app = Starlette(
         debug=False,
@@ -2076,6 +2460,7 @@ async def run_streamable_http(host: str, port: int) -> None:
             Route("/mcp/health", endpoint=health_check, methods=["GET"]),
             Mount("/mcp/github", app=github_handler),
             Mount("/mcp/reports", app=reports_handler),
+            Mount("/mcp/manager", app=manager_handler),
         ],
         lifespan=lifespan,
     )
