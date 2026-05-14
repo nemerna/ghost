@@ -54,7 +54,7 @@ export async function deleteManagementReport(reportId: number): Promise<void> {
   await apiClient.delete(`/reports/management/${reportId}`);
 }
 
-export async function updateManagementReportVisibility(reportId: number, visibleToManager: boolean | null): Promise<ManagementReport> {
+export async function updateManagementReportVisibility(reportId: number, visibleToManager: boolean): Promise<ManagementReport> {
   const response = await apiClient.patch<ManagementReport>(`/reports/management/${reportId}/visibility`, {
     visible_to_manager: visibleToManager,
   });

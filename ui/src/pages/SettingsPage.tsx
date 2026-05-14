@@ -498,8 +498,8 @@ export function SettingsPage() {
           <CardBody>
             <Content style={{ marginBottom: '1rem' }}>
               <p>
-                Control what data your manager can see. These are your default settings.
-                You can also override visibility for individual items.
+                Control the default visibility for new reports.
+                You can change visibility for individual reports on the Reports page.
               </p>
             </Content>
             <Form>

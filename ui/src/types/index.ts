@@ -38,7 +38,7 @@ export interface VisibilitySettingsResponse {
 }
 
 export interface VisibilityUpdateRequest {
-  visible_to_manager: boolean | null;
+  visible_to_manager: boolean;
 }
 
 // =============================================================================

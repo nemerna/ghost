@@ -368,7 +368,7 @@ export function ManagementReportsPage() {
 
   // Update visibility mutation
   const visibilityMutation = useMutation({
-    mutationFn: ({ id, visible }: { id: number; visible: boolean | null }) =>
+    mutationFn: ({ id, visible }: { id: number; visible: boolean }) =>
       updateManagementReportVisibility(id, visible),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['managementReports'] });
@@ -1052,15 +1052,8 @@ export function ManagementReportsPage() {
   };
 
   const handleToggleVisibility = (report: ManagementReport) => {
-    let newValue: boolean | null;
-    if (report.visible_to_manager === null) {
-      newValue = true;
-    } else if (report.visible_to_manager === true) {
-      newValue = false;
-    } else {
-      newValue = null;
-    }
-    visibilityMutation.mutate({ id: report.id, visible: newValue });
+    const isCurrentlyVisible = report.visible_to_manager === true;
+    visibilityMutation.mutate({ id: report.id, visible: !isCurrentlyVisible });
   };
 
   const getVisibilityInfo = (report: ManagementReport) => {
@@ -1072,21 +1065,13 @@ export function ManagementReportsPage() {
         color: '#3e8635',
         labelColor: 'green' as const,
       };
-    } else if (report.visible_to_manager === false) {
+    } else {
       return {
         icon: <EyeSlashIcon />,
         label: 'Hidden from Manager',
-        tooltip: 'This report is hidden from your manager. Click to reset to default.',
+        tooltip: 'This report is hidden from your manager. Click to make it visible.',
         color: '#c9190b',
         labelColor: 'red' as const,
-      };
-    } else {
-      return {
-        icon: <EyeIcon />,
-        label: 'Default Visibility',
-        tooltip: 'Using default visibility rules. Click to explicitly share with manager.',
-        color: '#6a6e73',
-        labelColor: 'grey' as const,
       };
     }
   };
