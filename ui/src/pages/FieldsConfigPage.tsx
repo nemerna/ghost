@@ -49,6 +49,7 @@ import {
   deleteProject,
   redetectActivities,
 } from '@/api/fields';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import type {
   FieldCreateRequest,
   JiraComponentConfig,
@@ -68,6 +69,10 @@ export function FieldsConfigPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<number | null>(null);
   const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
   
+  // Delete confirm state
+  const [deletingField, setDeletingField] = useState<ReportField | null>(null);
+  const [deletingProject, setDeletingProject] = useState<ReportProject | null>(null);
+
   // Redetect state
   const [redetectResult, setRedetectResult] = useState<string | null>(null);
 
@@ -111,6 +116,7 @@ export function FieldsConfigPage() {
     mutationFn: deleteField,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fields'] });
+      setDeletingField(null);
     },
   });
 
@@ -136,6 +142,7 @@ export function FieldsConfigPage() {
     mutationFn: deleteProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fields'] });
+      setDeletingProject(null);
     },
   });
 
@@ -214,9 +221,7 @@ export function FieldsConfigPage() {
   };
 
   const handleDeleteField = (field: ReportField) => {
-    if (confirm(`Delete field "${field.name}" and all its projects?`)) {
-      deleteFieldMutation.mutate(field.id);
-    }
+    setDeletingField(field);
   };
 
   // Project handlers
@@ -231,13 +236,7 @@ export function FieldsConfigPage() {
   };
 
   const handleDeleteProject = (project: ReportProject) => {
-    const hasChildren = project.children && project.children.length > 0;
-    const message = hasChildren
-      ? `Delete project "${project.name}" and all its ${project.children.length} subproject(s)?`
-      : `Delete project "${project.name}"?`;
-    if (confirm(message)) {
-      deleteProjectMutation.mutate(project.id);
-    }
+    setDeletingProject(project);
   };
 
   // Helper to count total projects in a field (including nested)
@@ -574,6 +573,38 @@ export function FieldsConfigPage() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      <DeleteConfirmModal
+        isOpen={deletingField !== null}
+        onClose={() => setDeletingField(null)}
+        onConfirm={() => {
+          if (deletingField) deleteFieldMutation.mutate(deletingField.id);
+        }}
+        isLoading={deleteFieldMutation.isPending}
+        resourceType="field"
+        resourceName={deletingField?.name ?? ''}
+        warning={
+          deletingField && deletingField.projects.length > 0
+            ? `This will also delete all ${countTotalProjects(deletingField.projects)} project(s) under this field.`
+            : undefined
+        }
+      />
+
+      <DeleteConfirmModal
+        isOpen={deletingProject !== null}
+        onClose={() => setDeletingProject(null)}
+        onConfirm={() => {
+          if (deletingProject) deleteProjectMutation.mutate(deletingProject.id);
+        }}
+        isLoading={deleteProjectMutation.isPending}
+        resourceType="project"
+        resourceName={deletingProject?.name ?? ''}
+        warning={
+          deletingProject?.children && deletingProject.children.length > 0
+            ? `This will also delete all ${deletingProject.children.length} subproject(s).`
+            : undefined
+        }
+      />
 
       {/* Project Modal */}
       <Modal

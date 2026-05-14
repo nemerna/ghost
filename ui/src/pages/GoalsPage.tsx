@@ -69,6 +69,7 @@ import { listTeams } from '@/api/teams';
 import { getTicketActivity } from '@/api/activity';
 import type { Goal, GoalEntryLink, GoalHorizon, GoalNote, GoalScope, GoalStatus, MemberTicketActivity } from '@/types';
 import { InlineMarkdown } from '@/components/StyledMarkdown';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import { NONSTATUS_COLORS } from '@/utils/colors';
 
 // =============================================================================
@@ -469,6 +470,8 @@ function GoalDetailDrawer({ goal, onClose, canEdit, onStatusChange, onGoalUpdate
   });
 
   const [noteText, setNoteText] = useState('');
+  const [deletingNote, setDeletingNote] = useState<GoalNote | null>(null);
+
   const addNoteMutation = useMutation({
     mutationFn: (body: string) => createGoalNote(goal!.id, body),
     onSuccess: () => {
@@ -479,7 +482,10 @@ function GoalDetailDrawer({ goal, onClose, canEdit, onStatusChange, onGoalUpdate
 
   const deleteNoteMutation = useMutation({
     mutationFn: (noteId: number) => deleteGoalNote(goal!.id, noteId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['goalNotes', goal?.id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goalNotes', goal?.id] });
+      setDeletingNote(null);
+    },
   });
 
   // ---- Inline editing ----
@@ -736,7 +742,7 @@ function GoalDetailDrawer({ goal, onClose, canEdit, onStatusChange, onGoalUpdate
                       <Button
                         variant="plain"
                         aria-label="Delete note"
-                        onClick={() => deleteNoteMutation.mutate(note.id)}
+                        onClick={() => setDeletingNote(note)}
                         style={{ color: t_global_text_color_subtle.var }}
                       >
                         <TrashIcon />
@@ -828,6 +834,17 @@ function GoalDetailDrawer({ goal, onClose, canEdit, onStatusChange, onGoalUpdate
           ))
         )}
       </DrawerPanelBody>
+
+      <DeleteConfirmModal
+        isOpen={deletingNote !== null}
+        onClose={() => setDeletingNote(null)}
+        onConfirm={() => {
+          if (deletingNote) deleteNoteMutation.mutate(deletingNote.id);
+        }}
+        isLoading={deleteNoteMutation.isPending}
+        resourceType="note"
+        resourceName={deletingNote?.body.slice(0, 50) ?? ''}
+      />
     </DrawerPanelContent>
   );
 }
@@ -1423,6 +1440,7 @@ export function GoalsPage() {
   const [periodDays, setPeriodDays] = useState(30);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+  const [deletingGoal, setDeletingGoal] = useState<Goal | null>(null);
 
   const { data: goalsData, isLoading } = useQuery({
     queryKey: ['goals'],
@@ -1484,18 +1502,19 @@ export function GoalsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goals'] });
       setSelectedGoal(null);
+      setDeletingGoal(null);
       setUpdateSuccess('Goal deleted.');
       setTimeout(() => setUpdateSuccess(null), 3000);
     },
     onError: (err: Error) => {
+      setDeletingGoal(null);
       setUpdateError(`Failed to delete goal: ${err.message}`);
       setTimeout(() => setUpdateError(null), 5000);
     },
   });
 
   const handleDelete = (goal: Goal) => {
-    if (!window.confirm(`Permanently delete "${goal.title}"? This will also remove all linked entries and notes.`)) return;
-    deleteMutation.mutate(goal.id);
+    setDeletingGoal(goal);
   };
 
   const handleStatusChange = (goal: Goal, newStatus: GoalStatus) => {
@@ -1731,6 +1750,18 @@ export function GoalsPage() {
         defaultScope={createScope}
         defaultTeamId={defaultTeamId}
         canChooseScope={canChooseScope}
+      />
+
+      <DeleteConfirmModal
+        isOpen={deletingGoal !== null}
+        onClose={() => setDeletingGoal(null)}
+        onConfirm={() => {
+          if (deletingGoal) deleteMutation.mutate(deletingGoal.id);
+        }}
+        isLoading={deleteMutation.isPending}
+        resourceType="goal"
+        resourceName={deletingGoal?.title ?? ''}
+        warning="This will also remove all linked entries and notes."
       />
     </>
   );

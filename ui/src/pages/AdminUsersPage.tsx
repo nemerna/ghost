@@ -323,8 +323,8 @@ export function AdminUsersPage() {
           }
         }}
         isLoading={deleteMutation.isPending}
-        title="Delete user?"
-        message={`Are you sure you want to delete user ${deletingUser?.email}? This action cannot be undone.`}
+        resourceType="user"
+        resourceName={deletingUser?.email ?? ''}
       />
     </>
   );

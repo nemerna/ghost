@@ -43,6 +43,7 @@ import {
   updateGitHubTokenConfig,
   deleteGitHubTokenConfig,
 } from '@/api/github-tokens';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import type { VisibilitySettings, PersonalAccessTokenCreateResponse, GitHubTokenConfig } from '@/types';
 
 export function SettingsPage() {
@@ -682,30 +683,16 @@ export function SettingsPage() {
         </ModalFooter>
       </Modal>
 
-      {/* Revoke Token Confirmation Modal */}
-      <Modal
+      <DeleteConfirmModal
         isOpen={!!tokenToRevoke}
         onClose={() => setTokenToRevoke(null)}
-        variant="small"
-      >
-        <ModalHeader title="Revoke Token" />
-        <ModalBody>
-          Are you sure you want to revoke the token <strong>{tokenToRevoke?.name}</strong>?
-          Any MCP clients using this token will no longer be able to authenticate.
-        </ModalBody>
-        <ModalFooter>
-          <Button
-            variant="danger"
-            onClick={() => tokenToRevoke && revokeTokenMutation.mutate(tokenToRevoke.id)}
-            isLoading={revokeTokenMutation.isPending}
-          >
-            Revoke
-          </Button>
-          <Button variant="link" onClick={() => setTokenToRevoke(null)}>
-            Cancel
-          </Button>
-        </ModalFooter>
-      </Modal>
+        onConfirm={() => tokenToRevoke && revokeTokenMutation.mutate(tokenToRevoke.id)}
+        isLoading={revokeTokenMutation.isPending}
+        resourceType="token"
+        resourceName={tokenToRevoke?.name ?? ''}
+        confirmLabel="Revoke"
+        warning="Any MCP clients using this token will no longer be able to authenticate."
+      />
 
       {/* Create GitHub Token Config Modal */}
       <Modal
@@ -839,30 +826,15 @@ export function SettingsPage() {
         </ModalFooter>
       </Modal>
 
-      {/* Delete GitHub Token Config Confirmation Modal */}
-      <Modal
+      <DeleteConfirmModal
         isOpen={!!ghConfigToDelete}
         onClose={() => setGhConfigToDelete(null)}
-        variant="small"
-      >
-        <ModalHeader title="Delete Token Configuration" />
-        <ModalBody>
-          Are you sure you want to delete the GitHub token configuration <strong>{ghConfigToDelete?.name}</strong>?
-          You will need to update your MCP client headers if you remove this.
-        </ModalBody>
-        <ModalFooter>
-          <Button
-            variant="danger"
-            onClick={() => ghConfigToDelete && deleteGHConfigMutation.mutate(ghConfigToDelete.id)}
-            isLoading={deleteGHConfigMutation.isPending}
-          >
-            Delete
-          </Button>
-          <Button variant="link" onClick={() => setGhConfigToDelete(null)}>
-            Cancel
-          </Button>
-        </ModalFooter>
-      </Modal>
+        onConfirm={() => ghConfigToDelete && deleteGHConfigMutation.mutate(ghConfigToDelete.id)}
+        isLoading={deleteGHConfigMutation.isPending}
+        resourceType="token configuration"
+        resourceName={ghConfigToDelete?.name ?? ''}
+        warning="You will need to update your MCP client headers if you remove this."
+      />
     </>
   );
 }
