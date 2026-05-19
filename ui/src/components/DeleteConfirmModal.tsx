@@ -1,38 +1,52 @@
-import { Button, Modal, ModalBody, ModalFooter, ModalHeader } from '@patternfly/react-core';
+import { useState, useEffect } from 'react';
+import {
+  Button,
+  Content,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  TextInput,
+} from '@patternfly/react-core';
 
 interface DeleteConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
   isLoading?: boolean;
-  /** Number of items being deleted — drives singular/plural title and message. Default: 1 */
-  itemCount?: number;
-  /** Override the generated body message entirely */
-  message?: string;
-  /** Override the generated title entirely */
-  title?: string;
+  /** The resource type label, e.g. "user", "team", "goal". Used in the title and body. */
+  resourceType: string;
+  /** The resource name the user must type to confirm deletion. */
+  resourceName: string;
+  /** Extra warning text shown below the main message. */
+  warning?: string;
+  /** Override the delete button label (default: "Delete"). */
+  confirmLabel?: string;
 }
 
 /**
- * Reusable danger confirmation modal following the PF6 warning modal pattern.
- * Use for any destructive delete action — single row, bulk, or cross-page.
+ * OpenShift-style destructive confirmation modal.
+ *
+ * Shows a danger dialog that asks the user to type the resource name before
+ * the delete button becomes enabled — preventing accidental deletions.
  */
 export function DeleteConfirmModal({
   isOpen,
   onClose,
   onConfirm,
   isLoading = false,
-  itemCount = 1,
-  message,
-  title,
+  resourceType,
+  resourceName,
+  warning,
+  confirmLabel = 'Delete',
 }: DeleteConfirmModalProps) {
-  const defaultTitle =
-    itemCount === 1 ? 'Delete item?' : `Delete ${itemCount} items?`;
+  const [confirmInput, setConfirmInput] = useState('');
 
-  const defaultMessage =
-    itemCount === 1
-      ? 'Are you sure you want to delete this item? This action cannot be undone.'
-      : `Are you sure you want to delete these ${itemCount} items? This action cannot be undone.`;
+  useEffect(() => {
+    if (!isOpen) setConfirmInput('');
+  }, [isOpen]);
+
+  const canConfirm = confirmInput === resourceName;
 
   return (
     <Modal
@@ -43,14 +57,42 @@ export function DeleteConfirmModal({
       variant="small"
     >
       <ModalHeader
-        title={title ?? defaultTitle}
+        title={`Delete ${resourceType}?`}
         labelId="delete-confirm-modal-title"
         titleIconVariant="danger"
       />
-      <ModalBody id="delete-confirm-modal-body">{message ?? defaultMessage}</ModalBody>
+      <ModalBody id="delete-confirm-modal-body">
+        <Content component="p" style={{ marginBottom: '1rem' }}>
+          This action cannot be undone. All data associated with the {resourceType}{' '}
+          <strong>{resourceName}</strong> will be permanently deleted.
+        </Content>
+        {warning && (
+          <Content component="p" style={{ marginBottom: '1rem', color: 'var(--pf-t--global--text--color--status--danger--default)' }}>
+            {warning}
+          </Content>
+        )}
+        <Content component="p" style={{ marginBottom: '0.5rem' }}>
+          Confirm deletion by typing <strong>{resourceName}</strong> below:
+        </Content>
+        <TextInput
+          value={confirmInput}
+          onChange={(_e, value) => setConfirmInput(value)}
+          aria-label={`Type "${resourceName}" to confirm`}
+          placeholder={resourceName}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canConfirm && !isLoading) onConfirm();
+          }}
+        />
+      </ModalBody>
       <ModalFooter>
-        <Button variant="danger" isLoading={isLoading} onClick={onConfirm}>
-          Delete
+        <Button
+          variant="danger"
+          isLoading={isLoading}
+          isDisabled={!canConfirm || isLoading}
+          onClick={onConfirm}
+        >
+          {confirmLabel}
         </Button>
         <Button variant="link" onClick={onClose}>
           Cancel

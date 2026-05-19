@@ -46,6 +46,7 @@ import {
   deleteEmailTemplate,
 } from '@/api/users';
 import { listFields } from '@/api/fields';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import type {
   EmailDistributionTemplate,
   EmailTemplateCreateRequest,
@@ -65,6 +66,7 @@ export function EmailTemplatesModal({ isOpen, onClose }: EmailTemplatesModalProp
   const [mode, setMode] = useState<EditMode>('list');
   const [selectedTemplate, setSelectedTemplate] = useState<EmailDistributionTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deletingTemplate, setDeletingTemplate] = useState<EmailDistributionTemplate | null>(null);
   
   // Form state
   const [name, setName] = useState('');
@@ -139,9 +141,11 @@ export function EmailTemplatesModal({ isOpen, onClose }: EmailTemplatesModalProp
     mutationFn: deleteEmailTemplate,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailTemplates'] });
+      setDeletingTemplate(null);
     },
     onError: (err: Error) => {
       setError(err.message);
+      setDeletingTemplate(null);
     },
   });
   
@@ -213,11 +217,8 @@ export function EmailTemplatesModal({ isOpen, onClose }: EmailTemplatesModalProp
     }
   };
   
-  // Handle delete
   const handleDelete = (template: EmailDistributionTemplate) => {
-    if (confirm(`Are you sure you want to delete "${template.name}"?`)) {
-      deleteMutation.mutate(template.id);
-    }
+    setDeletingTemplate(template);
   };
   
   // Handle field selection
@@ -502,24 +503,37 @@ export function EmailTemplatesModal({ isOpen, onClose }: EmailTemplatesModalProp
   );
   
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      aria-labelledby="email-templates-modal"
-      variant="medium"
-    >
-      <ModalHeader
-        title={
-          mode === 'list'
-            ? 'Email Distribution Templates'
-            : mode === 'create'
-              ? 'Create Email Template'
-              : 'Edit Email Template'
-        }
-        labelId="email-templates-modal"
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        aria-labelledby="email-templates-modal"
+        variant="medium"
+      >
+        <ModalHeader
+          title={
+            mode === 'list'
+              ? 'Email Distribution Templates'
+              : mode === 'create'
+                ? 'Create Email Template'
+                : 'Edit Email Template'
+          }
+          labelId="email-templates-modal"
+        />
+        {mode === 'list' ? renderList() : renderForm()}
+      </Modal>
+
+      <DeleteConfirmModal
+        isOpen={deletingTemplate !== null}
+        onClose={() => setDeletingTemplate(null)}
+        onConfirm={() => {
+          if (deletingTemplate) deleteMutation.mutate(deletingTemplate.id);
+        }}
+        isLoading={deleteMutation.isPending}
+        resourceType="email template"
+        resourceName={deletingTemplate?.name ?? ''}
       />
-      {mode === 'list' ? renderList() : renderForm()}
-    </Modal>
+    </>
   );
 }
 

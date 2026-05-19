@@ -99,6 +99,7 @@ import { StyledMarkdown } from '@/components/StyledMarkdown';
 import { ReportEntryEditor, reportEntriesToInputs } from '@/components/ReportEntryEditor';
 import { ProjectEntryEditor, type ProjectEntry } from '@/components/ProjectEntryEditor';
 import { EmailTemplatesModal } from '@/components/EmailTemplatesModal';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import type {
   Goal,
   ManagementReportCreateRequest,
@@ -206,6 +207,11 @@ export function ManagementReportsPage() {
   // Currently editing draft ID (null if new draft from live data)
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
 
+  // Delete confirmation state
+  const [deletingDraft, setDeletingDraft] = useState<{ id: number; title: string } | null>(null);
+  const [deletingSnapshot, setDeletingSnapshot] = useState<{ id: number; label: string } | null>(null);
+  const [deletingReport, setDeletingReport] = useState<{ id: number; title: string } | null>(null);
+
   // ==========================================================================
   // Data Fetching
   // ==========================================================================
@@ -289,6 +295,7 @@ export function ManagementReportsPage() {
     mutationFn: (snapshotId: number) => deleteConsolidatedSnapshot(selectedTeamId!, snapshotId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consolidatedSnapshots', selectedTeamId] });
+      setDeletingSnapshot(null);
     },
   });
 
@@ -322,6 +329,7 @@ export function ManagementReportsPage() {
     mutationFn: (draftId: number) => deleteConsolidatedDraft(selectedTeamId!, draftId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consolidatedDrafts', selectedTeamId] });
+      setDeletingDraft(null);
     },
   });
 
@@ -354,6 +362,7 @@ export function ManagementReportsPage() {
     mutationFn: deleteManagementReport,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['managementReports'] });
+      setDeletingReport(null);
     },
   });
 
@@ -592,25 +601,37 @@ export function ManagementReportsPage() {
   };
 
   // Delete draft
-  const handleDeleteDraft = (draftId: number) => {
-    if (confirm('Are you sure you want to delete this draft?')) {
-      deleteDraftMutation.mutate(draftId);
-      // If we're viewing this draft, go back to table
-      if (selectedReportId === `draft-${draftId}`) {
-        handleBack();
-      }
+  const handleDeleteDraft = (draft: ConsolidatedDraft) => {
+    setDeletingDraft({ id: draft.id, title: draft.title });
+  };
+
+  const confirmDeleteDraft = () => {
+    if (!deletingDraft) return;
+    if (selectedReportId === `draft-${deletingDraft.id}`) {
+      setSelectedReportId(null);
+      setViewMode('review');
+      setEditedDraftContent(null);
+      setHasDraftChanges(false);
+      setEditingDraftId(null);
     }
+    deleteDraftMutation.mutate(deletingDraft.id);
   };
 
   // Delete snapshot
-  const handleDeleteSnapshot = (snapshotId: number) => {
-    if (confirm('Are you sure you want to delete this snapshot?')) {
-      deleteSnapshotMutation.mutate(snapshotId);
-      // If we're viewing this snapshot, go back to table
-      if (selectedReportId === `snapshot-${snapshotId}`) {
-        handleBack();
-      }
+  const handleDeleteSnapshot = (snapshot: ConsolidatedReportSnapshot) => {
+    setDeletingSnapshot({ id: snapshot.id, label: snapshot.label || `Snapshot #${snapshot.id}` });
+  };
+
+  const confirmDeleteSnapshot = () => {
+    if (!deletingSnapshot) return;
+    if (selectedReportId === `snapshot-${deletingSnapshot.id}`) {
+      setSelectedReportId(null);
+      setViewMode('review');
+      setEditedDraftContent(null);
+      setHasDraftChanges(false);
+      setEditingDraftId(null);
     }
+    deleteSnapshotMutation.mutate(deletingSnapshot.id);
   };
 
   // Convert consolidated data to draft content format (supports hierarchical projects)
@@ -1086,10 +1107,8 @@ export function ManagementReportsPage() {
     });
   };
 
-  const handleDelete = (reportId: number) => {
-    if (confirm('Are you sure you want to delete this report?')) {
-      deleteMutation.mutate(reportId);
-    }
+  const handleDelete = (report: ManagementReport) => {
+    setDeletingReport({ id: report.id, title: report.title || `Report #${report.id}` });
   };
 
   // ==========================================================================
@@ -1362,7 +1381,7 @@ export function ManagementReportsPage() {
                             variant="plain"
                             isDanger
                             size="sm"
-                            onClick={() => handleDeleteDraft((row.data as ConsolidatedDraft).id)}
+                            onClick={() => handleDeleteDraft(row.data as ConsolidatedDraft)}
                             isLoading={deleteDraftMutation.isPending}
                           >
                             <TrashIcon />
@@ -1377,7 +1396,7 @@ export function ManagementReportsPage() {
                             variant="plain"
                             isDanger
                             size="sm"
-                            onClick={() => handleDeleteSnapshot((row.data as ConsolidatedReportSnapshot).id)}
+                            onClick={() => handleDeleteSnapshot(row.data as ConsolidatedReportSnapshot)}
                             isLoading={deleteSnapshotMutation.isPending}
                           >
                             <TrashIcon />
@@ -1786,7 +1805,7 @@ export function ManagementReportsPage() {
                     variant="link"
                     isDanger
                     isInline
-                    onClick={() => handleDelete(report.id)}
+                    onClick={() => handleDelete(report)}
                   >
                     Delete
                   </Button>
@@ -2066,6 +2085,35 @@ export function ManagementReportsPage() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      <DeleteConfirmModal
+        isOpen={deletingDraft !== null}
+        onClose={() => setDeletingDraft(null)}
+        onConfirm={confirmDeleteDraft}
+        isLoading={deleteDraftMutation.isPending}
+        resourceType="draft"
+        resourceName={deletingDraft?.title ?? ''}
+      />
+
+      <DeleteConfirmModal
+        isOpen={deletingSnapshot !== null}
+        onClose={() => setDeletingSnapshot(null)}
+        onConfirm={confirmDeleteSnapshot}
+        isLoading={deleteSnapshotMutation.isPending}
+        resourceType="snapshot"
+        resourceName={deletingSnapshot?.label ?? ''}
+      />
+
+      <DeleteConfirmModal
+        isOpen={deletingReport !== null}
+        onClose={() => setDeletingReport(null)}
+        onConfirm={() => {
+          if (deletingReport) deleteMutation.mutate(deletingReport.id);
+        }}
+        isLoading={deleteMutation.isPending}
+        resourceType="report"
+        resourceName={deletingReport?.title ?? ''}
+      />
     </>
   );
 }

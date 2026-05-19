@@ -31,6 +31,7 @@ import {
 import { PlusIcon, TrashIcon, UserPlusIcon } from '@patternfly/react-icons';
 import { listTeams, createTeam, deleteTeam, getTeam, addTeamMember, removeTeamMember } from '@/api/teams';
 import { listUsers } from '@/api/users';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 
 export function AdminTeamsPage() {
   const queryClient = useQueryClient();
@@ -41,6 +42,8 @@ export function AdminTeamsPage() {
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [newTeam, setNewTeam] = useState({ name: '', description: '', manager_id: '' });
   const [newMemberId, setNewMemberId] = useState('');
+  const [deletingTeam, setDeletingTeam] = useState<{ id: number; name: string } | null>(null);
+  const [removingMember, setRemovingMember] = useState<{ id: number; name: string } | null>(null);
 
   // Fetch teams
   const { data: teamsData, isLoading } = useQuery({
@@ -76,6 +79,7 @@ export function AdminTeamsPage() {
     mutationFn: deleteTeam,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
+      setDeletingTeam(null);
     },
   });
 
@@ -98,6 +102,7 @@ export function AdminTeamsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team', selectedTeamId] });
       queryClient.invalidateQueries({ queryKey: ['teams'] });
+      setRemovingMember(null);
     },
   });
 
@@ -112,9 +117,7 @@ export function AdminTeamsPage() {
   };
 
   const handleDeleteTeam = (teamId: number, teamName: string) => {
-    if (confirm(`Are you sure you want to delete team "${teamName}"?`)) {
-      deleteMutation.mutate(teamId);
-    }
+    setDeletingTeam({ id: teamId, name: teamName });
   };
 
   const handleAddMember = () => {
@@ -126,10 +129,8 @@ export function AdminTeamsPage() {
     }
   };
 
-  const handleRemoveMember = (memberId: number) => {
-    if (selectedTeamId && confirm('Remove this member from the team?')) {
-      removeMemberMutation.mutate({ teamId: selectedTeamId, memberId });
-    }
+  const handleRemoveMember = (member: { id: number; display_name?: string | null; email: string }) => {
+    setRemovingMember({ id: member.id, name: member.display_name || member.email });
   };
 
   return (
@@ -211,7 +212,7 @@ export function AdminTeamsPage() {
                               <Button
                                 variant="link"
                                 isDanger
-                                onClick={() => handleRemoveMember(member.id)}
+                                onClick={() => handleRemoveMember(member)}
                               >
                                 Remove
                               </Button>
@@ -339,6 +340,31 @@ export function AdminTeamsPage() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      <DeleteConfirmModal
+        isOpen={deletingTeam !== null}
+        onClose={() => setDeletingTeam(null)}
+        onConfirm={() => {
+          if (deletingTeam) deleteMutation.mutate(deletingTeam.id);
+        }}
+        isLoading={deleteMutation.isPending}
+        resourceType="team"
+        resourceName={deletingTeam?.name ?? ''}
+      />
+
+      <DeleteConfirmModal
+        isOpen={removingMember !== null}
+        onClose={() => setRemovingMember(null)}
+        onConfirm={() => {
+          if (removingMember && selectedTeamId) {
+            removeMemberMutation.mutate({ teamId: selectedTeamId, memberId: removingMember.id });
+          }
+        }}
+        isLoading={removeMemberMutation.isPending}
+        resourceType="team member"
+        resourceName={removingMember?.name ?? ''}
+        confirmLabel="Remove"
+      />
     </>
   );
 }

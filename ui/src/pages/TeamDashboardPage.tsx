@@ -31,6 +31,7 @@ import {
 import t_global_text_color_subtle from '@patternfly/react-tokens/dist/esm/t_global_text_color_subtle';
 import { listTeams, getTeam, removeTeamMember } from '@/api/teams';
 import { getTeamReportingProgress } from '@/api/reports';
+import { DeleteConfirmModal } from '@/components/DeleteConfirmModal';
 import { NONSTATUS_COLORS, ROLE_COLORS, ROLE_LABELS } from '@/utils/colors';
 
 function hashString(str: string): number {
@@ -53,12 +54,14 @@ export function TeamDashboardPage() {
   const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [openKebabId, setOpenKebabId] = useState<number | null>(null);
+  const [removingMember, setRemovingMember] = useState<{ id: number; name: string } | null>(null);
 
   const removeMemberMutation = useMutation({
     mutationFn: (memberId: number) => removeTeamMember(selectedTeamId!, memberId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team', selectedTeamId] });
       queryClient.invalidateQueries({ queryKey: ['teamReportingProgress', selectedTeamId] });
+      setRemovingMember(null);
     },
   });
 
@@ -285,7 +288,10 @@ export function TeamDashboardPage() {
                                 <DropdownList>
                                   <DropdownItem
                                     key="unassign"
-                                    onClick={() => removeMemberMutation.mutate(member.id)}
+                                    onClick={() => {
+                                      setOpenKebabId(null);
+                                      setRemovingMember({ id: member.id, name: member.display_name || member.email });
+                                    }}
                                     style={{ color: 'var(--pf-t--global--text--color--status--danger--default)' }}
                                   >
                                     Unassign from team
@@ -307,6 +313,18 @@ export function TeamDashboardPage() {
           </>
         )}
       </PageSection>
+
+      <DeleteConfirmModal
+        isOpen={removingMember !== null}
+        onClose={() => setRemovingMember(null)}
+        onConfirm={() => {
+          if (removingMember) removeMemberMutation.mutate(removingMember.id);
+        }}
+        isLoading={removeMemberMutation.isPending}
+        resourceType="team member"
+        resourceName={removingMember?.name ?? ''}
+        confirmLabel="Remove"
+      />
     </>
   );
 }
