@@ -58,7 +58,7 @@ class ManagementReportResponse(BaseModel):
 class VisibilityUpdateRequest(BaseModel):
     """Request model for updating visibility."""
     
-    visible_to_manager: bool | None  # None = inherit from user preferences
+    visible_to_manager: bool
 
 
 class ReportEntryInput(BaseModel):
@@ -702,9 +702,8 @@ async def update_management_report_visibility(
 ):
     """Update visibility of a management report to manager (own reports only).
     
-    - visible_to_manager=true: Always visible to manager
-    - visible_to_manager=false: Always hidden from manager
-    - visible_to_manager=null: Inherit from user's visibility preferences
+    - visible_to_manager=true: Visible to manager
+    - visible_to_manager=false: Hidden from manager
     """
     db = get_db()
     
